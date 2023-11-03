@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-registry-grpc-{{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app: model-registry-grpc-{{.Name}}
+    component: model-registry
+    registry: {{.Name}}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: model-registry-grpc-{{.Name}}
+      component: model-registry
+      registry: {{.Name}}
+  template:
+    metadata:
+      labels:
+        app: model-registry-grpc-{{.Name}}
+        component: model-registry
+        registry: {{.Name}}
+    spec:
+      containers:
+        - args:
+            - --grpc_port={{.Spec.Grpc.Port}}
+            - --metadata_source_config_type=postgresql
+            - --postgres_config_dbname={{.Spec.Postgres.Database}}
+            {{- if .Spec.Postgres.Host}}
+            - --postgres_config_host={{.Spec.Postgres.Host}}
+            {{- end}}
+            {{- if .Spec.Postgres.HostAddress}}
+            - --postgres_config_hostaddr={{.Spec.Postgres.HostAddress}}
+            {{- end}}
+            - --postgres_config_port={{.Spec.Postgres.Port}}
+            - --postgres_config_user={{.Spec.Postgres.Username}}
+            {{- if .Spec.Postgres.PasswordSecret}}
+            - --postgres_config_password=$(POSTGRES_PASSWORD)
+            {{- end}}
+            - --postgres_config_skip_db_creation={{.Spec.Postgres.SkipDBCreation}}
+            - --postgres_config_sslmode={{.Spec.Postgres.SSLMode}}
+            - --enable_database_upgrade=true
+          command:
+            - /bin/metadata_store_server
+          env:
+            {{- if .Spec.Postgres.PasswordSecret}}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.Postgres.PasswordSecret.Key}}"
+                  name: "{{.Spec.Postgres.PasswordSecret.Name}}"
+            {{- end}}
+          image: {{.Spec.Grpc.Image}}
+          name: container
+          ports:
+            - containerPort: {{.Spec.Grpc.Port}}
+              name: grpc-api
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            tcpSocket:
+              port: grpc-api
+            timeoutSeconds: 2
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            tcpSocket:
+              port: grpc-api
+            timeoutSeconds: 2
+          resources:
+            {{- if .Spec.Grpc.Resources.Requests }}
+            requests:
+              cpu: {{.Spec.Grpc.Resources.Requests.Cpu}}
+              memory: {{.Spec.Grpc.Resources.Requests.Memory}}
+            {{- end }}
+            {{- if .Spec.Grpc.Resources.Limits }}
+            limits:
+              cpu: {{.Spec.Grpc.Resources.Limits.Cpu}}
+              memory: {{.Spec.Grpc.Resources.Limits.Memory}}
+            {{- end }}
+      serviceAccountName: model-registry-grpc-{{.Name}}

@@ -7,4 +7,18 @@ layout:
 - go.kubebuilder.io/v4
 projectName: model-registry-operator
 repo: github.com/opendatahub-io/model-registry-operator
+resources:
+- api:
+    crdVersion: v1alpha1
+    namespaced: true
+  controller: true
+  domain: opendatahub.io
+  group: modelregistry
+  kind: ModelRegistry
+  path: github.com/opendatahub-io/model-registry-operator/api/v1alpha1
+  version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"

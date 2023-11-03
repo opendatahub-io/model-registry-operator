@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry-rest-{{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app: model-registry-rest-{{.Name}}
+    component: model-registry
+    registry: {{.Name}}
+spec:
+  ports:
+    - name: rest-api
+      port: {{.Spec.Rest.Port}}
+      protocol: TCP
+  selector:
+    app: model-registry-rest-{{.Name}}
+    component: model-registry
+    registry: {{.Name}}
+  type: ClusterIP

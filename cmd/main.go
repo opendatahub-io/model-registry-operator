@@ -20,6 +20,8 @@ import (
 	"flag"
 	"os"
 
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -31,6 +33,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -39,9 +44,12 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+const EnableWebhooks = "ENABLE_WEBHOOKS"
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
+	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -85,6 +93,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	template, err := config.ParseTemplates()
+	if err != nil {
+		setupLog.Error(err, "error parsing kubernetes resource templates")
+		os.Exit(1)
+	}
+	setupLog.Info("parsed kubernetes templates", "templates", template.DefinedTemplates())
+
+	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
+	if err = (&controller.ModelRegistryReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Recorder:       mgr.GetEventRecorderFor("modelregistry-controller"),
+		Log:            ctrl.Log.WithName("controller"),
+		Template:       template,
+		EnableWebhooks: enableWebhooks,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
+		os.Exit(1)
+	}
+	if enableWebhooks {
+		if err = (&modelregistryv1alpha1.ModelRegistry{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")
+			os.Exit(1)
+		}
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
