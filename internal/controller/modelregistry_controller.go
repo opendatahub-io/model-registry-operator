@@ -43,12 +43,18 @@ const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
 
 // Definitions to manage status conditions
 const (
-	// typeAvailableModelRegistry represents the status of the Deployment reconciliation
-	typeAvailableModelRegistry = "Available"
-	// typeProgressingModelRegistry represents the status used when the custom resource is being deployed.
-	typeProgressingModelRegistry = "Progressing"
-	// typeDegradedModelRegistry represents the status used when the custom resource is deleted and the finalizer operations must occur.
-	typeDegradedModelRegistry = "Degraded"
+	// ConditionTypeAvailable represents the status of the Deployment reconciliation
+	ConditionTypeAvailable = "Available"
+	// ConditionTypeProgressing represents the status used when the custom resource is being deployed.
+	ConditionTypeProgressing = "Progressing"
+	// ConditionTypeDegraded represents the status used when the custom resource is deleted and the finalizer operations must occur.
+	ConditionTypeDegraded = "Degraded"
+
+	ReasonCreated     = "CreatedDeployment"
+	ReasonCreating    = "CreatingDeployment"
+	ReasonUpdating    = "UpdatingDeployment"
+	ReasonAvailable   = "DeploymentAvailable"
+	ReasonUnavailable = "DeploymentUnavailable"
 )
 
 // ModelRegistryReconciler reconciles a ModelRegistry object
@@ -111,7 +117,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			log.Info("Performing Finalizer Operations for modelRegistry before delete CR")
 
 			// Let's add here an status "Degraded" to define that this resource begin its process to be terminated.
-			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: typeDegradedModelRegistry,
+			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded,
 				Status: metav1.ConditionUnknown, Reason: "Finalizing",
 				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", modelRegistry.Name)})
 
@@ -141,7 +147,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{}, err
 			}
 
-			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: typeDegradedModelRegistry,
+			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded,
 				Status: metav1.ConditionTrue, Reason: "Finalizing",
 				Message: fmt.Sprintf("Finalizer operations for custom resource %s were successfully accomplished", modelRegistry.Name)})
 
@@ -176,29 +182,20 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// update gRPC service
-	result, err := r.updateGrpcService(ctx, params, modelRegistry)
+	result, err := r.updateRegistryResources(ctx, params, modelRegistry)
 	if err != nil {
-		log.Error(err, "grpc service reconcile error")
+		log.Error(err, "service reconcile error")
 		return ctrl.Result{}, err
 	}
-	log.Info("grpc service reconciled", "status", result)
-	r.logResultAsEvent(modelRegistry, "gRPC", result)
-
-	// update REST service
-	result2, err := r.updateRestService(ctx, params, modelRegistry)
-	if err != nil {
-		log.Error(err, "rest service reconcile error")
-		return ctrl.Result{}, err
-	}
-	log.Info("rest service reconciled", "status", result2)
-	r.logResultAsEvent(modelRegistry, "REST", result2)
+	log.Info("service reconciled", "status", result)
+	r.logResultAsEvent(modelRegistry, result)
 
 	// set custom resource status
-	if err = r.setRegistryStatus(ctx, req, result, result2); err != nil {
+	if err = r.setRegistryStatus(ctx, req, result); err != nil {
 		return ctrl.Result{Requeue: true}, err
 	}
 
-	if result != ResourceUnchanged || result2 != ResourceUnchanged {
+	if result != ResourceUnchanged {
 		// requeue to update status
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -233,16 +230,16 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 
-func (r *ModelRegistryReconciler) updateGrpcService(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
+func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2, result3 OperationResult
 
 	var err error
-	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "grpc.serviceaccount.yaml.tmpl")
+	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "serviceaccount.yaml.tmpl")
 	if err != nil {
 		return result, err
 	}
 
-	result2, err = r.createOrUpdateService(ctx, params, registry, "grpc.service.yaml.tmpl")
+	result2, err = r.createOrUpdateService(ctx, params, registry, "service.yaml.tmpl")
 	if err != nil {
 		return result2, err
 	}
@@ -250,7 +247,7 @@ func (r *ModelRegistryReconciler) updateGrpcService(ctx context.Context, params 
 		result = result2
 	}
 
-	result3, err = r.createOrUpdateDeployment(ctx, params, registry, "grpc.deployment.yaml.tmpl")
+	result3, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
 	if err != nil {
 		return result3, err
 	}
@@ -436,24 +433,22 @@ func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateNam
 	return nil
 }
 
-func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alpha1.ModelRegistry, deploymentType string, result OperationResult) {
+func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alpha1.ModelRegistry, result OperationResult) {
 	switch result {
 	case ResourceCreated:
 		r.Recorder.Event(registry, "Normal", "ServiceCreated",
-			fmt.Sprintf("Created %s service for custom resource %s in namespace %s",
-				deploymentType,
+			fmt.Sprintf("Created service for custom resource %s in namespace %s",
 				registry.Name,
 				registry.Namespace))
 	case ResourceUpdated:
 		r.Recorder.Event(registry, "Normal", "ServiceUpdated",
-			fmt.Sprintf("Updated %s service for custom resource %s in namespace %s",
-				deploymentType,
+			fmt.Sprintf("Updated service for custom resource %s in namespace %s",
 				registry.Name,
 				registry.Namespace))
 	}
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, grpcResult OperationResult, restResult OperationResult) error {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, grpcResult OperationResult) error {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
@@ -463,54 +458,51 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	status := metav1.ConditionTrue
-	reason := "CreatedDeployments"
-	message := "Deployments for custom resource %s were successfully created"
-	if grpcResult != ResourceUnchanged || restResult != ResourceUnchanged {
+	reason := ReasonCreated
+	message := "Deployment for custom resource %s was successfully created"
+	if grpcResult != ResourceUnchanged {
 		status = metav1.ConditionFalse
 	}
-	if grpcResult == ResourceCreated || restResult == ResourceCreated {
-		reason = "CreatingDeployments"
-		message = "Creating deployments for custom resource %s"
+	if grpcResult == ResourceCreated {
+		reason = ReasonCreating
+		message = "Creating deployment for custom resource %s"
 	}
-	if grpcResult == ResourceUpdated || restResult == ResourceUpdated {
-		reason = "UpdatingDeployments"
-		message = "Updating deployments for custom resource %s"
+	if grpcResult == ResourceUpdated {
+		reason = ReasonUpdating
+		message = "Updating deployment for custom resource %s"
 	}
 
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: typeProgressingModelRegistry,
+	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
 		Status: status, Reason: reason,
 		Message: fmt.Sprintf(message, modelRegistry.Name)})
 
 	// determine registry available condition
-	deployments := &appsv1.DeploymentList{}
-	if err := r.List(ctx, deployments,
-		client.MatchingLabels{"component": "model-registry", "registry": modelRegistry.Name}); err != nil {
-		log.Error(err, "Failed to list modelRegistry deployments")
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
+		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
 		return err
 	}
-	log.V(10).Info("Found deployments", "deployments", len(deployments.Items))
+	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
 
 	// check deployment availability
-	available := true
-	for _, d := range deployments.Items {
-		for _, c := range d.Status.Conditions {
-			if available && c.Type == appsv1.DeploymentAvailable {
-				available = c.Status == corev1.ConditionTrue
-				break
-			}
+	available := false
+	for _, c := range deployment.Status.Conditions {
+		if c.Type == appsv1.DeploymentAvailable {
+			available = c.Status == corev1.ConditionTrue
+			break
 		}
 	}
 
 	if available {
 		status = metav1.ConditionTrue
-		reason = "DeploymentsAvailable"
-		message = "Deployments for custom resource %s are available"
+		reason = ReasonAvailable
+		message = "Deployment for custom resource %s is available"
 	} else {
 		status = metav1.ConditionFalse
-		reason = "DeploymentsUnavailable"
-		message = "Deployments for custom resource %s are not available"
+		reason = ReasonUnavailable
+		message = "Deployment for custom resource %s is not available"
 	}
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: typeAvailableModelRegistry,
+	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
 		Status: status, Reason: reason,
 		Message: fmt.Sprintf(message, modelRegistry.Name)})
 

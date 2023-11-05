@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: model-registry-grpc-{{.Name}}
+  name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
-    app: model-registry-grpc-{{.Name}}
+    app: {{.Name}}
     component: model-registry
     registry: {{.Name}}
 spec:
@@ -12,13 +12,13 @@ spec:
   revisionHistoryLimit: 0
   selector:
     matchLabels:
-      app: model-registry-grpc-{{.Name}}
+      app: {{.Name}}
       component: model-registry
       registry: {{.Name}}
   template:
     metadata:
       labels:
-        app: model-registry-grpc-{{.Name}}
+        app: {{.Name}}
         component: model-registry
         registry: {{.Name}}
     spec:
@@ -52,7 +52,7 @@ spec:
                   name: "{{.Spec.Postgres.PasswordSecret.Name}}"
             {{- end}}
           image: {{.Spec.Grpc.Image}}
-          name: container
+          name: grpc-container
           ports:
             - containerPort: {{.Spec.Grpc.Port}}
               name: grpc-api
@@ -79,4 +79,40 @@ spec:
               cpu: {{.Spec.Grpc.Resources.Limits.Cpu}}
               memory: {{.Spec.Grpc.Resources.Limits.Memory}}
             {{- end }}
-      serviceAccountName: model-registry-grpc-{{.Name}}
+        - args:
+            - --hostname=0.0.0.0
+            - --port={{.Spec.Rest.Port}}
+            #- --mlmd-hostname=localhost
+            #- --mlmd-port={{.Spec.Grpc.Port}}
+          command:
+            - /model-registry
+            - proxy
+          image: {{.Spec.Rest.Image}}
+          name: rest-container
+          ports:
+            - containerPort: {{.Spec.Rest.Port}}
+              name: http-api
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            tcpSocket:
+              port: http-api
+            timeoutSeconds: 2
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            tcpSocket:
+              port: http-api
+            timeoutSeconds: 2
+          resources:
+            {{- if .Spec.Rest.Resources.Requests }}
+            requests:
+              cpu: {{.Spec.Rest.Resources.Requests.Cpu}}
+              memory: {{.Spec.Rest.Resources.Requests.Memory}}
+            {{- end }}
+            {{- if .Spec.Rest.Resources.Limits }}
+            limits:
+              cpu: {{.Spec.Rest.Resources.Limits.Cpu}}
+              memory: {{.Spec.Rest.Resources.Limits.Memory}}
+            {{- end }}
+      serviceAccountName: {{.Name}}

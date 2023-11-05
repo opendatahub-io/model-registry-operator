@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-registry-grpc-{{.Name}}
+  name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
-    app: model-registry-grpc-{{.Name}}
+    app: {{.Name}}
     component: model-registry
     registry: {{.Name}}
 spec:
@@ -12,8 +12,11 @@ spec:
     - name: grpc-api
       port: {{.Spec.Grpc.Port}}
       protocol: TCP
+    - name: http-api
+      port: {{.Spec.Rest.Port}}
+      protocol: TCP
   selector:
-    app: model-registry-grpc-{{.Name}}
+    app: {{.Name}}
     component: model-registry
     registry: {{.Name}}
   type: ClusterIP
