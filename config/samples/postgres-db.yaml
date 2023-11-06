@@ -87,7 +87,7 @@ items:
             privileged: false
           terminationMessagePath: /dev/termination-log
           volumeMounts:
-          - mountPath: /var/lib/pgsql/data
+          - mountPath: /var/lib/postgresql/data
             name: model-registry-db-data
         dnsPolicy: ClusterFirst
         restartPolicy: Always
