@@ -10,8 +10,10 @@ metadata:
   name: modelregistry-sample
 spec:
   # TODO(user): Add fields here
-  grpc: {}
-  rest: {}
+  grpc:
+    port: 9090
+  rest:
+    port: 8080
   postgres:
     host: model-registry-db
     database: model-registry

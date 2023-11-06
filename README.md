@@ -1,12 +1,15 @@
 # model-registry-operator
-// TODO(user): Add simple overview of use/purpose
+Model Registry operator is a controller for deploying Openshift AI Model Registry service in a Kubernetes namespace. 
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+The controller reconciles `ModelRegistry` Custom Resources to create a service with the ModelRegistry API. 
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
+
+`ModelRegistry` service needs a PostgreSQL database. A sample database configuration for testing is included in [postgres-db.yaml](config/samples/postgres-db.yaml).
+To use another PostgreSQL instance, comment the line that includes this file in [kustomization.yaml](config/samples/kustomization.yaml). 
 
 ### Running on the cluster
 1. Install Instances of Custom Resources:
