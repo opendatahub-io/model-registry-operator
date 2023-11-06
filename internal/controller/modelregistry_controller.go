@@ -194,6 +194,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err = r.setRegistryStatus(ctx, req, result); err != nil {
 		return ctrl.Result{Requeue: true}, err
 	}
+	log.Info("status reconciled")
 
 	if result != ResourceUnchanged {
 		// requeue to update status
@@ -248,34 +249,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	}
 
 	result3, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
-	if err != nil {
-		return result3, err
-	}
-	if result3 != ResourceUnchanged {
-		result = result3
-	}
-
-	return result, nil
-}
-
-func (r *ModelRegistryReconciler) updateRestService(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
-	var result, result2, result3 OperationResult
-
-	var err error
-	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "rest.serviceaccount.yaml.tmpl")
-	if err != nil {
-		return result, err
-	}
-
-	result2, err = r.createOrUpdateService(ctx, params, registry, "rest.service.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	result3, err = r.createOrUpdateDeployment(ctx, params, registry, "rest.deployment.yaml.tmpl")
 	if err != nil {
 		return result3, err
 	}

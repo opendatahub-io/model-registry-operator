@@ -2,7 +2,7 @@
 Model Registry operator is a controller for deploying Openshift AI Model Registry service in a Kubernetes namespace. 
 
 ## Description
-The controller reconciles `ModelRegistry` Custom Resources to create a service with the ModelRegistry API. 
+The controller reconciles `ModelRegistry` Custom Resources to create a service for the ModelRegistry API. 
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
