@@ -181,7 +181,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Spec:      modelRegistry.Spec,
 	}
 
-	// update gRPC service
+	// update registry service
 	result, err := r.updateRegistryResources(ctx, params, modelRegistry)
 	if err != nil {
 		log.Error(err, "service reconcile error")
@@ -421,7 +421,7 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 	}
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, grpcResult OperationResult) error {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
@@ -433,14 +433,14 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	status := metav1.ConditionTrue
 	reason := ReasonCreated
 	message := "Deployment for custom resource %s was successfully created"
-	if grpcResult != ResourceUnchanged {
+	if operationResult != ResourceUnchanged {
 		status = metav1.ConditionFalse
 	}
-	if grpcResult == ResourceCreated {
+	if operationResult == ResourceCreated {
 		reason = ReasonCreating
 		message = "Creating deployment for custom resource %s"
 	}
-	if grpcResult == ResourceUpdated {
+	if operationResult == ResourceUpdated {
 		reason = ReasonUpdating
 		message = "Updating deployment for custom resource %s"
 	}
