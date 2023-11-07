@@ -1,4 +1,7 @@
 # model-registry-operator
+
+![build checks status](https://github.com/opendatahub-io/model-registry-operator/actions/workflows/build.yml/badge.svg?branch=main)
+
 Model Registry operator is a controller for deploying Openshift AI Model Registry service in a Kubernetes namespace. 
 
 ## Description

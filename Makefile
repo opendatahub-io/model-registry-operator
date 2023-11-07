@@ -1,7 +1,10 @@
 
 # Image URL to use all building/pushing image targets
-#IMG ?= quay.io/opendatahub/model-registry-operator:latest
-IMG ?= dhirajsb/model-registry-operator:latest
+IMG_REGISTRY ?= "quay.io"
+IMG_ORG ?= "opendatahub"
+IMG_REPO ?= "model-registry-operator"
+IMG_VERSION ?= "latest"
+IMG ?= "${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}"
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.28.0
 
@@ -85,6 +88,10 @@ docker-build: ## Build docker image with the manager.
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
+
+.PHONY: docker-push
+docker-login: ## Login to docker registry.
+	$(CONTAINER_TOOL) login -u "${DOCKER_USER}" -p "${DOCKER_PWD}" "${IMG_REGISTRY}"
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

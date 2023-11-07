@@ -70,7 +70,7 @@ spec:
         - /manager
         args:
         - --leader-elect
-        image: dhirajsb/model-registry-operator:latest
+        image: quay.io/opendatahub/model-registry-operator:latest
         name: manager
         env:
           - name: GRPC_IMAGE

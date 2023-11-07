@@ -35,6 +35,7 @@ items:
     name: model-registry-db
   spec:
     replicas: 1
+    revisionHistoryLimit: 0
     selector:
       matchLabels:
         name: model-registry-db
