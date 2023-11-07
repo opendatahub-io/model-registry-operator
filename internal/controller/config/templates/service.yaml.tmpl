@@ -6,7 +6,6 @@ metadata:
   labels:
     app: {{.Name}}
     component: model-registry
-    registry: {{.Name}}
 spec:
   ports:
     - name: grpc-api
@@ -18,5 +17,4 @@ spec:
   selector:
     app: {{.Name}}
     component: model-registry
-    registry: {{.Name}}
   type: ClusterIP

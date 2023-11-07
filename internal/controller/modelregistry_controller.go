@@ -259,6 +259,70 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	return result, nil
 }
 
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
+	log := klog.FromContext(ctx)
+
+	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
+	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
+		log.Error(err, "Failed to re-fetch modelRegistry")
+		return err
+	}
+
+	status := metav1.ConditionTrue
+	reason := ReasonCreated
+	message := "Deployment for custom resource %s was successfully created"
+	switch operationResult {
+	case ResourceCreated:
+		status = metav1.ConditionFalse
+		reason = ReasonCreating
+		message = "Creating deployment for custom resource %s"
+	case ResourceUpdated:
+		status = metav1.ConditionFalse
+		reason = ReasonUpdating
+		message = "Updating deployment for custom resource %s"
+	}
+
+	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
+		Status: status, Reason: reason,
+		Message: fmt.Sprintf(message, modelRegistry.Name)})
+
+	// determine registry available condition
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
+		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
+		return err
+	}
+	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
+
+	// check deployment availability
+	available := false
+	for _, c := range deployment.Status.Conditions {
+		if c.Type == appsv1.DeploymentAvailable {
+			available = c.Status == corev1.ConditionTrue
+			break
+		}
+	}
+
+	if available {
+		status = metav1.ConditionTrue
+		reason = ReasonAvailable
+		message = "Deployment for custom resource %s is available"
+	} else {
+		status = metav1.ConditionFalse
+		reason = ReasonUnavailable
+		message = "Deployment for custom resource %s is not available"
+	}
+	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
+		Status: status, Reason: reason,
+		Message: fmt.Sprintf(message, modelRegistry.Name)})
+
+	if err := r.Status().Update(ctx, modelRegistry); err != nil {
+		log.Error(err, "Failed to update modelRegistry status")
+		return err
+	}
+	return nil
+}
+
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
@@ -311,7 +375,6 @@ func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Conte
 }
 
 //go:generate go-enum -type=OperationResult
-
 type OperationResult int
 
 const (
@@ -346,8 +409,10 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 		return result, err
 	}
 
+	// hack: envtest is missing typemeta for some reason, hence the ignores for apiVersion and kind!!!
 	// create a patch by comparing objects
-	patchResult, err := patch.DefaultPatchMaker.Calculate(currObj, newObj, patch.IgnoreStatusFields())
+	patchResult, err := patch.DefaultPatchMaker.Calculate(currObj, newObj, patch.IgnoreStatusFields(),
+		patch.IgnoreField("apiVersion"), patch.IgnoreField("kind"))
 	if err != nil {
 		return result, err
 	}
@@ -419,69 +484,4 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 				registry.Name,
 				registry.Namespace))
 	}
-}
-
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
-	log := klog.FromContext(ctx)
-
-	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
-	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
-		log.Error(err, "Failed to re-fetch modelRegistry")
-		return err
-	}
-
-	status := metav1.ConditionTrue
-	reason := ReasonCreated
-	message := "Deployment for custom resource %s was successfully created"
-	if operationResult != ResourceUnchanged {
-		status = metav1.ConditionFalse
-	}
-	if operationResult == ResourceCreated {
-		reason = ReasonCreating
-		message = "Creating deployment for custom resource %s"
-	}
-	if operationResult == ResourceUpdated {
-		reason = ReasonUpdating
-		message = "Updating deployment for custom resource %s"
-	}
-
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
-		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
-
-	// determine registry available condition
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
-		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return err
-	}
-	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
-
-	// check deployment availability
-	available := false
-	for _, c := range deployment.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable {
-			available = c.Status == corev1.ConditionTrue
-			break
-		}
-	}
-
-	if available {
-		status = metav1.ConditionTrue
-		reason = ReasonAvailable
-		message = "Deployment for custom resource %s is available"
-	} else {
-		status = metav1.ConditionFalse
-		reason = ReasonUnavailable
-		message = "Deployment for custom resource %s is not available"
-	}
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
-		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
-
-	if err := r.Status().Update(ctx, modelRegistry); err != nil {
-		log.Error(err, "Failed to update modelRegistry status")
-		return err
-	}
-	return nil
 }

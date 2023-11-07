@@ -6,7 +6,6 @@ metadata:
   labels:
     app: {{.Name}}
     component: model-registry
-    registry: {{.Name}}
 spec:
   replicas: 1
   revisionHistoryLimit: 0
@@ -14,13 +13,11 @@ spec:
     matchLabels:
       app: {{.Name}}
       component: model-registry
-      registry: {{.Name}}
   template:
     metadata:
       labels:
         app: {{.Name}}
         component: model-registry
-        registry: {{.Name}}
     spec:
       containers:
         - args:
