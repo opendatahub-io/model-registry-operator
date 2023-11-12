@@ -63,6 +63,8 @@ items:
               secretKeyRef:
                 key: database-name
                 name: model-registry-db
+          - name: PGDATA
+            value: /var/lib/postgresql/data/pgdata
           image: postgres:16
           imagePullPolicy: IfNotPresent
           livenessProbe:
