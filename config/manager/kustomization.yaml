@@ -3,6 +3,6 @@ resources:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
-- name: controller
+- name: quay.io/opendatahub/model-registry-operator
   newName: quay.io/opendatahub/model-registry-operator
   newTag: latest
