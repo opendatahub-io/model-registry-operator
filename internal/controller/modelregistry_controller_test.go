@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/openshift/api"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/tools/record"
 	"os"
@@ -135,9 +136,11 @@ var _ = Describe("ModelRegistry controller", func() {
 				return k8sClient.Get(ctx, typeNamespaceName, found)
 			}, time.Minute, time.Second).Should(Succeed())
 
+			scheme := k8sClient.Scheme()
+			_ = api.Install(scheme)
 			modelRegistryReconciler := &ModelRegistryReconciler{
 				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
+				Scheme:   scheme,
 				Recorder: &record.FakeRecorder{},
 				Log:      ctrl.Log.WithName("controller"),
 				Template: template,

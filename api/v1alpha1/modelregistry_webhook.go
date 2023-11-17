@@ -51,6 +51,10 @@ func (r *ModelRegistry) Default() {
 	if len(r.Spec.Grpc.Image) == 0 {
 		r.Spec.Grpc.Image = config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
 	}
+
+	if len(r.Spec.Rest.ServiceRoute) == 0 {
+		r.Spec.Rest.ServiceRoute = config.RouteDisabled
+	}
 	if r.Spec.Rest.Resources == nil {
 		r.Spec.Rest.Resources = config.MlmdRestResourceRequirements.DeepCopy()
 	}

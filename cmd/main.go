@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"k8s.io/client-go/discovery"
 	"os"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -26,6 +27,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	oapi "github.com/openshift/api"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -48,6 +50,7 @@ const EnableWebhooks = "ENABLE_WEBHOOKS"
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(oapi.Install(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -100,6 +103,19 @@ func main() {
 	}
 	setupLog.Info("parsed kubernetes templates", "templates", template.DefinedTemplates())
 
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig())
+	groups, err := discoveryClient.ServerGroups()
+	if err != nil {
+		setupLog.Error(err, "error discovering server groups")
+		os.Exit(1)
+	}
+	isOpenShift := false
+	for _, g := range groups.Groups {
+		if g.Name == "route.openshift.io" {
+			isOpenShift = true
+		}
+	}
+
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	if err = (&controller.ModelRegistryReconciler{
 		Client:         mgr.GetClient(),
@@ -108,6 +124,7 @@ func main() {
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
+		IsOpenShift:    isOpenShift,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
