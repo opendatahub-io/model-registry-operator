@@ -14,6 +14,7 @@ spec:
     port: 9090
   rest:
     port: 8080
+    serviceRoute: disabled
   postgres:
     host: model-registry-db
     database: model-registry

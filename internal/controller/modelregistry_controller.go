@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
+	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -35,8 +38,6 @@ import (
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
 	"strings"
 	"text/template"
-
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 )
 
 const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
@@ -65,6 +66,7 @@ type ModelRegistryReconciler struct {
 	Log            logr.Logger
 	Template       *template.Template
 	EnableWebhooks bool
+	IsOpenShift    bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -215,12 +217,15 @@ func IgnoreDeletingErrors(err error) error {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&modelregistryv1alpha1.ModelRegistry{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
-		Owns(&appsv1.Deployment{}).
-		Complete(r)
+		Owns(&appsv1.Deployment{})
+	if r.IsOpenShift {
+		builder = builder.Owns(&routev1.Route{})
+	}
+	return builder.Complete(r)
 }
 
 //+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
@@ -232,7 +237,7 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
-	var result, result2, result3 OperationResult
+	var result, result2 OperationResult
 
 	var err error
 	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "serviceaccount.yaml.tmpl")
@@ -248,12 +253,22 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
-	result3, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
-	if err != nil {
-		return result3, err
+	if r.IsOpenShift {
+		result2, err = r.createOrUpdateRoute(ctx, params, registry, "http-route.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
-	if result3 != ResourceUnchanged {
-		result = result3
+
+	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	return result, nil
@@ -338,6 +353,32 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 	if err != nil {
 		return result, err
 	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var route routev1.Route
+	if err = r.Apply(params, templateName, &route); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &route, r.Scheme); err != nil {
+		return result, err
+	}
+
+	if registry.Spec.Rest.ServiceRoute == config.RouteEnabled {
+		if result, err = r.createOrUpdate(ctx, route.DeepCopy(), &route); err != nil {
+			return result, err
+		}
+	} else {
+		// delete the route if it exists
+		if err = r.Client.Delete(ctx, &route); client.IgnoreNotFound(err) != nil {
+			result = ResourceUpdated
+			return result, err
+		}
+	}
+
 	return result, nil
 }
 

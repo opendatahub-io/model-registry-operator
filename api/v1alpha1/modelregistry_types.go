@@ -93,6 +93,11 @@ type RestSpec struct {
 	// Listen port for REST connections, defaults to 8080.
 	Port *int32 `json:"port,omitempty"`
 
+	//+kubebuilder:validation:Enum=disabled;enabled
+	//+kubebuilder:default=disabled
+	// Create an OpenShift Route for REST Service
+	ServiceRoute string `json:"serviceRoute,omitempty"`
+
 	// Resource requirements
 	//+optional
 	Resources *v1.ResourceRequirements `json:"resources,omitempty"`

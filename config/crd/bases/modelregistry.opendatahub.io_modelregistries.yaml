@@ -249,6 +249,13 @@ spec:
                           Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
                     type: object
+                  serviceRoute:
+                    default: disabled
+                    description: Create an OpenShift Route for REST Service
+                    enum:
+                    - disabled
+                    - enabled
+                    type: string
                 type: object
             required:
             - grpc
