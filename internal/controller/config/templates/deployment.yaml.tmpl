@@ -36,8 +36,20 @@ spec:
             - --postgres_config_password=$(POSTGRES_PASSWORD)
             {{- end}}
             - --postgres_config_skip_db_creation={{.Spec.Postgres.SkipDBCreation}}
-            - --postgres_config_sslmode={{.Spec.Postgres.SSLMode}}
             - --enable_database_upgrade=true
+            - --postgres_config_sslmode={{.Spec.Postgres.SSLMode}}
+            {{- if .Spec.Postgres.SSLCertificateSecret}}
+            - --postgres_config_sslcert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
+            {{- end}}
+            {{- if .Spec.Postgres.SSLKeySecret}}
+            - --postgres_config_sslkey=/etc/postgres_ssl_key/{{.Spec.Postgres.SSLKeySecret.Key}}
+            {{- end}}
+            {{- if .Spec.Postgres.SSLPasswordSecret}}
+            - --postgres_config_sslpassword=${POSTGRES_SSLPASSWORD}
+            {{- end}}
+            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+            - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
+            {{- end}}
           command:
             - /bin/metadata_store_server
           env:
@@ -47,6 +59,29 @@ spec:
                 secretKeyRef:
                   key: "{{.Spec.Postgres.PasswordSecret.Key}}"
                   name: "{{.Spec.Postgres.PasswordSecret.Name}}"
+            {{- end}}
+            {{- if .Spec.Postgres.SSLPasswordSecret}}
+            - name: POSTGRES_SSLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.Postgres.SSLPasswordSecret.Key}}"
+                  name: "{{.Spec.Postgres.SSLPasswordSecret.Name}}"
+            {{- end}}
+          volumeMounts:
+            {{- if .Spec.Postgres.SSLCertificateSecret}}
+            - name: postgres-ssl-cert
+              mountPath: /etc/postgres_ssl_cert
+              readOnly: true
+            {{- end}}
+            {{- if .Spec.Postgres.SSLKeySecret}}
+            - name: postgres-ssl-key
+              mountPath: /etc/postgres_ssl_key
+              readOnly: true
+            {{- end}}
+            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+            - name: postgres-ssl-rootcert
+              mountPath: /etc/postgres_ssl_rootcert
+              readOnly: true
             {{- end}}
           image: {{.Spec.Grpc.Image}}
           name: grpc-container
@@ -113,3 +148,22 @@ spec:
               memory: {{.Spec.Rest.Resources.Limits.Memory}}
             {{- end }}
       serviceAccountName: {{.Name}}
+      volumes:
+        {{- if .Spec.Postgres.SSLCertificateSecret}}
+        - name: postgres-ssl-cert
+          secret:
+            secretName: {{.Spec.Postgres.SSLCertificateSecret.Name}}
+            defaultMode: 0600
+        {{- end}}
+        {{- if .Spec.Postgres.SSLKeySecret}}
+        - name: postgres-ssl-key
+          secret:
+            secretName: {{.Spec.Postgres.SSLKeySecret.Name}}
+            defaultMode: 0600
+        {{- end}}
+        {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+        - name: postgres-ssl-rootcert
+          secret:
+            secretName: {{.Spec.Postgres.SSLRootCertificateSecret.Name}}
+            defaultMode: 0600
+        {{- end}}

@@ -61,28 +61,24 @@ type PostgresConfig struct {
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
 
-	// FIXME Replace SSL placeholder properties with appropriate k8s secrets
-
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable
 	// PostgreSQL sslmode setup. Values can be disable, allow, prefer,
 	// require, verify-ca, verify-full.
 	SSLMode string `json:"sslMode,omitempty"`
-	// This parameter specifies the file name of the client SSL certificate,
-	// replacing the default ~/.postgresql/postgresql.crt.
-	SSLCert string `json:"sslCert,omitempty"`
-	// This parameter specifies the location for the secret key used for the
-	// client certificate. It can either specify a file name that will be used
-	// instead of the default ~/.postgresql/postgresql.key
-	SSLKey string `json:"sslKey,omitempty"`
-	// This parameter specifies the password for the secret key
-	// specified in sslkey, allowing client certificate private keys
+	// This parameter specifies the Kubernetes Secret name and key of the client SSL certificate.
+	SSLCertificateSecret *SecretKeyValue `json:"sslCertificateSecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name and key used for the
+	// client certificate SSL secret key.
+	SSLKeySecret *SecretKeyValue `json:"sslKeySecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name and key of the password for the SSL secret key
+	// specified in sslKeySecret, allowing client certificate private keys
 	// to be stored in encrypted form on disk even when interactive
 	// passphrase input is not practical.
-	SSLPassword string `json:"sslPassword,omitempty"`
-	// This parameter specifies the name of a file containing SSL
+	SSLPasswordSecret *SecretKeyValue `json:"sslPasswordSecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name and key containing SSL
 	// certificate authority (CA) certificate(s).
-	SSLRootCert string `json:"sslRootCert,omitempty"`
+	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
 }
 
 type RestSpec struct {
