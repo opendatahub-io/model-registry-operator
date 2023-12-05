@@ -1,5 +1,5 @@
 # Adds namespace to all resources.
-namespace: model-registry-operator-system
+namespace: opendatahub
 
 # Value of this field is prepended to the
 # names of all resources, e.g. a deployment named
@@ -39,3 +39,13 @@ patchesStrategicMerge:
 #- manager_webhook_patch.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
+# config and replacements to use params.env for use in opendatahub-operator
+configMapGenerator:
+  - envs:
+      - params.env
+    name: parameters
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - path: replacements.yaml
