@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Adds odh namespace to all resources.
+namespace: opendatahub
+
+# patch to remove default `system` namespace in ../../manager/manager.yaml
+patches:
+  - path: delete-namespace.yaml
+
+# Labels to add to all resources and selectors.
+labels:
+- includeSelectors: true
+  pairs:
+    component.opendatahub.io/name: model-registry-operator
+    opendatahub.io/component: "true"
+    control-plane: model-registry-operator
+
+# Overlay on operator default config
+resources:
+- ../../default
+
+# Config map and replacements to use params.env for use in opendatahub-operator
+configMapGenerator:
+  - envs:
+      - params.env
+    name: model-registry-operator-parameters
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - path: replacements.yaml
