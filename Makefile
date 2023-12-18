@@ -92,7 +92,7 @@ docker-build: ## Build docker image with the manager.
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 
-.PHONY: docker-push
+.PHONY: docker-login
 docker-login: ## Login to docker registry.
 	$(CONTAINER_TOOL) login -u "${DOCKER_USER}" -p "${DOCKER_PWD}" "${IMG_REGISTRY}"
 
