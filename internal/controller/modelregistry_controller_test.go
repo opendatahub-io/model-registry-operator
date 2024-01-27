@@ -68,7 +68,7 @@ var _ = Describe("ModelRegistry controller", func() {
 			By("Setting the Image ENV VARs which stores the Server images")
 			err = os.Setenv("GRPC_IMAGE", "gcr.io/tfx-oss-public/ml_metadata_store_server:1.14.0")
 			Expect(err).To(Not(HaveOccurred()))
-			err = os.Setenv("REST_IMAGE", "quay.io/opendatahub/model-registry:latest")
+			err = os.Setenv("REST_IMAGE", "quay.io/opendatahub/model-registry:v0.1.0")
 			Expect(err).To(Not(HaveOccurred()))
 
 			By("creating the custom resource for the Kind ModelRegistry")
