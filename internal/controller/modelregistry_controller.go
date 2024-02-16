@@ -175,10 +175,12 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// set defaults and validate if not using webhooks
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
-		_, err = modelRegistry.ValidateDatabase()
-		if err != nil {
-			log.Error(err, "validate database error")
-			return ctrl.Result{}, err
+		if !isMarkedToBeDeleted {
+			_, err = modelRegistry.ValidateDatabase()
+			if err != nil {
+				log.Error(err, "validate database error")
+				return ctrl.Result{}, err
+			}
 		}
 	}
 

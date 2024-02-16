@@ -39,7 +39,7 @@ jobs:
         run: |
           make docker-build
       - name: Start Kind Cluster
-        uses: helm/kind-action@v1.4.0
+        uses: helm/kind-action@v1.9.0
       - name: Load Local Test Image
         env:
           IMG_VERSION: ${{ steps.tags.outputs.tag }}
@@ -54,8 +54,8 @@ jobs:
           make deploy
       - name: Create Test Registry
         run: |
-          kubectl apply -k config/samples/
-          kubectl get mr
+          kubectl apply -k config/samples/postgres
+          kubectl describe mr
       - name: Wait for Test Registry Deployment
         timeout-minutes: 5
         run: |
@@ -63,6 +63,9 @@ jobs:
           while [ "${CONDITION}" != "True" ]
           do
             sleep 5
+            ##debug
+            #kubectl describe pods
+            #kubectl logs -l name=model-registry-db || true
             CONDITION="`kubectl get mr modelregistry-sample --output=jsonpath='{.status.conditions[?(@.type=="Available")].status}'`"
             echo "Registry Available=${CONDITION}"
           done

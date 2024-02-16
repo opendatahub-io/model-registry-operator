@@ -62,6 +62,14 @@ func (r *ModelRegistry) Default() {
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
+
+	// FIX default database configs that get set for some reason in Kind cluster
+	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
+		r.Spec.Postgres = nil
+	}
+	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
+		r.Spec.MySQL = nil
+	}
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
