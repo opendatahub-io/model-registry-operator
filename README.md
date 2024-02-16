@@ -11,14 +11,21 @@ The controller reconciles `ModelRegistry` Custom Resources to create a service f
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
 **Note:** Your controller will automatically use the current context in your kubeconfig file (i.e. whatever cluster `kubectl cluster-info` shows).
 
-`ModelRegistry` service needs a PostgreSQL database. A sample database configuration for testing is included in [postgres-db.yaml](config/samples/postgres-db.yaml).
-To use another PostgreSQL instance, comment the line that includes this file in [kustomization.yaml](config/samples/kustomization.yaml). 
+`ModelRegistry` service needs a PostgreSQL database. A sample database configuration for testing is included in [postgres-db.yaml](config/samples/postgres/postgres-db.yaml).
+To use another PostgreSQL instance, comment the line that includes this file in [kustomization.yaml](config/samples/postgres/kustomization.yaml). 
 
 ### Running on the cluster
-1. Install Instances of Custom Resources:
+1. Install Instances of Custom Resources using one of the two database options:
+
+For MySQL use the command:
 
 ```sh
-kubectl apply -k config/samples/
+kubectl apply -k config/samples/mysql
+```
+For PostgreSQL use the command:
+
+```sh
+kubectl apply -k config/samples/postgres
 ```
 
 2. Build and push your image to the location specified by `IMG`:

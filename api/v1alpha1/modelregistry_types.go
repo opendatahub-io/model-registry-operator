@@ -81,6 +81,56 @@ type PostgresConfig struct {
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
 }
 
+type MySQLConfig struct {
+	//+kubebuilder:required
+	// The hostname or IP address of the MYSQL server:
+	// If unspecified, a connection to the local host is assumed.
+	// Currently, a replicated MYSQL backend is not supported.
+	Host string `json:"host"`
+
+	//+kubebuilder:default=3306
+	//+kubebuilder:validation:Minimum=1
+	//+kubebuilder:validation:Maximum=65535
+	// Port number to connect to at the server host.
+	// The TCP Port number that the MYSQL server accepts connections on.
+	// If unspecified, the default MYSQL port (3306) is used.
+	Port *int32 `json:"port,omitempty"`
+
+	//+kubebuilder:required
+	// The MYSQL login id.
+	Username string `json:"username"`
+
+	// The password to use for `Username`. If empty, only MYSQL user ids that don't
+	// have a password set are allowed to connect.
+	PasswordSecret *SecretKeyValue `json:"passwordSecret,omitempty"`
+
+	//+kubebuilder:required
+	// The database to connect to. Must be specified.
+	// After connecting to the MYSQL server, this database is created if not
+	// already present unless SkipDBCreation is set.
+	// All queries after Connect() are assumed to be for this database.
+	Database string `json:"database"`
+
+	//+kubebuilder:default=false
+	// True if skipping database instance creation during ML Metadata
+	// service initialization. By default, it is false.
+	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
+
+	// This parameter specifies the Kubernetes Secret name and key of the client public key certificate.
+	SSLCertificateSecret *SecretKeyValue `json:"sslCertificateSecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name and key used for the
+	// client private key.
+	SSLKeySecret *SecretKeyValue `json:"sslKeySecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name and key containing
+	// certificate authority (CA) certificate(s).
+	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
+	// This parameter specifies the list of permissible ciphers for SSL encryption.
+	SSLCipher *string `json:"sslCipher,omitempty"`
+	// If set, enable verification of the server certificate against the host
+	// name used when connecting to the server.
+	VerifyServerCert *bool `json:"verifyServerCert,omitempty"`
+}
+
 type RestSpec struct {
 	//+kubebuilder:default=8080
 	//+kubebuilder:validation:Minimum=1
@@ -135,10 +185,13 @@ type ModelRegistrySpec struct {
 	// Configuration for gRPC endpoint
 	Grpc GrpcSpec `json:"grpc"`
 
-	//+kubebuilder:required
+	// One of Postgres or MySQL database connections must be specified!
 
 	// PostgreSQL configuration options
-	Postgres PostgresConfig `json:"postgres"`
+	Postgres *PostgresConfig `json:"postgres,omitempty"`
+
+	// MySQL configuration options
+	MySQL *MySQLConfig `json:"mysql,omitempty"`
 
 	// Flag specifying database upgrade option. If set to true, it enables
 	// database migration during initialization (Optional parameter)
