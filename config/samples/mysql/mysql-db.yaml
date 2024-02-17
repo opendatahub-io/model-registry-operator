@@ -26,7 +26,7 @@ items:
     - ReadWriteOnce
     resources:
       requests:
-        storage: 1Gi
+        storage: 5Gi
 - apiVersion: apps/v1
   kind: Deployment
   metadata:
