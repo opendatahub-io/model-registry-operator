@@ -188,9 +188,11 @@ type ModelRegistrySpec struct {
 	// One of Postgres or MySQL database connections must be specified!
 
 	// PostgreSQL configuration options
+	//+optional
 	Postgres *PostgresConfig `json:"postgres,omitempty"`
 
 	// MySQL configuration options
+	//+optional
 	MySQL *MySQLConfig `json:"mysql,omitempty"`
 
 	// Flag specifying database upgrade option. If set to true, it enables

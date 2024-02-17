@@ -54,7 +54,7 @@ jobs:
           make deploy
       - name: Create Test Registry
         run: |
-          kubectl apply -k config/samples/mysql/
+          kubectl apply -k config/samples/postgres/
           kubectl describe mr
       - name: Wait for Test Registry Deployment
         timeout-minutes: 5
@@ -64,8 +64,8 @@ jobs:
           do
             sleep 5
             ##debug
-            kubectl describe pods
-            kubectl logs -l name=model-registry-db || true
+            #kubectl describe pods
+            #kubectl logs -l name=model-registry-db || true
             CONDITION="`kubectl get mr modelregistry-sample --output=jsonpath='{.status.conditions[?(@.type=="Available")].status}'`"
             echo "Registry Available=${CONDITION}"
           done
