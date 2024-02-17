@@ -73,6 +73,9 @@ spec:
                 {{- if .Spec.MySQL.SSLRootCertificateSecret}}
             - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
                 {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - --mysql_config_sslcapath=/etc/mysql_ssl_rootcerts/
+                {{- end}}
                 {{- if .Spec.MySQL.SSLCipher}}
             - --mysql_config_sslcipher={{.Spec.MySQL.SSLCipher}}
                 {{- end}}
@@ -128,18 +131,23 @@ spec:
             {{- else if .Spec.MySQL}}
                 {{- if .Spec.MySQL.SSLCertificateSecret}}
             - name: mysql-ssl-cert
-            mountPath: /etc/mysql_ssl_cert
-            readOnly: true
+              mountPath: /etc/mysql_ssl_cert
+              readOnly: true
                 {{- end}}
                 {{- if .Spec.MySQL.SSLKeySecret}}
             - name: mysql-ssl-key
-            mountPath: /etc/mysql_ssl_key
-            readOnly: true
+              mountPath: /etc/mysql_ssl_key
+              readOnly: true
                 {{- end}}
                 {{- if .Spec.MySQL.SSLRootCertificateSecret}}
             - name: mysql-ssl-rootcert
-            mountPath: /etc/mysql_ssl_rootcert
-            readOnly: true
+              mountPath: /etc/mysql_ssl_rootcert
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - name: mysql-ssl-rootcerts
+              mountPath: /etc/mysql_ssl_rootcerts
+              readOnly: true
                 {{- end}}
             {{- end}}
           image: {{.Spec.Grpc.Image}}
@@ -244,6 +252,12 @@ spec:
         - name: mysql-ssl-rootcert
           secret:
             secretName: {{.Spec.MySQL.SSLRootCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+        - name: mysql-ssl-rootcerts
+          secret:
+            secretName: {{.Spec.MySQL.SSLRootCertificatesSecretName}}
             defaultMode: 0600
             {{- end}}
         {{- end}}

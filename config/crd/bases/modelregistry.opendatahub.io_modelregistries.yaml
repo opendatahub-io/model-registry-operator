@@ -187,7 +187,7 @@ spec:
                     type: object
                   sslRootCertificateSecret:
                     description: This parameter specifies the Kubernetes Secret name
-                      and key containing certificate authority (CA) certificate(s).
+                      and key containing certificate authority (CA) certificate.
                     properties:
                       key:
                         description: Key name in secret
@@ -199,6 +199,11 @@ spec:
                     - key
                     - name
                     type: object
+                  sslRootCertificatesSecretName:
+                    description: This parameter specifies the Kubernetes Secret name
+                      containing multiple certificate authority (CA) certificate(s)
+                      as keys.
+                    type: string
                   username:
                     description: The MYSQL login id.
                     type: string

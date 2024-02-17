@@ -122,8 +122,11 @@ type MySQLConfig struct {
 	// client private key.
 	SSLKeySecret *SecretKeyValue `json:"sslKeySecret,omitempty"`
 	// This parameter specifies the Kubernetes Secret name and key containing
-	// certificate authority (CA) certificate(s).
+	// certificate authority (CA) certificate.
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
+	// This parameter specifies the Kubernetes Secret name containing
+	// multiple certificate authority (CA) certificate(s) as keys.
+	SSLRootCertificatesSecretName *string `json:"sslRootCertificatesSecretName,omitempty"`
 	// This parameter specifies the list of permissible ciphers for SSL encryption.
 	SSLCipher *string `json:"sslCipher,omitempty"`
 	// If set, enable verification of the server certificate against the host

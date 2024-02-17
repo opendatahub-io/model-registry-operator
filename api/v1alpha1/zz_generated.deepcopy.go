@@ -197,6 +197,11 @@ func (in *MySQLConfig) DeepCopyInto(out *MySQLConfig) {
 		*out = new(SecretKeyValue)
 		**out = **in
 	}
+	if in.SSLRootCertificatesSecretName != nil {
+		in, out := &in.SSLRootCertificatesSecretName, &out.SSLRootCertificatesSecretName
+		*out = new(string)
+		**out = **in
+	}
 	if in.SSLCipher != nil {
 		in, out := &in.SSLCipher, &out.SSLCipher
 		*out = new(string)
