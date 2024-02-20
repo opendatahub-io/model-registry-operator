@@ -173,7 +173,8 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
-// ModelRegistrySpec defines the desired state of ModelRegistry
+// ModelRegistrySpec defines the desired state of ModelRegistry.
+// One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -187,8 +188,6 @@ type ModelRegistrySpec struct {
 
 	// Configuration for gRPC endpoint
 	Grpc GrpcSpec `json:"grpc"`
-
-	// One of Postgres or MySQL database connections must be specified!
 
 	// PostgreSQL configuration options
 	//+optional

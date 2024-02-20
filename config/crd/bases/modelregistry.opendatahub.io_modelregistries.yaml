@@ -34,7 +34,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: ModelRegistrySpec defines the desired state of ModelRegistry
+            description: ModelRegistrySpec defines the desired state of ModelRegistry.
+              One of `postgres` or `mysql` database configurations MUST be provided!
             properties:
               downgrade_db_schema_version:
                 description: Database downgrade schema version value. If set the database

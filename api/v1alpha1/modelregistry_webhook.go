@@ -63,7 +63,7 @@ func (r *ModelRegistry) Default() {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
 
-	// FIX default database configs that get set for some reason in Kind cluster
+	// Fixes default database configs that get set for some reason in Kind cluster
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
 		r.Spec.Postgres = nil
 	}
