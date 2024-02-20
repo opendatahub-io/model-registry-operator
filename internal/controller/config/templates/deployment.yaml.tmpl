@@ -22,66 +22,133 @@ spec:
       containers:
         - args:
             - --grpc_port={{.Spec.Grpc.Port}}
+            {{- if .Spec.Postgres}}
             - --metadata_source_config_type=postgresql
             - --postgres_config_dbname={{.Spec.Postgres.Database}}
-            {{- if .Spec.Postgres.Host}}
+                {{- if .Spec.Postgres.Host}}
             - --postgres_config_host={{.Spec.Postgres.Host}}
-            {{- end}}
-            {{- if .Spec.Postgres.HostAddress}}
+                {{- end}}
+                {{- if .Spec.Postgres.HostAddress}}
             - --postgres_config_hostaddr={{.Spec.Postgres.HostAddress}}
-            {{- end}}
+                {{- end}}
             - --postgres_config_port={{.Spec.Postgres.Port}}
             - --postgres_config_user={{.Spec.Postgres.Username}}
-            {{- if .Spec.Postgres.PasswordSecret}}
+                {{- if .Spec.Postgres.PasswordSecret}}
             - --postgres_config_password=$(POSTGRES_PASSWORD)
-            {{- end}}
+                {{- end}}
             - --postgres_config_skip_db_creation={{.Spec.Postgres.SkipDBCreation}}
-            - --enable_database_upgrade=true
             - --postgres_config_sslmode={{.Spec.Postgres.SSLMode}}
-            {{- if .Spec.Postgres.SSLCertificateSecret}}
+                {{- if .Spec.Postgres.SSLCertificateSecret}}
             - --postgres_config_sslcert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
-            {{- end}}
-            {{- if .Spec.Postgres.SSLKeySecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLKeySecret}}
             - --postgres_config_sslkey=/etc/postgres_ssl_key/{{.Spec.Postgres.SSLKeySecret.Key}}
-            {{- end}}
-            {{- if .Spec.Postgres.SSLPasswordSecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLPasswordSecret}}
             - --postgres_config_sslpassword=${POSTGRES_SSLPASSWORD}
-            {{- end}}
-            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLRootCertificateSecret}}
             - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
+                {{- end}}
+            {{- else if .Spec.MySQL}}
+            - --metadata_source_config_type=mysql
+            - --mysql_config_database={{.Spec.MySQL.Database}}
+                {{- if .Spec.MySQL.Host}}
+            - --mysql_config_host={{.Spec.MySQL.Host}}
+                {{- end}}
+            - --mysql_config_port={{.Spec.MySQL.Port}}
+            - --mysql_config_user={{.Spec.MySQL.Username}}
+                {{- if .Spec.MySQL.PasswordSecret}}
+            - --mysql_config_password=$(MYSQL_PASSWORD)
+                {{- end}}
+                {{- if .Spec.MySQL.SkipDBCreation}}
+            - --mysql_config_skip_db_creation={{.Spec.MySQL.SkipDBCreation}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLCertificateSecret}}
+            - --mysql_config_sslcert=/etc/mysql_ssl_cert/{{.Spec.MySQL.SSLCertificateSecret.Key}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLKeySecret}}
+            - --mysql_config_sslkey=/etc/mysql_ssl_key/{{.Spec.MySQL.SSLKeySecret.Key}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+            - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - --mysql_config_sslcapath=/etc/mysql_ssl_rootcerts/
+                {{- end}}
+                {{- if .Spec.MySQL.SSLCipher}}
+            - --mysql_config_sslcipher={{.Spec.MySQL.SSLCipher}}
+                {{- end}}
+                {{- if .Spec.MySQL.VerifyServerCert}}
+            - --mysql_config_verify_server_cert={{.Spec.MySQL.VerifyServerCert}}
+                {{- end}}
             {{- end}}
+            - --enable_database_upgrade=true
           command:
             - /bin/metadata_store_server
           env:
-            {{- if .Spec.Postgres.PasswordSecret}}
+            {{- if .Spec.Postgres}}
+                {{- if .Spec.Postgres.PasswordSecret}}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   key: "{{.Spec.Postgres.PasswordSecret.Key}}"
                   name: "{{.Spec.Postgres.PasswordSecret.Name}}"
-            {{- end}}
-            {{- if .Spec.Postgres.SSLPasswordSecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLPasswordSecret}}
             - name: POSTGRES_SSLPASSWORD
               valueFrom:
                 secretKeyRef:
                   key: "{{.Spec.Postgres.SSLPasswordSecret.Key}}"
                   name: "{{.Spec.Postgres.SSLPasswordSecret.Name}}"
+                {{- end}}
+            {{- else if .Spec.MySQL}}
+                {{- if .Spec.MySQL.PasswordSecret}}
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.MySQL.PasswordSecret.Key}}"
+                  name: "{{.Spec.MySQL.PasswordSecret.Name}}"
+                {{- end}}
             {{- end}}
           volumeMounts:
-            {{- if .Spec.Postgres.SSLCertificateSecret}}
+            {{- if .Spec.Postgres}}
+                {{- if .Spec.Postgres.SSLCertificateSecret}}
             - name: postgres-ssl-cert
               mountPath: /etc/postgres_ssl_cert
               readOnly: true
-            {{- end}}
-            {{- if .Spec.Postgres.SSLKeySecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLKeySecret}}
             - name: postgres-ssl-key
               mountPath: /etc/postgres_ssl_key
               readOnly: true
-            {{- end}}
-            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLRootCertificateSecret}}
             - name: postgres-ssl-rootcert
               mountPath: /etc/postgres_ssl_rootcert
               readOnly: true
+                {{- end}}
+            {{- else if .Spec.MySQL}}
+                {{- if .Spec.MySQL.SSLCertificateSecret}}
+            - name: mysql-ssl-cert
+              mountPath: /etc/mysql_ssl_cert
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.MySQL.SSLKeySecret}}
+            - name: mysql-ssl-key
+              mountPath: /etc/mysql_ssl_key
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+            - name: mysql-ssl-rootcert
+              mountPath: /etc/mysql_ssl_rootcert
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - name: mysql-ssl-rootcerts
+              mountPath: /etc/mysql_ssl_rootcerts
+              readOnly: true
+                {{- end}}
             {{- end}}
           image: {{.Spec.Grpc.Image}}
           name: grpc-container
@@ -149,21 +216,48 @@ spec:
             {{- end }}
       serviceAccountName: {{.Name}}
       volumes:
-        {{- if .Spec.Postgres.SSLCertificateSecret}}
+        {{- if .Spec.Postgres}}
+            {{- if .Spec.Postgres.SSLCertificateSecret}}
         - name: postgres-ssl-cert
           secret:
             secretName: {{.Spec.Postgres.SSLCertificateSecret.Name}}
             defaultMode: 0600
-        {{- end}}
-        {{- if .Spec.Postgres.SSLKeySecret}}
+            {{- end}}
+            {{- if .Spec.Postgres.SSLKeySecret}}
         - name: postgres-ssl-key
           secret:
             secretName: {{.Spec.Postgres.SSLKeySecret.Name}}
             defaultMode: 0600
-        {{- end}}
-        {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+            {{- end}}
+            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
         - name: postgres-ssl-rootcert
           secret:
             secretName: {{.Spec.Postgres.SSLRootCertificateSecret.Name}}
             defaultMode: 0600
+            {{- end}}
+        {{- else if .Spec.MySQL}}
+            {{- if .Spec.MySQL.SSLCertificateSecret}}
+        - name: mysql-ssl-cert
+          secret:
+            secretName: {{.Spec.MySQL.SSLCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLKeySecret}}
+        - name: mysql-ssl-key
+          secret:
+            secretName: {{.Spec.MySQL.SSLKeySecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+        - name: mysql-ssl-rootcert
+          secret:
+            secretName: {{.Spec.MySQL.SSLRootCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+        - name: mysql-ssl-rootcerts
+          secret:
+            secretName: {{.Spec.MySQL.SSLRootCertificatesSecretName}}
+            defaultMode: 0600
+            {{- end}}
         {{- end}}

@@ -34,7 +34,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: ModelRegistrySpec defines the desired state of ModelRegistry
+            description: ModelRegistrySpec defines the desired state of ModelRegistry.
+              One of `postgres` or `mysql` database configurations MUST be provided!
             properties:
               downgrade_db_schema_version:
                 description: Database downgrade schema version value. If set the database
@@ -109,6 +110,112 @@ spec:
                           Limits. More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/'
                         type: object
                     type: object
+                type: object
+              mysql:
+                description: MySQL configuration options
+                properties:
+                  database:
+                    description: The database to connect to. Must be specified. After
+                      connecting to the MYSQL server, this database is created if
+                      not already present unless SkipDBCreation is set. All queries
+                      after Connect() are assumed to be for this database.
+                    type: string
+                  host:
+                    description: 'The hostname or IP address of the MYSQL server:
+                      If unspecified, a connection to the local host is assumed. Currently,
+                      a replicated MYSQL backend is not supported.'
+                    type: string
+                  passwordSecret:
+                    description: The password to use for `Username`. If empty, only
+                      MYSQL user ids that don't have a password set are allowed to
+                      connect.
+                    properties:
+                      key:
+                        description: Key name in secret
+                        type: string
+                      name:
+                        description: Kubernetes secret name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  port:
+                    default: 3306
+                    description: Port number to connect to at the server host. The
+                      TCP Port number that the MYSQL server accepts connections on.
+                      If unspecified, the default MYSQL port (3306) is used.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  skipDBCreation:
+                    default: false
+                    description: True if skipping database instance creation during
+                      ML Metadata service initialization. By default, it is false.
+                    type: boolean
+                  sslCertificateSecret:
+                    description: This parameter specifies the Kubernetes Secret name
+                      and key of the client public key certificate.
+                    properties:
+                      key:
+                        description: Key name in secret
+                        type: string
+                      name:
+                        description: Kubernetes secret name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  sslCipher:
+                    description: This parameter specifies the list of permissible
+                      ciphers for SSL encryption.
+                    type: string
+                  sslKeySecret:
+                    description: This parameter specifies the Kubernetes Secret name
+                      and key used for the client private key.
+                    properties:
+                      key:
+                        description: Key name in secret
+                        type: string
+                      name:
+                        description: Kubernetes secret name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  sslRootCertificateSecret:
+                    description: This parameter specifies the Kubernetes Secret name
+                      and key containing certificate authority (CA) certificate.
+                    properties:
+                      key:
+                        description: Key name in secret
+                        type: string
+                      name:
+                        description: Kubernetes secret name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  sslRootCertificatesSecretName:
+                    description: This parameter specifies the Kubernetes Secret name
+                      containing multiple certificate authority (CA) certificate(s)
+                      as keys.
+                    type: string
+                  username:
+                    description: The MYSQL login id.
+                    type: string
+                  verifyServerCert:
+                    description: If set, enable verification of the server certificate
+                      against the host name used when connecting to the server.
+                    type: boolean
+                required:
+                - database
+                - host
+                - username
                 type: object
               postgres:
                 description: PostgreSQL configuration options
@@ -299,7 +406,6 @@ spec:
                 type: object
             required:
             - grpc
-            - postgres
             - rest
             type: object
           status:

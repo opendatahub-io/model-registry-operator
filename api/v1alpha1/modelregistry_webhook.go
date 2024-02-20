@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -61,6 +62,14 @@ func (r *ModelRegistry) Default() {
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
+
+	// Fixes default database configs that get set for some reason in Kind cluster
+	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
+		r.Spec.Postgres = nil
+	}
+	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
+		r.Spec.MySQL = nil
+	}
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
@@ -72,16 +81,14 @@ var _ webhook.Validator = &ModelRegistry{}
 func (r *ModelRegistry) ValidateCreate() (admission.Warnings, error) {
 	modelregistrylog.Info("validate create", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object creation.
-	return nil, nil
+	return r.ValidateDatabase()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *ModelRegistry) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
 	modelregistrylog.Info("validate update", "name", r.Name)
 
-	// TODO(user): fill in your validation logic upon object update.
-	return nil, nil
+	return r.ValidateDatabase()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -89,5 +96,13 @@ func (r *ModelRegistry) ValidateDelete() (admission.Warnings, error) {
 	modelregistrylog.Info("validate delete", "name", r.Name)
 
 	// TODO(user): fill in your validation logic upon object deletion.
+	return nil, nil
+}
+
+// ValidateDatabase validates that at least one database config is present
+func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, error) {
+	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
+		return nil, fmt.Errorf("MUST set one of `postgres` or `mysql` database connection properties")
+	}
 	return nil, nil
 }
