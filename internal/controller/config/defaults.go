@@ -31,7 +31,7 @@ const (
 	GrpcImage        = "GRPC_IMAGE"
 	RestImage        = "REST_IMAGE"
 	DefaultGrpcImage = "gcr.io/tfx-oss-public/ml_metadata_store_server:1.14.0"
-	DefaultRestImage = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage = "quay.io/opendatahub/model-registry:v0.1.1"
 	RouteDisabled    = "disabled"
 	RouteEnabled     = "enabled"
 )
