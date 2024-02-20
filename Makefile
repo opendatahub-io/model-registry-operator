@@ -1,3 +1,5 @@
+# Include images as env variables
+include ./config/overlays/odh/params.env
 
 # Image URL to use all building/pushing image targets
 IMG_REGISTRY ?= "quay.io"
@@ -51,6 +53,15 @@ help: ## Display this help.
 
 ##@ Development
 
+.PHONY: sync-images
+sync-images:
+	# sync model-registry image
+	sed "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" -i ./config/manager/manager.yaml
+	sed "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+	# sync mlmd image
+	sed "s|gcr.io/tfx-oss-public/ml_metadata_store_server:.*|${IMAGES_GRPC_SERVICE}|" -i ./config/manager/manager.yaml
+	sed "s|\"gcr.io/tfx-oss-public/ml_metadata_store_server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
@@ -74,7 +85,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 ##@ Build
 
 .PHONY: build
-build: manifests generate fmt vet ## Build manager binary.
+build: sync-images manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run

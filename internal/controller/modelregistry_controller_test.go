@@ -58,9 +58,9 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			BeforeEach(func() {
 				By("Setting the Image ENV VARs which stores the Server images")
-				err = os.Setenv("GRPC_IMAGE", "gcr.io/tfx-oss-public/ml_metadata_store_server:1.14.0")
+				err = os.Setenv("GRPC_IMAGE", config.DefaultGrpcImage)
 				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv("REST_IMAGE", "quay.io/opendatahub/model-registry:latest")
+				err = os.Setenv("REST_IMAGE", config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 
