@@ -41,6 +41,7 @@ import (
 )
 
 var _ = Describe("ModelRegistry controller", func() {
+
 	Context("ModelRegistry controller test", func() {
 
 		ctx := context.Background()
@@ -58,9 +59,9 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			BeforeEach(func() {
 				By("Setting the Image ENV VARs which stores the Server images")
-				err = os.Setenv("GRPC_IMAGE", config.DefaultGrpcImage)
+				err = os.Setenv(config.GrpcImage, config.DefaultGrpcImage)
 				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv("REST_IMAGE", config.DefaultRestImage)
+				err = os.Setenv(config.RestImage, config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 
@@ -167,8 +168,8 @@ var _ = Describe("ModelRegistry controller", func() {
 				_ = k8sClient.Delete(ctx, namespace)
 
 				By("Removing the Image ENV VARs which stores the Server images")
-				_ = os.Unsetenv("GRPC_IMAGE")
-				_ = os.Unsetenv("REST_IMAGE")
+				_ = os.Unsetenv(config.GrpcImage)
+				_ = os.Unsetenv(config.RestImage)
 			})
 		})
 
