@@ -18,6 +18,13 @@ spec:
       labels:
         app: {{.Name}}
         component: model-registry
+        sidecar.istio.io/inject: "true"
+      annotations:
+        {{- if .Spec.Postgres}}
+        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.Postgres.Port}}
+        {{- else if .Spec.MySQL}}
+        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.MySQL.Port}}
+        {{- end}}
     spec:
       containers:
         - args:
