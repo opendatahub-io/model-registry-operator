@@ -1,0 +1,14 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{.Name}}-authorino
+spec:
+  action: CUSTOM
+  selector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+  provider:
+    name: {{.Spec.Istio.AuthProvider}}
+  rules:
+  - {}

@@ -1,0 +1,57 @@
+apiVersion: authorino.kuadrant.io/v1beta2
+kind: AuthConfig
+metadata:
+  name: {{.Name}}
+  {{- with .Spec.Istio.AuthConfigLabels}}
+  labels:
+    # security.opendatahub.io/authorization-group: default
+    {{- range .}}
+    {{.}}
+    {{- end}}
+  {{- end}}
+spec:
+  authentication:
+    cluster-users:
+      credentials:
+        authorizationHeader: { }
+      kubernetesTokenReview:
+        audiences:
+          {{- with .Spec.Istio.Audiences}}
+          {{- range .Spec.Istio.Audiences}}
+          - {{.}}
+          {{- end}}
+          {{- else}}
+          - https://kubernetes.default.svc
+          {{- end}}
+    service-accounts:
+      credentials:
+        authorizationHeader: { }
+      kubernetesTokenReview:
+        audiences:
+          - https://kubernetes.default.svc.cluster.local
+  authorization:
+    k8s-rbac:
+      kubernetesSubjectAccessReview:
+        user:
+          selector: auth.identity.metadata.annotations.userid
+        groups:
+          - {{.Name}}-users
+        resourceAttributes:
+          verb:
+            value: get
+          group:
+            value: ""
+          resource:
+            value: services
+          namespace:
+            value: {{.Namespace}}
+          name:
+            value: {{.Name}}
+  hosts:
+    {{- if and .Spec.Istio.Gateway .Spec.Istio.Gateway.Domain}}
+    - {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
+    - {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
+    {{- end}}
+    - {{.Name}}.{{.Namespace}}.svc.cluster.local
+    - {{.Name}}.{{.Namespace}}
+    - {{.Name}}

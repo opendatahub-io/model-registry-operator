@@ -173,6 +173,213 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
+type ServerTLSSettings struct {
+
+	//+kubebuilder:default=SIMPLE
+	//+kubebuilder:validation:Enum=SIMPLE;MUTUAL;ISTIO_MUTUAL;OPTIONAL_MUTUAL
+
+	// The value of this field determines how TLS is enforced.
+	// SIMPLE: Secure connections with standard TLS semantics. In this mode client certificate is not requested during handshake.
+	//
+	// MUTUAL: Secure connections to the downstream using mutual TLS by presenting server certificates for authentication. A client certificate will also be requested during the handshake and at least one valid certificate is required to be sent by the client.
+	//
+	// ISTIO_MUTUAL: Secure connections from the downstream using mutual TLS by presenting server certificates for authentication. Compared to Mutual mode, this mode uses certificates, representing gateway workload identity, generated automatically by Istio for mTLS authentication. When this mode is used, all other TLS fields should be empty.
+	//
+	// OPTIONAL_MUTUAL: Similar to MUTUAL mode, except that the client certificate is optional. Unlike SIMPLE mode, A client certificate will still be explicitly requested during handshake, but the client is not required to send a certificate. If a client certificate is presented, it will be validated. ca_certificates should be specified for validating client certificates.
+	Mode string `json:"mode"`
+
+	// REQUIRED if mode is `SIMPLE` or `MUTUAL`. The path to the file
+	// holding the server-side TLS certificate to use.
+	//+optional
+	ServerCertificate *string `json:"serverCertificate,omitempty"`
+
+	// REQUIRED if mode is `SIMPLE` or `MUTUAL`. The path to the file
+	// holding the server's private key.
+	//+optional
+	PrivateKey *string `json:"privateKey,omitempty"`
+
+	// REQUIRED if mode is `MUTUAL` or `OPTIONAL_MUTUAL`. The path to a file
+	// containing certificate authority certificates to use in verifying a presented
+	// client side certificate.
+	//+optional
+	CaCertificates *string `json:"caCertificates,omitempty"`
+
+	// For gateways running on Kubernetes, the name of the secret that
+	// holds the TLS certs including the CA certificates. Applicable
+	// only on Kubernetes. An Opaque secret should contain the following
+	// keys and values: `tls.key: <privateKey>` and `tls.crt: <serverCert>` or
+	// `key: <privateKey>` and `cert: <serverCert>`.
+	// For mutual TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
+	// can be provided in the same secret or a separate secret named `<secret>-cacert`.
+	// A TLS secret for server certificates with an additional `tls.ocsp-staple` key
+	// for specifying OCSP staple information, `ca.crt` key for CA certificates
+	// and `ca.crl` for certificate revocation list is also supported.
+	// Only one of server certificates and CA certificate
+	// or credentialName can be specified.
+	//+optional
+	CredentialName *string `json:"credentialName,omitempty"`
+
+	// A list of alternate names to verify the subject identity in the
+	// certificate presented by the client.
+	SubjectAltNames []string `json:"subjectAltNames,omitempty"`
+
+	// An optional list of base64-encoded SHA-256 hashes of the SPKIs of
+	// authorized client certificates.
+	// Note: When both verify_certificate_hash and verify_certificate_spki
+	// are specified, a hash matching either value will result in the
+	// certificate being accepted.
+	VerifyCertificateSpki []string `json:"verifyCertificateSpki,omitempty"`
+
+	// An optional list of hex-encoded SHA-256 hashes of the
+	// authorized client certificates. Both simple and colon separated
+	// formats are acceptable.
+	// Note: When both verify_certificate_hash and verify_certificate_spki
+	// are specified, a hash matching either value will result in the
+	// certificate being accepted.
+	VerifyCertificateHash []string `json:"verifyCertificateHash,omitempty"`
+
+	//+kubebuilder:Enum=TLS_AUTO;TLSV1_0;TLSV1_1;TLSV1_2;TLSV1_3
+
+	// Optional: Minimum TLS protocol version. By default, it is `TLSV1_2`.
+	// TLS protocol versions below TLSV1_2 require setting compatible ciphers with the
+	// `cipherSuites` setting as they no longer include compatible ciphers.
+	//
+	// TLS_AUTO: Automatically choose the optimal TLS version.
+	//
+	// TLSV1_0: TLS version 1.0
+	//
+	// TLSV1_1: TLS version 1.1
+	//
+	// TLSV1_2: TLS version 1.2
+	//
+	// TLSV1_3: TLS version 1.3
+	//
+	// Note: Using TLS protocol versions below TLSV1_2 has serious security risks.
+	//+optional
+	MinProtocolVersion *string `json:"minProtocolVersion,omitempty"`
+
+	//+kubebuilder:Enum=TLS_AUTO;TLSV1_0;TLSV1_1;TLSV1_2;TLSV1_3
+
+	// Optional: Maximum TLS protocol version.
+	//
+	// TLS_AUTO: Automatically choose the optimal TLS version.
+	//
+	// TLSV1_0: TLS version 1.0
+	//
+	// TLSV1_1: TLS version 1.1
+	//
+	// TLSV1_2: TLS version 1.2
+	//
+	// TLSV1_3: TLS version 1.3
+	//
+	//+optional
+	MaxProtocolVersion *string `json:"maxProtocolVersion,omitempty"`
+
+	// Optional: If specified, only support the specified cipher list.
+	// Otherwise, default to the default cipher list supported by Envoy
+	// as specified [here](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto).
+	// The supported list of ciphers are:
+	// * `ECDHE-ECDSA-AES128-GCM-SHA256`
+	// * `ECDHE-RSA-AES128-GCM-SHA256`
+	// * `ECDHE-ECDSA-AES256-GCM-SHA384`
+	// * `ECDHE-RSA-AES256-GCM-SHA384`
+	// * `ECDHE-ECDSA-CHACHA20-POLY1305`
+	// * `ECDHE-RSA-CHACHA20-POLY1305`
+	// * `ECDHE-ECDSA-AES128-SHA`
+	// * `ECDHE-RSA-AES128-SHA`
+	// * `ECDHE-ECDSA-AES256-SHA`
+	// * `ECDHE-RSA-AES256-SHA`
+	// * `AES128-GCM-SHA256`
+	// * `AES256-GCM-SHA384`
+	// * `AES128-SHA`
+	// * `AES256-SHA`
+	// * `DES-CBC3-SHA`
+	//+optional
+	CipherSuites []string `json:"cipher_suites,omitempty"`
+}
+
+type GatewayConfig struct {
+	//+kubebuilder:required
+
+	// Domain name for Gateway configuration
+	Domain string `json:"domain"`
+
+	//+kubebuilder:required
+	//+kubebuilder:default=ingressgateway
+
+	// Value of label `istio` used to identify the Ingress Gateway
+	IstioIngress string `json:"istioIngress"`
+
+	// Maistra/OpenShift Servicemesh control plane name
+	//+optional
+	ControlPlane *string `json:"controlPlane,omitempty"`
+
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for REST connections, defaults to 80 without TLS and 443 when RestTls settings are present.
+	RestPort *int32 `json:"restPort,omitempty"`
+
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for gRPC connections, defaults to 80 without TLS and 443 when GrpcTls settings are present.
+	GrpcPort *int32 `json:"grpcPort,omitempty"`
+
+	// Set of TLS related options that govern the REST server's behavior. Use
+	// these options to control if all http requests should be redirected to
+	// https, and the TLS modes to use.
+	//+optional
+	RestTls *ServerTLSSettings `json:"restTLS,omitempty"`
+
+	// Set of TLS related options that govern the gRPC server's behavior. Use
+	// these options to control if all http requests should be redirected to
+	// https, and the TLS modes to use.
+	//+optional
+	GrpcTls *ServerTLSSettings `json:"grpcTLS,omitempty"`
+}
+
+type IstioConfig struct {
+	//+kubebuilder:required
+
+	// Authorino authentication provider name
+	AuthProvider string `json:"authProvider"`
+
+	// Authorino AuthConfig selector labels
+	//+optional
+	AuthConfigLabels []string `json:"authConfigLabels,omitempty"`
+
+	//+kubebuilder:required
+	//+kubebuilder:default=ISTIO_MUTUAL
+	//+kubebuilder:Enum=DISABLE;SIMPLE;MUTUAL;ISTIO_MUTUAL
+
+	// DestinationRule TLS mode. Defaults to ISTIO_MUTUAL.
+	//
+	// DISABLE: Do not setup a TLS connection to the upstream endpoint.
+	//
+	// SIMPLE: Originate a TLS connection to the upstream endpoint.
+	//
+	// MUTUAL: Secure connections to the upstream using mutual TLS by presenting
+	// client certificates for authentication.
+	//
+	// ISTIO_MUTUAL: Secure connections to the upstream using mutual TLS by presenting
+	// client certificates for authentication.
+	// Compared to Mutual mode, this mode uses certificates generated
+	// automatically by Istio for mTLS authentication. When this mode is
+	// used, all other fields in `ClientTLSSettings` should be empty.
+	TlsMode string `json:"tlsMode,omitempty"`
+
+	// Optional Istio Gateway for registry services.
+	// Gateway is not created if set to null (default).
+	//+optional
+	Gateway *GatewayConfig `json:"serviceGateway,omitempty"`
+
+	// Optional Authorino AuthConfig credential audiences. This depends on the cluster identity provider.
+	// If not specified, operator will determine the cluster's audience using its own service account.
+	//+optional
+	Audiences []string `json:"audiences,omitempty"`
+}
+
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -184,7 +391,7 @@ type ModelRegistrySpec struct {
 	// Configuration for REST endpoint
 	Rest RestSpec `json:"rest"`
 
-	//+kubebuilder: required
+	//+kubebuilder:required
 
 	// Configuration for gRPC endpoint
 	Grpc GrpcSpec `json:"grpc"`
@@ -207,6 +414,10 @@ type ModelRegistrySpec struct {
 	// initialization (Optional Parameter)
 	//+optional
 	DowngradeDbSchemaVersion *int64 `json:"downgrade_db_schema_version,omitempty"`
+
+	// Istio servicemesh configuration options
+	//+optional
+	Istio *IstioConfig `json:"istio,omitempty"`
 }
 
 // ModelRegistryStatus defines the observed state of ModelRegistry

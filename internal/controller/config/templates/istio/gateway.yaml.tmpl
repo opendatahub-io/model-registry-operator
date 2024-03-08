@@ -1,0 +1,63 @@
+{{- define "server-tls-settings"}}
+    tls:
+      mode: {{.Mode}}
+      {{with .ServerCertificate}}serverCertificate: {{.}}{{end}}
+      {{with .PrivateKey}}privateKey: {{.}}{{end}}
+      {{with .CaCertificates}}caCertificates: {{.}}{{end}}
+      {{with .CredentialName}}credentialName: {{.}}{{end}}
+      {{- with .SubjectAltNames}}
+      subjectAltNames:
+        {{range .}}- {{.}}{{end}}
+      {{- end}}
+      {{- with .VerifyCertificateSpki}}
+      verifyCertificateSpki:
+        {{range .}}- {{.}}{{end}}
+      {{- end}}
+      {{- with .VerifyCertificateHash}}
+      verifyCertificateHash:
+        {{range .}}- {{.}}{{end}}
+      {{- end}}
+      {{with .MinProtocolVersion}}minProtocolVersion: {{.}}{{end}}
+      {{with .MaxProtocolVersion}}maxProtocolVersion: {{.}}{{end}}
+      {{- with .CipherSuites}}
+      cipher_suites:
+        {{range .}}- {{.}}{{end}}
+      {{- end}}
+{{- end}}
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: {{.Name}}-gateway
+  annotations:
+    maistra.io/manageRoute: "true"
+spec:
+  # The selector matches the ingress gateway pod labels.
+  # If you installed Istio using Helm following the standard documentation, this would be "istio=ingress"
+  # ingressgateway for istio default controller
+  selector:
+    istio: {{.Spec.Istio.Gateway.IstioIngress}}
+    {{- with .Spec.Istio.Gateway.ControlPlane}}
+    maistra.io/owner-name: {{.}}
+    {{- end}}}
+  servers:
+  - port:
+      number: {{.Spec.Istio.Gateway.RestPort}}
+      {{- if .Spec.Istio.Gateway.RestTls}}
+      name: https
+      protocol: HTTPS
+      {{- else}}
+      name: http
+      protocol: HTTP
+      {{- end}}
+    hosts:
+    - {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
+    name: {{.Name}}-rest-server
+    {{- with .Spec.Istio.Gateway.RestTls}}{{- template "server-tls-settings"}}{{- end}}
+  - port:
+      number: {{.Spec.Istio.Gateway.GrpcPort}}
+      name: grpc
+      protocol: GRPC
+    hosts:
+    - {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
+    name: {{.Name}}-grpc-server
+    {{- with .Spec.Istio.Gateway.GrpcTls}}{{- template "server-tls-settings"}}{{- end}}

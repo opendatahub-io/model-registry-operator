@@ -1,0 +1,15 @@
+apiVersion: modelregistry.opendatahub.io/v1alpha1
+kind: ModelRegistry
+metadata:
+  name: modelregistry-sample
+spec:
+  istio:
+    authProvider: AUTH_PROVIDER
+    authConfigLabels: AUTHCONFIG_LABELS
+    gateway:
+      domain: DOMAIN
+      istioIngress: ISTIO_INGRESS
+      restTls:
+        credentialName: REST_CREDENTIAL_NAME
+      grpcTls:
+        credentialName: GRPC_CREDENTIAL_NAME

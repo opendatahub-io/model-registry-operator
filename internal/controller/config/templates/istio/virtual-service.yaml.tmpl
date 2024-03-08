@@ -1,0 +1,52 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{.Name}}
+spec:
+  gateways:
+  - {{.Name}}-gateway
+  hosts:
+  - {{.Name}}
+  {{- if and .Spec.Istio.Gateway .Spec.Istio.Gateway.Domain}}
+  - {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
+  - {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
+  {{- end}}
+  http:
+  - match:
+    - headers:
+        :authority:
+          regex: {{.Name}}(\..*)?:{{.Spec.Rest.Port}}
+    route:
+    - destination:
+        host: {{.Name}}
+        port:
+          number: {{.Spec.Rest.Port}}
+  - match:
+    - headers:
+        :authority:
+          regex: {{.Name}}(\..*)?:{{.Spec.Grpc.Port}}
+    route:
+    - destination:
+        host: {{.Name}}
+        port:
+          number: {{.Spec.Grpc.Port}}
+  {{- if and .Spec.Istio.Gateway .Spec.Istio.Gateway.Domain}}
+  - match:
+    - headers:
+        :authority:
+          exact: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
+    route:
+    - destination:
+        host: {{.Name}}
+        port:
+          number: {{.Spec.Rest.Port}}
+  - match:
+    - headers:
+        :authority:
+          exact: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
+    route:
+    - destination:
+        host: {{.Name}}
+        port:
+          number: {{.Spec.Grpc.Port}}
+  {{- end}}

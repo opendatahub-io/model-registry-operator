@@ -17,11 +17,12 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	v1 "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
-
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -103,7 +104,21 @@ func main() {
 	}
 	setupLog.Info("parsed kubernetes templates", "templates", template.DefinedTemplates())
 
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig())
+	mgrRestConfig := mgr.GetConfig()
+	client := mgr.GetClient()
+	tokenReview := &v1.TokenReview{
+		Spec: v1.TokenReviewSpec{
+			Token: mgrRestConfig.BearerToken,
+		},
+	}
+	err = client.Create(context.Background(), tokenReview)
+	if err != nil {
+		setupLog.Error(err, "error getting controller serviceaccount audience")
+		os.Exit(1)
+	}
+	setupLog.Info("default authorino authconfig audiences", "audiences", tokenReview.Status.Audiences)
+
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
 	groups, err := discoveryClient.ServerGroups()
 	if err != nil {
 		setupLog.Error(err, "error discovering server groups")
@@ -118,13 +133,14 @@ func main() {
 
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	if err = (&controller.ModelRegistryReconciler{
-		Client:         mgr.GetClient(),
+		Client:         client,
 		Scheme:         mgr.GetScheme(),
 		Recorder:       mgr.GetEventRecorderFor("modelregistry-controller"),
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
 		IsOpenShift:    isOpenShift,
+		Audiences:      tokenReview.Status.Audiences,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

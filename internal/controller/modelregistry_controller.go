@@ -21,11 +21,16 @@ import (
 	"fmt"
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
+	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
+	userv1 "github.com/openshift/api/user/v1"
+	"istio.io/client-go/pkg/apis/networking/v1beta1"
+	v12 "istio.io/client-go/pkg/apis/security/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,6 +72,7 @@ type ModelRegistryReconciler struct {
 	Template       *template.Template
 	EnableWebhooks bool
 	IsOpenShift    bool
+	Audiences      []string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -235,15 +241,14 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return builder.Complete(r)
 }
 
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-//+kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
-
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
 
@@ -262,6 +267,24 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	}
 
 	if r.IsOpenShift {
+		// create default group and role binding in OpenShift cluster
+		result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		result2, err = r.createOrUpdateRoleBinding(ctx, params, registry, "role-binding.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// create simple openshift service route, if configured
 		result2, err = r.createOrUpdateRoute(ctx, params, registry, "http-route.yaml.tmpl")
 		if err != nil {
 			return result2, err
@@ -277,6 +300,24 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	}
 	if result2 != ResourceUnchanged {
 		result = result2
+	}
+
+	result2, err = r.createOrUpdateRole(ctx, params, registry, "role.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	if registry.Spec.Istio != nil {
+		result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	return result, nil
@@ -344,6 +385,198 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		return err
 	}
 	return nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
+	var result, result2 OperationResult
+
+	// are AuthConfig audiences specified?
+	if len(params.Spec.Istio.Audiences) == 0 {
+		// use operator serviceaccount audiences by default
+		params.Spec.Istio.Audiences = r.Audiences
+		registry.Spec.Istio.Audiences = r.Audiences
+	}
+
+	var err error
+	result, err = r.createOrUpdateVirtualService(ctx, params, registry, "virtual-service.yaml.tmpl")
+	if err != nil {
+		return result, err
+	}
+
+	result2, err = r.createOrUpdateDestinationRule(ctx, params, registry, "destination-rule.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateAuthorizationPolicy(ctx, params, registry, "authorino-authorization-policy.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateAuthConfig(ctx, params, registry, "authconfig.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateGateway(ctx, params, registry, "gateway.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var gateway v1beta1.Gateway
+	if err = r.Apply(params, templateName, &gateway); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &gateway, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, gateway.DeepCopy(), &gateway)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var authConfig authorinov1beta2.AuthConfig
+	if err = r.Apply(params, templateName, &authConfig); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &authConfig, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, authConfig.DeepCopy(), &authConfig)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var authorizationPolicy v12.AuthorizationPolicy
+	if err = r.Apply(params, templateName, &authorizationPolicy); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &authorizationPolicy, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, authorizationPolicy.DeepCopy(), &authorizationPolicy)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateDestinationRule(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var destinationRule v1beta1.DestinationRule
+	if err = r.Apply(params, templateName, &destinationRule); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &destinationRule, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, destinationRule.DeepCopy(), &destinationRule)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateVirtualService(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var virtualService v1beta1.VirtualService
+	if err = r.Apply(params, templateName, &virtualService); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &virtualService, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, virtualService.DeepCopy(), &virtualService)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var roleBinding v1.RoleBinding
+	if err = r.Apply(params, templateName, &roleBinding); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &roleBinding, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, roleBinding.DeepCopy(), &roleBinding)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var role v1.Role
+	if err = r.Apply(params, templateName, &role); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &role, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, role.DeepCopy(), &role)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var group userv1.Group
+	if err = r.Apply(params, templateName, &group); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, group.DeepCopy(), &group)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
