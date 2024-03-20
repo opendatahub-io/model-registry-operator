@@ -1,33 +1,8 @@
-{{- define "server-tls-settings"}}
-    tls:
-      mode: {{.Mode}}
-      {{with .ServerCertificate}}serverCertificate: {{.}}{{end}}
-      {{with .PrivateKey}}privateKey: {{.}}{{end}}
-      {{with .CaCertificates}}caCertificates: {{.}}{{end}}
-      {{with .CredentialName}}credentialName: {{.}}{{end}}
-      {{- with .SubjectAltNames}}
-      subjectAltNames:
-        {{range .}}- {{.}}{{end}}
-      {{- end}}
-      {{- with .VerifyCertificateSpki}}
-      verifyCertificateSpki:
-        {{range .}}- {{.}}{{end}}
-      {{- end}}
-      {{- with .VerifyCertificateHash}}
-      verifyCertificateHash:
-        {{range .}}- {{.}}{{end}}
-      {{- end}}
-      {{with .MinProtocolVersion}}minProtocolVersion: {{.}}{{end}}
-      {{with .MaxProtocolVersion}}maxProtocolVersion: {{.}}{{end}}
-      {{- with .CipherSuites}}
-      cipher_suites:
-        {{range .}}- {{.}}{{end}}
-      {{- end}}
-{{- end}}
 apiVersion: networking.istio.io/v1beta1
 kind: Gateway
 metadata:
-  name: {{.Name}}-gateway
+  name: {{.Name}}
+  namespace: {{.Namespace}}
   annotations:
     maistra.io/manageRoute: "true"
 spec:
@@ -38,26 +13,67 @@ spec:
     istio: {{.Spec.Istio.Gateway.IstioIngress}}
     {{- with .Spec.Istio.Gateway.ControlPlane}}
     maistra.io/owner-name: {{.}}
-    {{- end}}}
+    {{- end}}
   servers:
   - port:
-      number: {{.Spec.Istio.Gateway.RestPort}}
-      {{- if .Spec.Istio.Gateway.RestTls}}
-      name: https
-      protocol: HTTPS
-      {{- else}}
-      name: http
-      protocol: HTTP
-      {{- end}}
+      number: {{.Spec.Istio.Gateway.Rest.Port}}
+      name: rest
+      protocol: {{with .Spec.Istio.Gateway.Rest.TLS}}HTTPS{{- else}}HTTP{{- end}}
     hosts:
     - {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
     name: {{.Name}}-rest-server
-    {{- with .Spec.Istio.Gateway.RestTls}}{{- template "server-tls-settings"}}{{- end}}
+    {{- with .Spec.Istio.Gateway.Rest.TLS}}{{- template "server-tls-settings" .}}{{- end}}
   - port:
-      number: {{.Spec.Istio.Gateway.GrpcPort}}
+      number: {{.Spec.Istio.Gateway.Grpc.Port}}
       name: grpc
-      protocol: GRPC
+      protocol: {{with .Spec.Istio.Gateway.Grpc.TLS}}HTTPS{{- else}}GRPC{{- end}}
     hosts:
     - {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
     name: {{.Name}}-grpc-server
-    {{- with .Spec.Istio.Gateway.GrpcTls}}{{- template "server-tls-settings"}}{{- end}}
+    {{- with .Spec.Istio.Gateway.Grpc.TLS}}{{- template "server-tls-settings" .}}{{- end}}
+{{- define "server-tls-settings"}}
+    tls:
+      mode: {{.Mode}}
+      {{- with .ServerCertificate}}
+      serverCertificate: {{.}}
+      {{- end}}
+      {{- with .PrivateKey}}
+      privateKey: {{.}}
+      {{- end}}
+      {{- with .CaCertificates}}
+      caCertificates: {{.}}
+      {{- end}}
+      {{- with .CredentialName}}
+      credentialName: {{.}}
+      {{- end}}
+      {{- with .SubjectAltNames}}
+      subjectAltNames:
+        {{- range .}}
+        - {{.}}
+        {{- end}}
+      {{- end}}
+      {{- with .VerifyCertificateSpki}}
+      verifyCertificateSpki:
+        {{- range .}}
+        - {{.}}
+        {{- end}}
+      {{- end}}
+      {{- with .VerifyCertificateHash}}
+      verifyCertificateHash:
+        {{- range .}}
+        - {{.}}
+        {{- end}}
+      {{- end}}
+      {{- with .MinProtocolVersion}}
+      minProtocolVersion: {{.}}
+      {{- end}}
+      {{- with .MaxProtocolVersion}}
+      maxProtocolVersion: {{.}}
+      {{- end}}
+      {{- with .CipherSuites}}
+      cipher_suites:
+        {{- range .}}
+        - {{.}}
+        {{- end}}
+      {{- end}}
+{{- end}}

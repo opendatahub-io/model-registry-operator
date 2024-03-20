@@ -298,6 +298,20 @@ type ServerTLSSettings struct {
 	CipherSuites []string `json:"cipher_suites,omitempty"`
 }
 
+type ServerConfig struct {
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for server connections, defaults to 80 without TLS and 443 when TLS settings are present.
+	Port *int32 `json:"port,omitempty"`
+
+	// Set of TLS related options that govern the server's behavior. Use
+	// these options to control if all http requests should be redirected to
+	// https, and the TLS modes to use.
+	//+optional
+	TLS *ServerTLSSettings `json:"tls,omitempty"`
+}
+
 type GatewayConfig struct {
 	//+kubebuilder:required
 
@@ -314,29 +328,11 @@ type GatewayConfig struct {
 	//+optional
 	ControlPlane *string `json:"controlPlane,omitempty"`
 
-	//+kubebuilder:validation:Minimum=0
-	//+kubebuilder:validation:Maximum=65535
+	// Rest gateway server config
+	Rest ServerConfig `json:"rest"`
 
-	// Listen port for REST connections, defaults to 80 without TLS and 443 when RestTls settings are present.
-	RestPort *int32 `json:"restPort,omitempty"`
-
-	//+kubebuilder:validation:Minimum=0
-	//+kubebuilder:validation:Maximum=65535
-
-	// Listen port for gRPC connections, defaults to 80 without TLS and 443 when GrpcTls settings are present.
-	GrpcPort *int32 `json:"grpcPort,omitempty"`
-
-	// Set of TLS related options that govern the REST server's behavior. Use
-	// these options to control if all http requests should be redirected to
-	// https, and the TLS modes to use.
-	//+optional
-	RestTls *ServerTLSSettings `json:"restTLS,omitempty"`
-
-	// Set of TLS related options that govern the gRPC server's behavior. Use
-	// these options to control if all http requests should be redirected to
-	// https, and the TLS modes to use.
-	//+optional
-	GrpcTls *ServerTLSSettings `json:"grpcTLS,omitempty"`
+	// Rest gateway server config
+	Grpc ServerConfig `json:"grpc"`
 }
 
 type IstioConfig struct {
@@ -347,7 +343,7 @@ type IstioConfig struct {
 
 	// Authorino AuthConfig selector labels
 	//+optional
-	AuthConfigLabels []string `json:"authConfigLabels,omitempty"`
+	AuthConfigLabels map[string]string `json:"authConfigLabels,omitempty"`
 
 	//+kubebuilder:required
 	//+kubebuilder:default=ISTIO_MUTUAL
@@ -372,7 +368,7 @@ type IstioConfig struct {
 	// Optional Istio Gateway for registry services.
 	// Gateway is not created if set to null (default).
 	//+optional
-	Gateway *GatewayConfig `json:"serviceGateway,omitempty"`
+	Gateway *GatewayConfig `json:"gateway,omitempty"`
 
 	// Optional Authorino AuthConfig credential audiences. This depends on the cluster identity provider.
 	// If not specified, operator will determine the cluster's audience using its own service account.

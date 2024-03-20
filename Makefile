@@ -1,6 +1,9 @@
 # Include images as env variables
 include ./config/overlays/odh/params.env
 
+# Include istio config as env variables
+include ./config/samples/istio/components/istio.env
+
 # Image URL to use all building/pushing image targets
 IMG_REGISTRY ?= "quay.io"
 IMG_ORG ?= "opendatahub"
@@ -184,3 +187,25 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+
+.PHONY: certificates
+certificates:
+	# generate TLS certs
+	scripts/generate_certs.sh $(DOMAIN)
+	# create secrets from TLS certs
+	$(KUBECTL) create secret generic modelregistry-sample-rest-credential \
+      --from-file=tls.key=certs/modelregistry-sample-rest.domain.key \
+      --from-file=tls.crt=certs/modelregistry-sample-rest.domain.crt \
+      --from-file=ca.crt=certs/domain.crt
+	$(KUBECTL) create secret generic modelregistry-sample-grpc-credential \
+      --from-file=tls.key=certs/modelregistry-sample-grpc.domain.key \
+      --from-file=tls.crt=certs/modelregistry-sample-grpc.domain.crt \
+      --from-file=ca.crt=certs/domain.crt
+
+.PHONY: certificates/clean
+certificates/clean:
+	# delete cert files
+	mkdir -p certs
+	rm -f certs/*
+	# delete k8s secrets
+	$(KUBECTL) delete secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential

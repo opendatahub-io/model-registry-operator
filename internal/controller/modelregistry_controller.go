@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	errors2 "errors"
 	"fmt"
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
@@ -27,7 +28,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	"istio.io/client-go/pkg/apis/networking/v1beta1"
-	v12 "istio.io/client-go/pkg/apis/security/v1"
+	v1beta12 "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -72,6 +73,7 @@ type ModelRegistryReconciler struct {
 	Template       *template.Template
 	EnableWebhooks bool
 	IsOpenShift    bool
+	HasIstio       bool
 	Audiences      []string
 }
 
@@ -124,14 +126,15 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if controllerutil.ContainsFinalizer(modelRegistry, modelRegistryFinalizer) {
 			log.Info("Performing Finalizer Operations for modelRegistry before delete CR")
 
-			// Let's add here an status "Degraded" to define that this resource begin its process to be terminated.
+			// Let's add status "Degraded" to define that this resource has begun its process to be terminated.
 			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded,
 				Status: metav1.ConditionUnknown, Reason: "Finalizing",
 				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", modelRegistry.Name)})
 
 			if err = r.Status().Update(ctx, modelRegistry); IgnoreDeletingErrors(err) != nil {
-				switch t := err.(type) {
-				case *errors.StatusError:
+				var t *errors.StatusError
+				switch {
+				case errors2.As(err, &t):
 					log.Error(err, "status error", "status", t.Status())
 				}
 				log.Error(err, "Failed to update modelRegistry status")
@@ -147,7 +150,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			// otherwise, you should requeue here.
 
 			// Re-fetch the modelRegistry Custom Resource before update the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
+			// so that we have the latest state of the resource on the cluster, and we will avoid
 			// raise the issue "the object has been modified, please apply
 			// your changes to the latest version and try again" which would re-trigger the reconciliation
 			if err = r.Get(ctx, req.NamespacedName, modelRegistry); IgnoreDeletingErrors(err) != nil {
@@ -238,6 +241,13 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.IsOpenShift {
 		builder = builder.Owns(&routev1.Route{})
 	}
+	if r.HasIstio {
+		builder = builder.Owns(&authorinov1beta2.AuthConfig{})
+		builder = builder.Owns(&v1beta12.AuthorizationPolicy{})
+		builder = builder.Owns(&v1beta1.DestinationRule{})
+		builder = builder.Owns(&v1beta1.Gateway{})
+		builder = builder.Owns(&v1beta1.VirtualService{})
+	}
 	return builder.Complete(r)
 }
 
@@ -249,6 +259,11 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=authorino.kuadrant.io/v1beta2,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security.istio.io/v1beta1,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io/v1beta1,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io/v1beta1,resources=gateways,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io/v1beta1,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
 
@@ -344,6 +359,8 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		status = metav1.ConditionFalse
 		reason = ReasonUpdating
 		message = "Updating deployment for custom resource %s"
+	case ResourceUnchanged:
+		// ignore
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
@@ -477,7 +494,7 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, 
 func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var authorizationPolicy v12.AuthorizationPolicy
+	var authorizationPolicy v1beta12.AuthorizationPolicy
 	if err = r.Apply(params, templateName, &authorizationPolicy); err != nil {
 		return result, err
 	}
@@ -565,7 +582,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	_ *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var group userv1.Group
 	if err = r.Apply(params, templateName, &group); err != nil {
@@ -706,6 +723,10 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
 			return result, err
 		}
+		// set metadata.resourceVersion if present
+		if len(currObj.GetResourceVersion()) != 0 {
+			newObj.SetResourceVersion(currObj.GetResourceVersion())
+		}
 		return result, r.Client.Update(ctx, newObj)
 	}
 
@@ -732,14 +753,14 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(registry
 			registry.Namespace))
 }
 
-// wrapper for template parameters
+// ModelRegistryParams is a wrapper for template parameters
 type ModelRegistryParams struct {
 	Name      string
 	Namespace string
 	Spec      modelregistryv1alpha1.ModelRegistrySpec
 }
 
-// executes given template name with params
+// Apply executes given template name with params
 func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object interface{}) error {
 	builder := strings.Builder{}
 	err := r.Template.ExecuteTemplate(&builder, templateName, params)
@@ -765,5 +786,7 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 			fmt.Sprintf("Updated service for custom resource %s in namespace %s",
 				registry.Name,
 				registry.Namespace))
+	case ResourceUnchanged:
+		// ignore
 	}
 }

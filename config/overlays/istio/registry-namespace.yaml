@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/name: namespace
     app.kubernetes.io/instance: system
     app.kubernetes.io/component: manager
-    app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry-operator
+    app.kubernetes.io/created-by: model-registry
+    app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: kustomize
     sidecar.istio.io/inject: "true"
   name: odh-model-registries

@@ -19,7 +19,10 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"istio.io/client-go/pkg/apis/networking/v1beta1"
+	v1beta12 "istio.io/client-go/pkg/apis/security/v1beta1"
 	v1 "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
@@ -51,7 +54,14 @@ const EnableWebhooks = "ENABLE_WEBHOOKS"
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	// openshift scheme
 	utilruntime.Must(oapi.Install(scheme))
+	// authorino scheme
+	utilruntime.Must(v1beta2.AddToScheme(scheme))
+	// istio security scheme
+	utilruntime.Must(v1beta12.AddToScheme(scheme))
+	// istio networking scheme
+	utilruntime.Must(v1beta1.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -125,9 +135,17 @@ func main() {
 		os.Exit(1)
 	}
 	isOpenShift := false
+	hasAuthorino := false
+	hasIstio := false
 	for _, g := range groups.Groups {
 		if g.Name == "route.openshift.io" {
 			isOpenShift = true
+		}
+		if g.Name == "authorino.kuadrant.io" {
+			hasAuthorino = true
+		}
+		if g.Name == "networking.istio.io" {
+			hasIstio = true
 		}
 	}
 
@@ -140,6 +158,7 @@ func main() {
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
 		IsOpenShift:    isOpenShift,
+		HasIstio:       hasAuthorino && hasIstio,
 		Audiences:      tokenReview.Status.Audiences,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")

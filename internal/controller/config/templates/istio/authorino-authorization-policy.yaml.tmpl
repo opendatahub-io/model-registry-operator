@@ -2,6 +2,7 @@ apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
   name: {{.Name}}-authorino
+  namespace: {{.Namespace}}
 spec:
   action: CUSTOM
   selector:

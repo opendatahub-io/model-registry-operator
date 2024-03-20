@@ -5,20 +5,11 @@
     fieldPath: data.AUTH_PROVIDER
   targets:
     - select:
+        apiVersion: modelregistry.opendatahub.io/v1alpha1
         kind: ModelRegistry
         name: modelregistry-sample
       fieldPaths:
         - spec.istio.authProvider
-- source:
-    kind: ConfigMap
-    name: modelregistry-sample-environment
-    fieldPath: data.AUTHCONFIG_LABELS
-  targets:
-    - select:
-        kind: ModelRegistry
-        name: modelregistry-sample
-      fieldPaths:
-        - spec.istio.authConfigLabels
 - source:
     kind: ConfigMap
     name: modelregistry-sample-environment
@@ -39,23 +30,3 @@
         name: modelregistry-sample
       fieldPaths:
         - spec.istio.gateway.istioIngress
-- source:
-    kind: ConfigMap
-    name: modelregistry-sample-environment
-    fieldPath: data.REST_CREDENTIAL_NAME
-  targets:
-    - select:
-        kind: ModelRegistry
-        name: modelregistry-sample
-      fieldPaths:
-        - spec.istio.gateway.restTls.credentialName
-- source:
-    kind: ConfigMap
-    name: modelregistry-sample-environment
-    fieldPath: data.GRPC_CREDENTIAL_NAME
-  targets:
-    - select:
-        kind: ModelRegistry
-        name: modelregistry-sample
-      fieldPaths:
-        - spec.istio.gateway.grpcTls.credentialName

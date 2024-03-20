@@ -2,11 +2,11 @@ apiVersion: authorino.kuadrant.io/v1beta2
 kind: AuthConfig
 metadata:
   name: {{.Name}}
+  namespace: {{.Namespace}}
   {{- with .Spec.Istio.AuthConfigLabels}}
   labels:
-    # security.opendatahub.io/authorization-group: default
-    {{- range .}}
-    {{.}}
+    {{- range $key, $value := .}}
+    {{$key}}: {{$value}}
     {{- end}}
   {{- end}}
 spec:
@@ -17,18 +17,12 @@ spec:
       kubernetesTokenReview:
         audiences:
           {{- with .Spec.Istio.Audiences}}
-          {{- range .Spec.Istio.Audiences}}
+          {{- range .}}
           - {{.}}
           {{- end}}
           {{- else}}
           - https://kubernetes.default.svc
           {{- end}}
-    service-accounts:
-      credentials:
-        authorizationHeader: { }
-      kubernetesTokenReview:
-        audiences:
-          - https://kubernetes.default.svc.cluster.local
   authorization:
     k8s-rbac:
       kubernetesSubjectAccessReview:

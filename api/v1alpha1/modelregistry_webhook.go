@@ -31,6 +31,7 @@ var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
 // default ports
 const (
+	DEFAULT_TLS_MODE   = "ISTIO_MUTUAL"
 	DEFAULT_HTTP_PORT  = 80
 	DEFAULT_HTTPS_PORT = 443
 )
@@ -79,23 +80,29 @@ func (r *ModelRegistry) Default() {
 
 	// istio defaults
 	if r.Spec.Istio != nil {
-		// set default gateway ports if needed
-		if r.Spec.Istio.Gateway.RestPort == nil {
-			if r.Spec.Istio.Gateway.RestTls != nil {
-				var port int32 = DEFAULT_HTTPS_PORT
-				r.Spec.Istio.Gateway.RestPort = &port
-			} else {
-				var port int32 = DEFAULT_HTTP_PORT
-				r.Spec.Istio.Gateway.RestPort = &port
-			}
+		// set default TlsMode
+		if len(r.Spec.Istio.TlsMode) == 0 {
+			r.Spec.Istio.TlsMode = DEFAULT_TLS_MODE
 		}
-		if r.Spec.Istio.Gateway.GrpcPort == nil {
-			if r.Spec.Istio.Gateway.GrpcTls != nil {
-				var port int32 = DEFAULT_HTTPS_PORT
-				r.Spec.Istio.Gateway.RestPort = &port
-			} else {
-				var port int32 = DEFAULT_HTTP_PORT
-				r.Spec.Istio.Gateway.RestPort = &port
+		if r.Spec.Istio.Gateway != nil {
+			// set default gateway ports if needed
+			if r.Spec.Istio.Gateway.Rest.Port == nil {
+				if r.Spec.Istio.Gateway.Rest.TLS != nil {
+					var port int32 = DEFAULT_HTTPS_PORT
+					r.Spec.Istio.Gateway.Rest.Port = &port
+				} else {
+					var port int32 = DEFAULT_HTTP_PORT
+					r.Spec.Istio.Gateway.Rest.Port = &port
+				}
+			}
+			if r.Spec.Istio.Gateway.Grpc.Port == nil {
+				if r.Spec.Istio.Gateway.Grpc.TLS != nil {
+					var port int32 = DEFAULT_HTTPS_PORT
+					r.Spec.Istio.Gateway.Grpc.Port = &port
+				} else {
+					var port int32 = DEFAULT_HTTP_PORT
+					r.Spec.Istio.Gateway.Grpc.Port = &port
+				}
 			}
 		}
 	}
