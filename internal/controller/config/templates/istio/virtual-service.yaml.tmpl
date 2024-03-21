@@ -35,7 +35,7 @@ spec:
   - match:
     - headers:
         :authority:
-          exact: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}
+          regex: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}(:{{.Spec.Istio.Gateway.Rest.Port}})?
     route:
     - destination:
         host: {{.Name}}
@@ -44,7 +44,7 @@ spec:
   - match:
     - headers:
         :authority:
-          exact: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}
+          regex: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}(:{{.Spec.Istio.Gateway.Grpc.Port}})?
     route:
     - destination:
         host: {{.Name}}
