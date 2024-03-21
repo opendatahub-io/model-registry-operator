@@ -193,11 +193,11 @@ certificates:
 	# generate TLS certs
 	scripts/generate_certs.sh $(DOMAIN)
 	# create secrets from TLS certs
-	$(KUBECTL) create secret generic modelregistry-sample-rest-credential \
+	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-rest-credential \
       --from-file=tls.key=certs/modelregistry-sample-rest.domain.key \
       --from-file=tls.crt=certs/modelregistry-sample-rest.domain.crt \
       --from-file=ca.crt=certs/domain.crt
-	$(KUBECTL) create secret generic modelregistry-sample-grpc-credential \
+	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-grpc-credential \
       --from-file=tls.key=certs/modelregistry-sample-grpc.domain.key \
       --from-file=tls.crt=certs/modelregistry-sample-grpc.domain.crt \
       --from-file=ca.crt=certs/domain.crt
