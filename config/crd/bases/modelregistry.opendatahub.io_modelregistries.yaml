@@ -141,7 +141,7 @@ spec:
                         description: Domain name for Gateway configuration
                         type: string
                       grpc:
-                        description: Rest gateway server config
+                        description: gRPC  gateway server config
                         properties:
                           port:
                             description: Listen port for server connections, defaults
