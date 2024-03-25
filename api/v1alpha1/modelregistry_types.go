@@ -331,7 +331,7 @@ type GatewayConfig struct {
 	// Rest gateway server config
 	Rest ServerConfig `json:"rest"`
 
-	// Rest gateway server config
+	// gRPC  gateway server config
 	Grpc ServerConfig `json:"grpc"`
 }
 
