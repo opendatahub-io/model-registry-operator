@@ -17,11 +17,15 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	authorino "github.com/kuadrant/authorino/api/v1beta2"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	security "istio.io/client-go/pkg/apis/security/v1beta1"
+	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
-
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -50,7 +54,14 @@ const EnableWebhooks = "ENABLE_WEBHOOKS"
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	// openshift scheme
 	utilruntime.Must(oapi.Install(scheme))
+	// authorino scheme
+	utilruntime.Must(authorino.AddToScheme(scheme))
+	// istio security scheme
+	utilruntime.Must(security.AddToScheme(scheme))
+	// istio networking scheme
+	utilruntime.Must(networking.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -103,28 +114,52 @@ func main() {
 	}
 	setupLog.Info("parsed kubernetes templates", "templates", template.DefinedTemplates())
 
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig())
+	mgrRestConfig := mgr.GetConfig()
+	client := mgr.GetClient()
+	tokenReview := &authentication.TokenReview{
+		Spec: authentication.TokenReviewSpec{
+			Token: mgrRestConfig.BearerToken,
+		},
+	}
+	err = client.Create(context.Background(), tokenReview)
+	if err != nil {
+		setupLog.Error(err, "error getting controller serviceaccount audience")
+		os.Exit(1)
+	}
+	setupLog.Info("default authorino authconfig audiences", "audiences", tokenReview.Status.Audiences)
+
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
 	groups, err := discoveryClient.ServerGroups()
 	if err != nil {
 		setupLog.Error(err, "error discovering server groups")
 		os.Exit(1)
 	}
 	isOpenShift := false
+	hasAuthorino := false
+	hasIstio := false
 	for _, g := range groups.Groups {
 		if g.Name == "route.openshift.io" {
 			isOpenShift = true
+		}
+		if g.Name == "authorino.kuadrant.io" {
+			hasAuthorino = true
+		}
+		if g.Name == "networking.istio.io" {
+			hasIstio = true
 		}
 	}
 
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	if err = (&controller.ModelRegistryReconciler{
-		Client:         mgr.GetClient(),
+		Client:         client,
 		Scheme:         mgr.GetScheme(),
 		Recorder:       mgr.GetEventRecorderFor("modelregistry-controller"),
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
 		IsOpenShift:    isOpenShift,
+		HasIstio:       hasAuthorino && hasIstio,
+		Audiences:      tokenReview.Status.Audiences,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

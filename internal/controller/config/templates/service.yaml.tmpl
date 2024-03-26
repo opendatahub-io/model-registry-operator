@@ -11,9 +11,11 @@ spec:
     - name: grpc-api
       port: {{.Spec.Grpc.Port}}
       protocol: TCP
+      appProtocol: grpc
     - name: http-api
       port: {{.Spec.Rest.Port}}
       protocol: TCP
+      appProtocol: http
   selector:
     app: {{.Name}}
     component: model-registry
