@@ -22,16 +22,16 @@ import (
 	"fmt"
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
-	authorinov1beta2 "github.com/kuadrant/authorino/api/v1beta2"
+	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
-	"istio.io/client-go/pkg/apis/networking/v1beta1"
-	v1beta12 "istio.io/client-go/pkg/apis/security/v1beta1"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/rbac/v1"
+	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -242,11 +242,11 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Owns(&routev1.Route{})
 	}
 	if r.HasIstio {
-		builder = builder.Owns(&authorinov1beta2.AuthConfig{})
-		builder = builder.Owns(&v1beta12.AuthorizationPolicy{})
-		builder = builder.Owns(&v1beta1.DestinationRule{})
-		builder = builder.Owns(&v1beta1.Gateway{})
-		builder = builder.Owns(&v1beta1.VirtualService{})
+		builder = builder.Owns(&authorino.AuthConfig{})
+		builder = builder.Owns(&security.AuthorizationPolicy{})
+		builder = builder.Owns(&networking.DestinationRule{})
+		builder = builder.Owns(&networking.Gateway{})
+		builder = builder.Owns(&networking.VirtualService{})
 	}
 	return builder.Complete(r)
 }
@@ -458,7 +458,7 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var gateway v1beta1.Gateway
+	var gateway networking.Gateway
 	if err = r.Apply(params, templateName, &gateway); err != nil {
 		return result, err
 	}
@@ -476,7 +476,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var authConfig authorinov1beta2.AuthConfig
+	var authConfig authorino.AuthConfig
 	if err = r.Apply(params, templateName, &authConfig); err != nil {
 		return result, err
 	}
@@ -494,7 +494,7 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, 
 func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var authorizationPolicy v1beta12.AuthorizationPolicy
+	var authorizationPolicy security.AuthorizationPolicy
 	if err = r.Apply(params, templateName, &authorizationPolicy); err != nil {
 		return result, err
 	}
@@ -512,7 +512,7 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.
 func (r *ModelRegistryReconciler) createOrUpdateDestinationRule(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var destinationRule v1beta1.DestinationRule
+	var destinationRule networking.DestinationRule
 	if err = r.Apply(params, templateName, &destinationRule); err != nil {
 		return result, err
 	}
@@ -530,7 +530,7 @@ func (r *ModelRegistryReconciler) createOrUpdateDestinationRule(ctx context.Cont
 func (r *ModelRegistryReconciler) createOrUpdateVirtualService(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var virtualService v1beta1.VirtualService
+	var virtualService networking.VirtualService
 	if err = r.Apply(params, templateName, &virtualService); err != nil {
 		return result, err
 	}
@@ -548,7 +548,7 @@ func (r *ModelRegistryReconciler) createOrUpdateVirtualService(ctx context.Conte
 func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var roleBinding v1.RoleBinding
+	var roleBinding rbac.RoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
 		return result, err
 	}
@@ -566,7 +566,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context,
 func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
-	var role v1.Role
+	var role rbac.Role
 	if err = r.Apply(params, templateName, &role); err != nil {
 		return result, err
 	}

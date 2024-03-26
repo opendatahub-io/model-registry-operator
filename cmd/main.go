@@ -19,11 +19,11 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/kuadrant/authorino/api/v1beta2"
+	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
-	"istio.io/client-go/pkg/apis/networking/v1beta1"
-	v1beta12 "istio.io/client-go/pkg/apis/security/v1beta1"
-	v1 "k8s.io/api/authentication/v1"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	security "istio.io/client-go/pkg/apis/security/v1beta1"
+	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
 
@@ -57,11 +57,11 @@ func init() {
 	// openshift scheme
 	utilruntime.Must(oapi.Install(scheme))
 	// authorino scheme
-	utilruntime.Must(v1beta2.AddToScheme(scheme))
+	utilruntime.Must(authorino.AddToScheme(scheme))
 	// istio security scheme
-	utilruntime.Must(v1beta12.AddToScheme(scheme))
+	utilruntime.Must(security.AddToScheme(scheme))
 	// istio networking scheme
-	utilruntime.Must(v1beta1.AddToScheme(scheme))
+	utilruntime.Must(networking.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -116,8 +116,8 @@ func main() {
 
 	mgrRestConfig := mgr.GetConfig()
 	client := mgr.GetClient()
-	tokenReview := &v1.TokenReview{
-		Spec: v1.TokenReviewSpec{
+	tokenReview := &authentication.TokenReview{
+		Spec: authentication.TokenReviewSpec{
 			Token: mgrRestConfig.BearerToken,
 		},
 	}
