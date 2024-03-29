@@ -19,7 +19,6 @@ labels:
 # Overlay on operator default config with prometheus monitor
 resources:
 - ../../default
-- ../../prometheus
 
 # Config map and replacements to use params.env for use in opendatahub-operator
 configMapGenerator:
