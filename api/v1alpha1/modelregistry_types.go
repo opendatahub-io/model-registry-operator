@@ -173,7 +173,7 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
-type ServerTLSSettings struct {
+type TLSServerSettings struct {
 
 	//+kubebuilder:default=SIMPLE
 	//+kubebuilder:validation:Enum=SIMPLE;MUTUAL;ISTIO_MUTUAL;OPTIONAL_MUTUAL
@@ -188,25 +188,8 @@ type ServerTLSSettings struct {
 	// OPTIONAL_MUTUAL: Similar to MUTUAL mode, except that the client certificate is optional. Unlike SIMPLE mode, A client certificate will still be explicitly requested during handshake, but the client is not required to send a certificate. If a client certificate is presented, it will be validated. ca_certificates should be specified for validating client certificates.
 	Mode string `json:"mode"`
 
-	// REQUIRED if mode is `SIMPLE` or `MUTUAL`. The path to the file
-	// holding the server-side TLS certificate to use.
-	//+optional
-	ServerCertificate *string `json:"serverCertificate,omitempty"`
-
-	// REQUIRED if mode is `SIMPLE` or `MUTUAL`. The path to the file
-	// holding the server's private key.
-	//+optional
-	PrivateKey *string `json:"privateKey,omitempty"`
-
-	// REQUIRED if mode is `MUTUAL` or `OPTIONAL_MUTUAL`. The path to a file
-	// containing certificate authority certificates to use in verifying a presented
-	// client side certificate.
-	//+optional
-	CaCertificates *string `json:"caCertificates,omitempty"`
-
-	// For gateways running on Kubernetes, the name of the secret that
-	// holds the TLS certs including the CA certificates. Applicable
-	// only on Kubernetes. An Opaque secret should contain the following
+	// The name of the secret that holds the TLS certs including the CA certificates.
+	// An Opaque secret should contain the following
 	// keys and values: `tls.key: <privateKey>` and `tls.crt: <serverCert>` or
 	// `key: <privateKey>` and `cert: <serverCert>`.
 	// For mutual TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
@@ -218,84 +201,6 @@ type ServerTLSSettings struct {
 	// or credentialName can be specified.
 	//+optional
 	CredentialName *string `json:"credentialName,omitempty"`
-
-	// A list of alternate names to verify the subject identity in the
-	// certificate presented by the client.
-	SubjectAltNames []string `json:"subjectAltNames,omitempty"`
-
-	// An optional list of base64-encoded SHA-256 hashes of the SPKIs of
-	// authorized client certificates.
-	// Note: When both verify_certificate_hash and verify_certificate_spki
-	// are specified, a hash matching either value will result in the
-	// certificate being accepted.
-	VerifyCertificateSpki []string `json:"verifyCertificateSpki,omitempty"`
-
-	// An optional list of hex-encoded SHA-256 hashes of the
-	// authorized client certificates. Both simple and colon separated
-	// formats are acceptable.
-	// Note: When both verify_certificate_hash and verify_certificate_spki
-	// are specified, a hash matching either value will result in the
-	// certificate being accepted.
-	VerifyCertificateHash []string `json:"verifyCertificateHash,omitempty"`
-
-	//+kubebuilder:Enum=TLS_AUTO;TLSV1_0;TLSV1_1;TLSV1_2;TLSV1_3
-
-	// Optional: Minimum TLS protocol version. By default, it is `TLSV1_2`.
-	// TLS protocol versions below TLSV1_2 require setting compatible ciphers with the
-	// `cipherSuites` setting as they no longer include compatible ciphers.
-	//
-	// TLS_AUTO: Automatically choose the optimal TLS version.
-	//
-	// TLSV1_0: TLS version 1.0
-	//
-	// TLSV1_1: TLS version 1.1
-	//
-	// TLSV1_2: TLS version 1.2
-	//
-	// TLSV1_3: TLS version 1.3
-	//
-	// Note: Using TLS protocol versions below TLSV1_2 has serious security risks.
-	//+optional
-	MinProtocolVersion *string `json:"minProtocolVersion,omitempty"`
-
-	//+kubebuilder:Enum=TLS_AUTO;TLSV1_0;TLSV1_1;TLSV1_2;TLSV1_3
-
-	// Optional: Maximum TLS protocol version.
-	//
-	// TLS_AUTO: Automatically choose the optimal TLS version.
-	//
-	// TLSV1_0: TLS version 1.0
-	//
-	// TLSV1_1: TLS version 1.1
-	//
-	// TLSV1_2: TLS version 1.2
-	//
-	// TLSV1_3: TLS version 1.3
-	//
-	//+optional
-	MaxProtocolVersion *string `json:"maxProtocolVersion,omitempty"`
-
-	// Optional: If specified, only support the specified cipher list.
-	// Otherwise, default to the default cipher list supported by Envoy
-	// as specified [here](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto).
-	// The supported list of ciphers are:
-	// * `ECDHE-ECDSA-AES128-GCM-SHA256`
-	// * `ECDHE-RSA-AES128-GCM-SHA256`
-	// * `ECDHE-ECDSA-AES256-GCM-SHA384`
-	// * `ECDHE-RSA-AES256-GCM-SHA384`
-	// * `ECDHE-ECDSA-CHACHA20-POLY1305`
-	// * `ECDHE-RSA-CHACHA20-POLY1305`
-	// * `ECDHE-ECDSA-AES128-SHA`
-	// * `ECDHE-RSA-AES128-SHA`
-	// * `ECDHE-ECDSA-AES256-SHA`
-	// * `ECDHE-RSA-AES256-SHA`
-	// * `AES128-GCM-SHA256`
-	// * `AES256-GCM-SHA384`
-	// * `AES128-SHA`
-	// * `AES256-SHA`
-	// * `DES-CBC3-SHA`
-	//+optional
-	CipherSuites []string `json:"cipher_suites,omitempty"`
 }
 
 type ServerConfig struct {
@@ -309,7 +214,7 @@ type ServerConfig struct {
 	// these options to control if all http requests should be redirected to
 	// https, and the TLS modes to use.
 	//+optional
-	TLS *ServerTLSSettings `json:"tls,omitempty"`
+	TLS *TLSServerSettings `json:"tls,omitempty"`
 }
 
 type GatewayConfig struct {

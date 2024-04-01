@@ -156,64 +156,21 @@ spec:
                               http requests should be redirected to https, and the
                               TLS modes to use.
                             properties:
-                              caCertificates:
-                                description: REQUIRED if mode is `MUTUAL` or `OPTIONAL_MUTUAL`.
-                                  The path to a file containing certificate authority
-                                  certificates to use in verifying a presented client
-                                  side certificate.
-                                type: string
-                              cipher_suites:
-                                description: 'Optional: If specified, only support
-                                  the specified cipher list. Otherwise, default to
-                                  the default cipher list supported by Envoy as specified
-                                  [here](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto).
-                                  The supported list of ciphers are: * `ECDHE-ECDSA-AES128-GCM-SHA256`
-                                  * `ECDHE-RSA-AES128-GCM-SHA256` * `ECDHE-ECDSA-AES256-GCM-SHA384`
-                                  * `ECDHE-RSA-AES256-GCM-SHA384` * `ECDHE-ECDSA-CHACHA20-POLY1305`
-                                  * `ECDHE-RSA-CHACHA20-POLY1305` * `ECDHE-ECDSA-AES128-SHA`
-                                  * `ECDHE-RSA-AES128-SHA` * `ECDHE-ECDSA-AES256-SHA`
-                                  * `ECDHE-RSA-AES256-SHA` * `AES128-GCM-SHA256` *
-                                  `AES256-GCM-SHA384` * `AES128-SHA` * `AES256-SHA`
-                                  * `DES-CBC3-SHA`'
-                                items:
-                                  type: string
-                                type: array
                               credentialName:
-                                description: 'For gateways running on Kubernetes,
-                                  the name of the secret that holds the TLS certs
-                                  including the CA certificates. Applicable only on
-                                  Kubernetes. An Opaque secret should contain the
-                                  following keys and values: `tls.key: <privateKey>`
-                                  and `tls.crt: <serverCert>` or `key: <privateKey>`
-                                  and `cert: <serverCert>`. For mutual TLS, `cacert:
-                                  <CACertificate>` and `crl: <CertificateRevocationList>`
-                                  can be provided in the same secret or a separate
-                                  secret named `<secret>-cacert`. A TLS secret for
-                                  server certificates with an additional `tls.ocsp-staple`
-                                  key for specifying OCSP staple information, `ca.crt`
-                                  key for CA certificates and `ca.crl` for certificate
-                                  revocation list is also supported. Only one of server
-                                  certificates and CA certificate or credentialName
-                                  can be specified.'
-                                type: string
-                              maxProtocolVersion:
-                                description: "Optional: Maximum TLS protocol version.
-                                  \n TLS_AUTO: Automatically choose the optimal TLS
-                                  version. \n TLSV1_0: TLS version 1.0 \n TLSV1_1:
-                                  TLS version 1.1 \n TLSV1_2: TLS version 1.2 \n TLSV1_3:
-                                  TLS version 1.3"
-                                type: string
-                              minProtocolVersion:
-                                description: "Optional: Minimum TLS protocol version.
-                                  By default, it is `TLSV1_2`. TLS protocol versions
-                                  below TLSV1_2 require setting compatible ciphers
-                                  with the `cipherSuites` setting as they no longer
-                                  include compatible ciphers. \n TLS_AUTO: Automatically
-                                  choose the optimal TLS version. \n TLSV1_0: TLS
-                                  version 1.0 \n TLSV1_1: TLS version 1.1 \n TLSV1_2:
-                                  TLS version 1.2 \n TLSV1_3: TLS version 1.3 \n Note:
-                                  Using TLS protocol versions below TLSV1_2 has serious
-                                  security risks."
+                                description: 'The name of the secret that holds the
+                                  TLS certs including the CA certificates. An Opaque
+                                  secret should contain the following keys and values:
+                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
+                                  or `key: <privateKey>` and `cert: <serverCert>`.
+                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
+                                  <CertificateRevocationList>` can be provided in
+                                  the same secret or a separate secret named `<secret>-cacert`.
+                                  A TLS secret for server certificates with an additional
+                                  `tls.ocsp-staple` key for specifying OCSP staple
+                                  information, `ca.crt` key for CA certificates and
+                                  `ca.crl` for certificate revocation list is also
+                                  supported. Only one of server certificates and CA
+                                  certificate or credentialName can be specified.'
                                 type: string
                               mode:
                                 default: SIMPLE
@@ -246,42 +203,6 @@ spec:
                                 - ISTIO_MUTUAL
                                 - OPTIONAL_MUTUAL
                                 type: string
-                              privateKey:
-                                description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
-                                  The path to the file holding the server's private
-                                  key.
-                                type: string
-                              serverCertificate:
-                                description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
-                                  The path to the file holding the server-side TLS
-                                  certificate to use.
-                                type: string
-                              subjectAltNames:
-                                description: A list of alternate names to verify the
-                                  subject identity in the certificate presented by
-                                  the client.
-                                items:
-                                  type: string
-                                type: array
-                              verifyCertificateHash:
-                                description: 'An optional list of hex-encoded SHA-256
-                                  hashes of the authorized client certificates. Both
-                                  simple and colon separated formats are acceptable.
-                                  Note: When both verify_certificate_hash and verify_certificate_spki
-                                  are specified, a hash matching either value will
-                                  result in the certificate being accepted.'
-                                items:
-                                  type: string
-                                type: array
-                              verifyCertificateSpki:
-                                description: 'An optional list of base64-encoded SHA-256
-                                  hashes of the SPKIs of authorized client certificates.
-                                  Note: When both verify_certificate_hash and verify_certificate_spki
-                                  are specified, a hash matching either value will
-                                  result in the certificate being accepted.'
-                                items:
-                                  type: string
-                                type: array
                             required:
                             - mode
                             type: object
@@ -307,64 +228,21 @@ spec:
                               http requests should be redirected to https, and the
                               TLS modes to use.
                             properties:
-                              caCertificates:
-                                description: REQUIRED if mode is `MUTUAL` or `OPTIONAL_MUTUAL`.
-                                  The path to a file containing certificate authority
-                                  certificates to use in verifying a presented client
-                                  side certificate.
-                                type: string
-                              cipher_suites:
-                                description: 'Optional: If specified, only support
-                                  the specified cipher list. Otherwise, default to
-                                  the default cipher list supported by Envoy as specified
-                                  [here](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/transport_sockets/tls/v3/common.proto).
-                                  The supported list of ciphers are: * `ECDHE-ECDSA-AES128-GCM-SHA256`
-                                  * `ECDHE-RSA-AES128-GCM-SHA256` * `ECDHE-ECDSA-AES256-GCM-SHA384`
-                                  * `ECDHE-RSA-AES256-GCM-SHA384` * `ECDHE-ECDSA-CHACHA20-POLY1305`
-                                  * `ECDHE-RSA-CHACHA20-POLY1305` * `ECDHE-ECDSA-AES128-SHA`
-                                  * `ECDHE-RSA-AES128-SHA` * `ECDHE-ECDSA-AES256-SHA`
-                                  * `ECDHE-RSA-AES256-SHA` * `AES128-GCM-SHA256` *
-                                  `AES256-GCM-SHA384` * `AES128-SHA` * `AES256-SHA`
-                                  * `DES-CBC3-SHA`'
-                                items:
-                                  type: string
-                                type: array
                               credentialName:
-                                description: 'For gateways running on Kubernetes,
-                                  the name of the secret that holds the TLS certs
-                                  including the CA certificates. Applicable only on
-                                  Kubernetes. An Opaque secret should contain the
-                                  following keys and values: `tls.key: <privateKey>`
-                                  and `tls.crt: <serverCert>` or `key: <privateKey>`
-                                  and `cert: <serverCert>`. For mutual TLS, `cacert:
-                                  <CACertificate>` and `crl: <CertificateRevocationList>`
-                                  can be provided in the same secret or a separate
-                                  secret named `<secret>-cacert`. A TLS secret for
-                                  server certificates with an additional `tls.ocsp-staple`
-                                  key for specifying OCSP staple information, `ca.crt`
-                                  key for CA certificates and `ca.crl` for certificate
-                                  revocation list is also supported. Only one of server
-                                  certificates and CA certificate or credentialName
-                                  can be specified.'
-                                type: string
-                              maxProtocolVersion:
-                                description: "Optional: Maximum TLS protocol version.
-                                  \n TLS_AUTO: Automatically choose the optimal TLS
-                                  version. \n TLSV1_0: TLS version 1.0 \n TLSV1_1:
-                                  TLS version 1.1 \n TLSV1_2: TLS version 1.2 \n TLSV1_3:
-                                  TLS version 1.3"
-                                type: string
-                              minProtocolVersion:
-                                description: "Optional: Minimum TLS protocol version.
-                                  By default, it is `TLSV1_2`. TLS protocol versions
-                                  below TLSV1_2 require setting compatible ciphers
-                                  with the `cipherSuites` setting as they no longer
-                                  include compatible ciphers. \n TLS_AUTO: Automatically
-                                  choose the optimal TLS version. \n TLSV1_0: TLS
-                                  version 1.0 \n TLSV1_1: TLS version 1.1 \n TLSV1_2:
-                                  TLS version 1.2 \n TLSV1_3: TLS version 1.3 \n Note:
-                                  Using TLS protocol versions below TLSV1_2 has serious
-                                  security risks."
+                                description: 'The name of the secret that holds the
+                                  TLS certs including the CA certificates. An Opaque
+                                  secret should contain the following keys and values:
+                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
+                                  or `key: <privateKey>` and `cert: <serverCert>`.
+                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
+                                  <CertificateRevocationList>` can be provided in
+                                  the same secret or a separate secret named `<secret>-cacert`.
+                                  A TLS secret for server certificates with an additional
+                                  `tls.ocsp-staple` key for specifying OCSP staple
+                                  information, `ca.crt` key for CA certificates and
+                                  `ca.crl` for certificate revocation list is also
+                                  supported. Only one of server certificates and CA
+                                  certificate or credentialName can be specified.'
                                 type: string
                               mode:
                                 default: SIMPLE
@@ -397,42 +275,6 @@ spec:
                                 - ISTIO_MUTUAL
                                 - OPTIONAL_MUTUAL
                                 type: string
-                              privateKey:
-                                description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
-                                  The path to the file holding the server's private
-                                  key.
-                                type: string
-                              serverCertificate:
-                                description: REQUIRED if mode is `SIMPLE` or `MUTUAL`.
-                                  The path to the file holding the server-side TLS
-                                  certificate to use.
-                                type: string
-                              subjectAltNames:
-                                description: A list of alternate names to verify the
-                                  subject identity in the certificate presented by
-                                  the client.
-                                items:
-                                  type: string
-                                type: array
-                              verifyCertificateHash:
-                                description: 'An optional list of hex-encoded SHA-256
-                                  hashes of the authorized client certificates. Both
-                                  simple and colon separated formats are acceptable.
-                                  Note: When both verify_certificate_hash and verify_certificate_spki
-                                  are specified, a hash matching either value will
-                                  result in the certificate being accepted.'
-                                items:
-                                  type: string
-                                type: array
-                              verifyCertificateSpki:
-                                description: 'An optional list of base64-encoded SHA-256
-                                  hashes of the SPKIs of authorized client certificates.
-                                  Note: When both verify_certificate_hash and verify_certificate_spki
-                                  are specified, a hash matching either value will
-                                  result in the certificate being accepted.'
-                                items:
-                                  type: string
-                                type: array
                             required:
                             - mode
                             type: object

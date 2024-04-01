@@ -34,46 +34,7 @@ spec:
 {{- define "server-tls-settings"}}
     tls:
       mode: {{.Mode}}
-      {{- with .ServerCertificate}}
-      serverCertificate: {{.}}
-      {{- end}}
-      {{- with .PrivateKey}}
-      privateKey: {{.}}
-      {{- end}}
-      {{- with .CaCertificates}}
-      caCertificates: {{.}}
-      {{- end}}
       {{- with .CredentialName}}
       credentialName: {{.}}
-      {{- end}}
-      {{- with .SubjectAltNames}}
-      subjectAltNames:
-        {{- range .}}
-        - {{.}}
-        {{- end}}
-      {{- end}}
-      {{- with .VerifyCertificateSpki}}
-      verifyCertificateSpki:
-        {{- range .}}
-        - {{.}}
-        {{- end}}
-      {{- end}}
-      {{- with .VerifyCertificateHash}}
-      verifyCertificateHash:
-        {{- range .}}
-        - {{.}}
-        {{- end}}
-      {{- end}}
-      {{- with .MinProtocolVersion}}
-      minProtocolVersion: {{.}}
-      {{- end}}
-      {{- with .MaxProtocolVersion}}
-      maxProtocolVersion: {{.}}
-      {{- end}}
-      {{- with .CipherSuites}}
-      cipher_suites:
-        {{- range .}}
-        - {{.}}
-        {{- end}}
       {{- end}}
 {{- end}}
