@@ -242,11 +242,11 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Owns(&routev1.Route{})
 	}
 	if r.HasIstio {
-		builder = builder.Owns(&authorino.AuthConfig{})
-		builder = builder.Owns(&security.AuthorizationPolicy{})
-		builder = builder.Owns(&networking.DestinationRule{})
-		builder = builder.Owns(&networking.Gateway{})
-		builder = builder.Owns(&networking.VirtualService{})
+		builder = builder.Owns(&authorino.AuthConfig{}).
+			Owns(&security.AuthorizationPolicy{}).
+			Owns(&networking.DestinationRule{}).
+			Owns(&networking.Gateway{}).
+			Owns(&networking.VirtualService{})
 	}
 	return builder.Complete(r)
 }

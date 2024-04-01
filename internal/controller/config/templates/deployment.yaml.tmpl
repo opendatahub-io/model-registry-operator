@@ -169,7 +169,7 @@ spec:
               port: grpc-api
             timeoutSeconds: 2
           readinessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 15
             periodSeconds: 5
             tcpSocket:
               port: grpc-api
@@ -205,7 +205,7 @@ spec:
               port: http-api
             timeoutSeconds: 2
           readinessProbe:
-            initialDelaySeconds: 3
+            initialDelaySeconds: 15
             periodSeconds: 5
             tcpSocket:
               port: http-api
