@@ -208,4 +208,4 @@ certificates/clean:
 	mkdir -p certs
 	rm -f certs/*
 	# delete k8s secrets
-	$(KUBECTL) delete secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
+	$(KUBECTL) delete -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
