@@ -3,6 +3,15 @@ kind: VirtualService
 metadata:
   name: {{.Name}}
   namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
 spec:
   gateways:
   - {{.Name}}
