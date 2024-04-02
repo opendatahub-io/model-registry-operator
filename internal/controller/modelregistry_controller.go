@@ -286,6 +286,22 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
+	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateRole(ctx, params, registry, "role.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	if r.IsOpenShift {
 		// create default group and role binding in OpenShift cluster
 		result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
@@ -312,22 +328,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
-	}
-
-	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	result2, err = r.createOrUpdateRole(ctx, params, registry, "role.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
 	}
 
 	if registry.Spec.Istio != nil {
