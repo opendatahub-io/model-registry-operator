@@ -29,21 +29,23 @@ For using the Istio based samples, both Istio and Authorino MUST be installed be
 An Authorino instance MUST also be configured as a [custom authz](https://istio.io/latest/docs/tasks/security/authorization/authz-custom/) provider in the Istio control plane. 
 
 Both Istio and Authorino along with the authz provider can be easily enabled in the Open Data Hub data science cluster instance. 
+
 If Istio or Authorino is installed in the cluster after deploying this controller, restart the controller by deleting the pod `model-registry-operator-controller-manager` in `model-registry-operator-system` namespace. 
+If Model Registry component has been installed as an Open Data Hub operator component, the operator namespace will be `opendatahub`. 
 
 If Authorino provider is from a non Open Data Hub cluster, configure its selector labels in the [authconfig-labels.yaml](config/samples/istio/components/authconfig-labels.yaml) file. 
 
 To use the Istio model registry samples the following configuration data is needed in the [istio.env](config/samples/istio/components/istio.env) file:
 
-* AUTH_PROVIDER name of the authorino external auth provider configured in the Istio control plane (defaults to `opendatahub-auth-provider` for Open Data Hub data science cluster with OpenShift Servicemesh enabled).
-* DOMAIN hostname domain suffix for gateway endpoints. 
+* AUTH_PROVIDER - name of the authorino external auth provider configured in the Istio control plane (defaults to `opendatahub-auth-provider` for Open Data Hub data science cluster with OpenShift Servicemesh enabled).
+* DOMAIN - hostname domain suffix for gateway endpoints. 
 This depends upon your cluster's external load balancer config. In OpenShift clusters, it can be obtained with the command:
 ```shell
 oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'
 ```
-* ISTIO_INGRESS name of the Istio Ingress Gateway (defaults to `ingressgateway`). 
-* REST_CREDENTIAL_NAME Kubernetes secret in IngressGateway namespace (typically `istio-system`) containing TLS certificates for REST service (defaults to `modelregistry-sample-rest-credential`). 
-* GRPC_CREDENTIAL_NAME Kubernetes secret in IngressGateway namespace containing TLS certificates for gRPC service (defaults to `modelregistry-sample-grpc-credential`).
+* ISTIO_INGRESS - name of the Istio Ingress Gateway (defaults to `ingressgateway`). 
+* REST_CREDENTIAL_NAME - Kubernetes secret in IngressGateway namespace (typically `istio-system`) containing TLS certificates for REST service (defaults to `modelregistry-sample-rest-credential`). 
+* GRPC_CREDENTIAL_NAME - Kubernetes secret in IngressGateway namespace containing TLS certificates for gRPC service (defaults to `modelregistry-sample-grpc-credential`).
 
 ### Running on the cluster
 1. Deploy the controller to the cluster using the `latest` docker image:
@@ -64,6 +66,7 @@ make deploy
 #### Istio Samples
 **WARNING:** Istio samples without TLS are only meant for testing and demos to avoid having to create TLS certificates. They should only be used in local development clusters. 
 
+##### Authorization
 For all Istio samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
 
 ```http request
@@ -76,6 +79,7 @@ In OpenShift clusters, the user session token can be obtained using the command:
 oc whoami -t
 ```
 
+##### TLS Certificates
 The project [Makefile](Makefile) includes targets to manage test TLS certificates using a self signed CA certificate. 
 To create test certificates in the directory [certs](certs) and Kubernetes secrets in the `istio-system` namespace, use the command:
 
@@ -92,6 +96,28 @@ make certificates/clean
 ```
 
 To disable Istio Gateway creation, create a kustomize overlay that removes the `gateway` yaml section in model registry custom resource or manually edit a sample yaml and it's corresponding `replacements.yaml` helper. 
+
+##### Enable Namespace Istio Injection
+If using upstream Istio (i.e. not OpenShift ServiceMesh), enable Istio proxy injection in your test namespace by using the command:
+
+```shell
+kubectl label namespace <namespace> istio-injection=enabled --overwrite
+```
+
+If using OpenShift ServiceMesh, enable it by adding the namespace to the control plane (e.g. ODH Istio control plane `data-science-smcp` below) by using the command:
+
+```shell
+kubectl apply -f -<<EOF
+apiVersion: maistra.io/v1
+kind: ServiceMeshMember
+metadata:
+  name: default
+spec:
+  controlPlaneRef:
+    name: data-science-smcp
+    namespace: istio-system
+EOF
+```
 
 3. For Istio samples, first configure properties in [istio.env](config/samples/istio/components/istio.env). 
 Install a model registry instance using **ONE** of the following commands:
@@ -110,10 +136,10 @@ This will create the appropriate model registry resource, which will be reconcil
 4. Check that the sample model registry was created using the command:
 
 ```shell
-kubectl get mr
+kubectl describe mr modelregistry-sample
 ```
 
-Check the status of the model registry resource for errors. 
+Check the `Status` of the model registry resource for failed Conditions. 
 
 For Istio Gateway examples, consult your Istio configuration to verify gateway endpoint creation. For OpenShift Servicemesh with gateway route creation enabled, look for model registry routes using the command:
 
@@ -124,15 +150,20 @@ kubectl get route -n istio-system
 To verify the REST gateway service, use the following command:
 
 ```shell
-curl -H "Authorization: Bearer $TOKEN" --cacert certs/domain.crt https://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha2/registered_models
+curl -H "Authorization: Bearer $TOKEN" --cacert certs/domain.crt https://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha3/registered_models
 ```
 
-Where, `$TOKEN` and $DOMAIN environment variables are set to the client token and host domain. 
+Where, `$TOKEN` and `$DOMAIN` environment variables are set to the client token and host domain. If using OpenShift, the token and domain can be set using the commands:
+
+```shell
+export TOKEN=`oc whoami -t`
+export DOMAIN=`oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'`
+```
 
 If using a non-TLS gateway, use the command:
 
 ```shell
-curl -H "Authorization: Bearer $TOKEN" http://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha2/registered_models
+curl -H "Authorization: Bearer $TOKEN" http://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha3/registered_models
 ```
 
 The output should be a list of all registered models in the registry, e.g. for an empty registry:
