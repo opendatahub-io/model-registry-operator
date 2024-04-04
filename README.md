@@ -37,7 +37,7 @@ If Authorino provider is from a non Open Data Hub cluster, configure its selecto
 
 To use the Istio model registry samples the following configuration data is needed in the [istio.env](config/samples/istio/components/istio.env) file:
 
-* AUTH_PROVIDER - name of the authorino external auth provider configured in the Istio control plane (defaults to `opendatahub-auth-provider` for Open Data Hub data science cluster with OpenShift Servicemesh enabled).
+* AUTH_PROVIDER - name of the authorino external auth provider configured in the Istio control plane (defaults to `opendatahub-auth-provider` for Open Data Hub data science cluster with OpenShift Service Mesh enabled).
 * DOMAIN - hostname domain suffix for gateway endpoints. 
 This depends upon your cluster's external load balancer config. In OpenShift clusters, it can be obtained with the command:
 ```shell
@@ -98,13 +98,13 @@ make certificates/clean
 To disable Istio Gateway creation, create a kustomize overlay that removes the `gateway` yaml section in model registry custom resource or manually edit a sample yaml and it's corresponding `replacements.yaml` helper. 
 
 ##### Enable Namespace Istio Injection
-If using upstream Istio (i.e. not OpenShift ServiceMesh), enable Istio proxy injection in your test namespace by using the command:
+If using upstream Istio (i.e. not OpenShift Service Mesh), enable Istio proxy injection in your test namespace by using the command:
 
 ```shell
 kubectl label namespace <namespace> istio-injection=enabled --overwrite
 ```
 
-If using OpenShift ServiceMesh, enable it by adding the namespace to the control plane (e.g. ODH Istio control plane `data-science-smcp` below) by using the command:
+If using OpenShift Service Mesh, enable it by adding the namespace to the control plane (e.g. ODH Istio control plane `data-science-smcp` below) by using the command:
 
 ```shell
 kubectl apply -f -<<EOF
@@ -117,6 +117,13 @@ spec:
     name: data-science-smcp
     namespace: istio-system
 EOF
+```
+
+##### Enable OpenShift Service Mesh Route Creation
+If using OpenShift Service Mesh with Open Data Hub Operator and Gateway Route creation is disabled, it can be enabled by using the command:
+
+```shell
+kubectl patch smcp data-science-smcp -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/gateways/openshiftRoute/enabled", "value": true}]'
 ```
 
 3. For Istio samples, first configure properties in [istio.env](config/samples/istio/components/istio.env). 
@@ -141,7 +148,7 @@ kubectl describe mr modelregistry-sample
 
 Check the `Status` of the model registry resource for failed Conditions. 
 
-For Istio Gateway examples, consult your Istio configuration to verify gateway endpoint creation. For OpenShift Servicemesh with gateway route creation enabled, look for model registry routes using the command:
+For Istio Gateway examples, consult your Istio configuration to verify gateway endpoint creation. For OpenShift Service Mesh with gateway route creation enabled, look for model registry routes using the command:
 
 ```shell
 kubectl get route -n istio-system
