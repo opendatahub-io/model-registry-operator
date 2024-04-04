@@ -59,8 +59,8 @@ sync-images:
 	sed "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" -i ./config/manager/manager.yaml
 	sed "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" -i ./internal/controller/config/defaults.go
 	# sync mlmd image
-	sed "s|gcr.io/tfx-oss-public/ml_metadata_store_server:.*|${IMAGES_GRPC_SERVICE}|" -i ./config/manager/manager.yaml
-	sed "s|\"gcr.io/tfx-oss-public/ml_metadata_store_server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+	sed "s|quay.io/opendatahub/mlmd-grpc-server:.*|${IMAGES_GRPC_SERVICE}|" -i ./config/manager/manager.yaml
+	sed "s|\"quay.io/opendatahub/mlmd-grpc-server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" -i ./internal/controller/config/defaults.go
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
