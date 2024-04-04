@@ -223,11 +223,10 @@ type GatewayConfig struct {
 	// Domain name for Gateway configuration
 	Domain string `json:"domain"`
 
-	//+kubebuilder:required
 	//+kubebuilder:default=ingressgateway
 
 	// Value of label `istio` used to identify the Ingress Gateway
-	IstioIngress string `json:"istioIngress"`
+	IstioIngress *string `json:"istioIngress,omitempty"`
 
 	// Maistra/OpenShift Servicemesh control plane name
 	//+optional

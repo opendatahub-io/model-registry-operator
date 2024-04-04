@@ -282,7 +282,6 @@ spec:
                     required:
                     - domain
                     - grpc
-                    - istioIngress
                     - rest
                     type: object
                   tlsMode:
