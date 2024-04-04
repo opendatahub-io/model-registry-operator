@@ -29,6 +29,14 @@ import (
 // log is for logging in this package.
 var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
+// default ports
+const (
+	DEFAULT_TLS_MODE      = "ISTIO_MUTUAL"
+	DEFAULT_HTTP_PORT     = 80
+	DEFAULT_HTTPS_PORT    = 443
+	DEFAULT_ISTIO_GATEWAY = "ingressgateway"
+)
+
 func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
@@ -39,13 +47,17 @@ func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 //+kubebuilder:webhook:path=/mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=true,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=mmodelregistry.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &ModelRegistry{}
+var (
+	_         webhook.Defaulter = &ModelRegistry{}
+	gateway                     = DEFAULT_ISTIO_GATEWAY
+	httpPort  int32             = DEFAULT_HTTP_PORT
+	httpsPort int32             = DEFAULT_HTTPS_PORT
+)
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *ModelRegistry) Default() {
 	modelregistrylog.Info("default", "name", r.Name)
 
-	// TODO(user): fill in your defaulting logic.
 	if r.Spec.Grpc.Resources == nil {
 		r.Spec.Grpc.Resources = config.MlmdGRPCResourceRequirements.DeepCopy()
 	}
@@ -69,6 +81,35 @@ func (r *ModelRegistry) Default() {
 	}
 	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
 		r.Spec.MySQL = nil
+	}
+
+	// istio defaults
+	if r.Spec.Istio != nil {
+		// set default TlsMode
+		if len(r.Spec.Istio.TlsMode) == 0 {
+			r.Spec.Istio.TlsMode = DEFAULT_TLS_MODE
+		}
+		if r.Spec.Istio.Gateway != nil {
+			// set ingress gateway if not set
+			if r.Spec.Istio.Gateway.IstioIngress == nil {
+				r.Spec.Istio.Gateway.IstioIngress = &gateway
+			}
+			// set default gateway ports if needed
+			if r.Spec.Istio.Gateway.Rest.Port == nil {
+				if r.Spec.Istio.Gateway.Rest.TLS != nil {
+					r.Spec.Istio.Gateway.Rest.Port = &httpsPort
+				} else {
+					r.Spec.Istio.Gateway.Rest.Port = &httpPort
+				}
+			}
+			if r.Spec.Istio.Gateway.Grpc.Port == nil {
+				if r.Spec.Istio.Gateway.Grpc.TLS != nil {
+					r.Spec.Istio.Gateway.Grpc.Port = &httpsPort
+				} else {
+					r.Spec.Istio.Gateway.Grpc.Port = &httpPort
+				}
+			}
+		}
 	}
 }
 

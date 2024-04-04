@@ -111,6 +111,195 @@ spec:
                         type: object
                     type: object
                 type: object
+              istio:
+                description: Istio servicemesh configuration options
+                properties:
+                  audiences:
+                    description: Optional Authorino AuthConfig credential audiences.
+                      This depends on the cluster identity provider. If not specified,
+                      operator will determine the cluster's audience using its own
+                      service account.
+                    items:
+                      type: string
+                    type: array
+                  authConfigLabels:
+                    additionalProperties:
+                      type: string
+                    description: Authorino AuthConfig selector labels
+                    type: object
+                  authProvider:
+                    description: Authorino authentication provider name
+                    type: string
+                  gateway:
+                    description: Optional Istio Gateway for registry services. Gateway
+                      is not created if set to null (default).
+                    properties:
+                      controlPlane:
+                        description: Maistra/OpenShift Servicemesh control plane name
+                        type: string
+                      domain:
+                        description: Domain name for Gateway configuration
+                        type: string
+                      grpc:
+                        description: gRPC  gateway server config
+                        properties:
+                          port:
+                            description: Listen port for server connections, defaults
+                              to 80 without TLS and 443 when TLS settings are present.
+                            format: int32
+                            maximum: 65535
+                            minimum: 0
+                            type: integer
+                          tls:
+                            description: Set of TLS related options that govern the
+                              server's behavior. Use these options to control if all
+                              http requests should be redirected to https, and the
+                              TLS modes to use.
+                            properties:
+                              credentialName:
+                                description: 'The name of the secret that holds the
+                                  TLS certs including the CA certificates. An Opaque
+                                  secret should contain the following keys and values:
+                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
+                                  or `key: <privateKey>` and `cert: <serverCert>`.
+                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
+                                  <CertificateRevocationList>` can be provided in
+                                  the same secret or a separate secret named `<secret>-cacert`.
+                                  A TLS secret for server certificates with an additional
+                                  `tls.ocsp-staple` key for specifying OCSP staple
+                                  information, `ca.crt` key for CA certificates and
+                                  `ca.crl` for certificate revocation list is also
+                                  supported. Only one of server certificates and CA
+                                  certificate or credentialName can be specified.'
+                                type: string
+                              mode:
+                                default: SIMPLE
+                                description: "The value of this field determines how
+                                  TLS is enforced. SIMPLE: Secure connections with
+                                  standard TLS semantics. In this mode client certificate
+                                  is not requested during handshake. \n MUTUAL: Secure
+                                  connections to the downstream using mutual TLS by
+                                  presenting server certificates for authentication.
+                                  A client certificate will also be requested during
+                                  the handshake and at least one valid certificate
+                                  is required to be sent by the client. \n ISTIO_MUTUAL:
+                                  Secure connections from the downstream using mutual
+                                  TLS by presenting server certificates for authentication.
+                                  Compared to Mutual mode, this mode uses certificates,
+                                  representing gateway workload identity, generated
+                                  automatically by Istio for mTLS authentication.
+                                  When this mode is used, all other TLS fields should
+                                  be empty. \n OPTIONAL_MUTUAL: Similar to MUTUAL
+                                  mode, except that the client certificate is optional.
+                                  Unlike SIMPLE mode, A client certificate will still
+                                  be explicitly requested during handshake, but the
+                                  client is not required to send a certificate. If
+                                  a client certificate is presented, it will be validated.
+                                  ca_certificates should be specified for validating
+                                  client certificates."
+                                enum:
+                                - SIMPLE
+                                - MUTUAL
+                                - ISTIO_MUTUAL
+                                - OPTIONAL_MUTUAL
+                                type: string
+                            required:
+                            - mode
+                            type: object
+                        type: object
+                      istioIngress:
+                        default: ingressgateway
+                        description: Value of label `istio` used to identify the Ingress
+                          Gateway
+                        type: string
+                      rest:
+                        description: Rest gateway server config
+                        properties:
+                          port:
+                            description: Listen port for server connections, defaults
+                              to 80 without TLS and 443 when TLS settings are present.
+                            format: int32
+                            maximum: 65535
+                            minimum: 0
+                            type: integer
+                          tls:
+                            description: Set of TLS related options that govern the
+                              server's behavior. Use these options to control if all
+                              http requests should be redirected to https, and the
+                              TLS modes to use.
+                            properties:
+                              credentialName:
+                                description: 'The name of the secret that holds the
+                                  TLS certs including the CA certificates. An Opaque
+                                  secret should contain the following keys and values:
+                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
+                                  or `key: <privateKey>` and `cert: <serverCert>`.
+                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
+                                  <CertificateRevocationList>` can be provided in
+                                  the same secret or a separate secret named `<secret>-cacert`.
+                                  A TLS secret for server certificates with an additional
+                                  `tls.ocsp-staple` key for specifying OCSP staple
+                                  information, `ca.crt` key for CA certificates and
+                                  `ca.crl` for certificate revocation list is also
+                                  supported. Only one of server certificates and CA
+                                  certificate or credentialName can be specified.'
+                                type: string
+                              mode:
+                                default: SIMPLE
+                                description: "The value of this field determines how
+                                  TLS is enforced. SIMPLE: Secure connections with
+                                  standard TLS semantics. In this mode client certificate
+                                  is not requested during handshake. \n MUTUAL: Secure
+                                  connections to the downstream using mutual TLS by
+                                  presenting server certificates for authentication.
+                                  A client certificate will also be requested during
+                                  the handshake and at least one valid certificate
+                                  is required to be sent by the client. \n ISTIO_MUTUAL:
+                                  Secure connections from the downstream using mutual
+                                  TLS by presenting server certificates for authentication.
+                                  Compared to Mutual mode, this mode uses certificates,
+                                  representing gateway workload identity, generated
+                                  automatically by Istio for mTLS authentication.
+                                  When this mode is used, all other TLS fields should
+                                  be empty. \n OPTIONAL_MUTUAL: Similar to MUTUAL
+                                  mode, except that the client certificate is optional.
+                                  Unlike SIMPLE mode, A client certificate will still
+                                  be explicitly requested during handshake, but the
+                                  client is not required to send a certificate. If
+                                  a client certificate is presented, it will be validated.
+                                  ca_certificates should be specified for validating
+                                  client certificates."
+                                enum:
+                                - SIMPLE
+                                - MUTUAL
+                                - ISTIO_MUTUAL
+                                - OPTIONAL_MUTUAL
+                                type: string
+                            required:
+                            - mode
+                            type: object
+                        type: object
+                    required:
+                    - domain
+                    - grpc
+                    - rest
+                    type: object
+                  tlsMode:
+                    default: ISTIO_MUTUAL
+                    description: "DestinationRule TLS mode. Defaults to ISTIO_MUTUAL.
+                      \n DISABLE: Do not setup a TLS connection to the upstream endpoint.
+                      \n SIMPLE: Originate a TLS connection to the upstream endpoint.
+                      \n MUTUAL: Secure connections to the upstream using mutual TLS
+                      by presenting client certificates for authentication. \n ISTIO_MUTUAL:
+                      Secure connections to the upstream using mutual TLS by presenting
+                      client certificates for authentication. Compared to Mutual mode,
+                      this mode uses certificates generated automatically by Istio
+                      for mTLS authentication. When this mode is used, all other fields
+                      in `ClientTLSSettings` should be empty."
+                    type: string
+                required:
+                - authProvider
+                type: object
               mysql:
                 description: MySQL configuration options
                 properties:

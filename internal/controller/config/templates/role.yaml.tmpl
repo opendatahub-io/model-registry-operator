@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: registry-user-{{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: registry-user-{{.Name}}
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  annotations:
+    openshift.io/display-name: Registry User {{.Name}}
+    openshift.io/description: Can access Model Registry {{.Name}}
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - services
+  verbs:
+  - get

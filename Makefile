@@ -1,6 +1,9 @@
 # Include images as env variables
 include ./config/overlays/odh/params.env
 
+# Include istio config as env variables
+include ./config/samples/istio/components/istio.env
+
 # Image URL to use all building/pushing image targets
 IMG_REGISTRY ?= "quay.io"
 IMG_ORG ?= "opendatahub"
@@ -12,6 +15,9 @@ ENVTEST_K8S_VERSION = 1.28.0
 
 # Kustomize overlay to use for deploy/undeploy
 OVERLAY ?= "default"
+
+# Disable operator webhooks by default for local testing
+ENABLE_WEBHOOKS ?= false
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -90,7 +96,7 @@ build: sync-images manifests generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -184,3 +190,25 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+
+.PHONY: certificates
+certificates:
+	# generate TLS certs
+	scripts/generate_certs.sh $(DOMAIN)
+	# create secrets from TLS certs
+	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-rest-credential \
+      --from-file=tls.key=certs/modelregistry-sample-rest.domain.key \
+      --from-file=tls.crt=certs/modelregistry-sample-rest.domain.crt \
+      --from-file=ca.crt=certs/domain.crt
+	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-grpc-credential \
+      --from-file=tls.key=certs/modelregistry-sample-grpc.domain.key \
+      --from-file=tls.crt=certs/modelregistry-sample-grpc.domain.crt \
+      --from-file=ca.crt=certs/domain.crt
+
+.PHONY: certificates/clean
+certificates/clean:
+	# delete cert files
+	mkdir -p certs
+	rm -f certs/*
+	# delete k8s secrets
+	$(KUBECTL) delete -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential

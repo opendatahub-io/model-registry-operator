@@ -1,20 +1,22 @@
-apiVersion: route.openshift.io/v1
-kind: Route
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
 metadata:
-  name: {{.Name}}-http
+  name: {{.Name}}-users
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
     component: model-registry
     app.kubernetes.io/name: {{.Name}}
-    app.kubernetes.io/instance: {{.Name}}-http
+    app.kubernetes.io/instance: {{.Name}}-users
     app.kubernetes.io/component: model-registry
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
-spec:
-  to:
-    kind: Service
-    name: {{.Name}}
-  port:
-    targetPort: http-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: registry-user-{{.Name}}
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: {{.Name}}-users

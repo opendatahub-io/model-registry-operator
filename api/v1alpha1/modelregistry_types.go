@@ -173,6 +173,113 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
+type TLSServerSettings struct {
+
+	//+kubebuilder:default=SIMPLE
+	//+kubebuilder:validation:Enum=SIMPLE;MUTUAL;ISTIO_MUTUAL;OPTIONAL_MUTUAL
+
+	// The value of this field determines how TLS is enforced.
+	// SIMPLE: Secure connections with standard TLS semantics. In this mode client certificate is not requested during handshake.
+	//
+	// MUTUAL: Secure connections to the downstream using mutual TLS by presenting server certificates for authentication. A client certificate will also be requested during the handshake and at least one valid certificate is required to be sent by the client.
+	//
+	// ISTIO_MUTUAL: Secure connections from the downstream using mutual TLS by presenting server certificates for authentication. Compared to Mutual mode, this mode uses certificates, representing gateway workload identity, generated automatically by Istio for mTLS authentication. When this mode is used, all other TLS fields should be empty.
+	//
+	// OPTIONAL_MUTUAL: Similar to MUTUAL mode, except that the client certificate is optional. Unlike SIMPLE mode, A client certificate will still be explicitly requested during handshake, but the client is not required to send a certificate. If a client certificate is presented, it will be validated. ca_certificates should be specified for validating client certificates.
+	Mode string `json:"mode"`
+
+	// The name of the secret that holds the TLS certs including the CA certificates.
+	// An Opaque secret should contain the following
+	// keys and values: `tls.key: <privateKey>` and `tls.crt: <serverCert>` or
+	// `key: <privateKey>` and `cert: <serverCert>`.
+	// For mutual TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
+	// can be provided in the same secret or a separate secret named `<secret>-cacert`.
+	// A TLS secret for server certificates with an additional `tls.ocsp-staple` key
+	// for specifying OCSP staple information, `ca.crt` key for CA certificates
+	// and `ca.crl` for certificate revocation list is also supported.
+	// Only one of server certificates and CA certificate
+	// or credentialName can be specified.
+	//+optional
+	CredentialName *string `json:"credentialName,omitempty"`
+}
+
+type ServerConfig struct {
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for server connections, defaults to 80 without TLS and 443 when TLS settings are present.
+	Port *int32 `json:"port,omitempty"`
+
+	// Set of TLS related options that govern the server's behavior. Use
+	// these options to control if all http requests should be redirected to
+	// https, and the TLS modes to use.
+	//+optional
+	TLS *TLSServerSettings `json:"tls,omitempty"`
+}
+
+type GatewayConfig struct {
+	//+kubebuilder:required
+
+	// Domain name for Gateway configuration
+	Domain string `json:"domain"`
+
+	//+kubebuilder:default=ingressgateway
+
+	// Value of label `istio` used to identify the Ingress Gateway
+	IstioIngress *string `json:"istioIngress,omitempty"`
+
+	// Maistra/OpenShift Servicemesh control plane name
+	//+optional
+	ControlPlane *string `json:"controlPlane,omitempty"`
+
+	// Rest gateway server config
+	Rest ServerConfig `json:"rest"`
+
+	// gRPC  gateway server config
+	Grpc ServerConfig `json:"grpc"`
+}
+
+type IstioConfig struct {
+	//+kubebuilder:required
+
+	// Authorino authentication provider name
+	AuthProvider string `json:"authProvider"`
+
+	// Authorino AuthConfig selector labels
+	//+optional
+	AuthConfigLabels map[string]string `json:"authConfigLabels,omitempty"`
+
+	//+kubebuilder:required
+	//+kubebuilder:default=ISTIO_MUTUAL
+	//+kubebuilder:Enum=DISABLE;SIMPLE;MUTUAL;ISTIO_MUTUAL
+
+	// DestinationRule TLS mode. Defaults to ISTIO_MUTUAL.
+	//
+	// DISABLE: Do not setup a TLS connection to the upstream endpoint.
+	//
+	// SIMPLE: Originate a TLS connection to the upstream endpoint.
+	//
+	// MUTUAL: Secure connections to the upstream using mutual TLS by presenting
+	// client certificates for authentication.
+	//
+	// ISTIO_MUTUAL: Secure connections to the upstream using mutual TLS by presenting
+	// client certificates for authentication.
+	// Compared to Mutual mode, this mode uses certificates generated
+	// automatically by Istio for mTLS authentication. When this mode is
+	// used, all other fields in `ClientTLSSettings` should be empty.
+	TlsMode string `json:"tlsMode,omitempty"`
+
+	// Optional Istio Gateway for registry services.
+	// Gateway is not created if set to null (default).
+	//+optional
+	Gateway *GatewayConfig `json:"gateway,omitempty"`
+
+	// Optional Authorino AuthConfig credential audiences. This depends on the cluster identity provider.
+	// If not specified, operator will determine the cluster's audience using its own service account.
+	//+optional
+	Audiences []string `json:"audiences,omitempty"`
+}
+
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -184,7 +291,7 @@ type ModelRegistrySpec struct {
 	// Configuration for REST endpoint
 	Rest RestSpec `json:"rest"`
 
-	//+kubebuilder: required
+	//+kubebuilder:required
 
 	// Configuration for gRPC endpoint
 	Grpc GrpcSpec `json:"grpc"`
@@ -207,6 +314,10 @@ type ModelRegistrySpec struct {
 	// initialization (Optional Parameter)
 	//+optional
 	DowngradeDbSchemaVersion *int64 `json:"downgrade_db_schema_version,omitempty"`
+
+	// Istio servicemesh configuration options
+	//+optional
+	Istio *IstioConfig `json:"istio,omitempty"`
 }
 
 // ModelRegistryStatus defines the observed state of ModelRegistry

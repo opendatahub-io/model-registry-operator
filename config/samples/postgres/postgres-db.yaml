@@ -12,6 +12,7 @@ items:
       nodePort: 0
       port: 5432
       protocol: TCP
+      appProtocol: tcp
       targetPort: 5432
     selector:
       name: model-registry-db
@@ -43,10 +44,9 @@ items:
       type: Recreate
     template:
       metadata:
-        annotations:
-          sidecar.istio.io/inject: "false"
         labels:
           name: model-registry-db
+          sidecar.istio.io/inject: "false"
       spec:
         containers:
         - env:

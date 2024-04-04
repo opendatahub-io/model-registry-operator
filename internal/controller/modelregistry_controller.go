@@ -18,14 +18,20 @@ package controller
 
 import (
 	"context"
+	errors2 "errors"
 	"fmt"
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
+	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
+	userv1 "github.com/openshift/api/user/v1"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -67,6 +73,8 @@ type ModelRegistryReconciler struct {
 	Template       *template.Template
 	EnableWebhooks bool
 	IsOpenShift    bool
+	HasIstio       bool
+	Audiences      []string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -118,14 +126,15 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		if controllerutil.ContainsFinalizer(modelRegistry, modelRegistryFinalizer) {
 			log.Info("Performing Finalizer Operations for modelRegistry before delete CR")
 
-			// Let's add here an status "Degraded" to define that this resource begin its process to be terminated.
+			// Let's add status "Degraded" to define that this resource has begun its process to be terminated.
 			meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded,
 				Status: metav1.ConditionUnknown, Reason: "Finalizing",
 				Message: fmt.Sprintf("Performing finalizer operations for the custom resource: %s ", modelRegistry.Name)})
 
 			if err = r.Status().Update(ctx, modelRegistry); IgnoreDeletingErrors(err) != nil {
-				switch t := err.(type) {
-				case *errors.StatusError:
+				var t *errors.StatusError
+				switch {
+				case errors2.As(err, &t):
 					log.Error(err, "status error", "status", t.Status())
 				}
 				log.Error(err, "Failed to update modelRegistry status")
@@ -141,7 +150,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			// otherwise, you should requeue here.
 
 			// Re-fetch the modelRegistry Custom Resource before update the status
-			// so that we have the latest state of the resource on the cluster and we will avoid
+			// so that we have the latest state of the resource on the cluster, and we will avoid
 			// raise the issue "the object has been modified, please apply
 			// your changes to the latest version and try again" which would re-trigger the reconciliation
 			if err = r.Get(ctx, req.NamespacedName, modelRegistry); IgnoreDeletingErrors(err) != nil {
@@ -232,17 +241,33 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.IsOpenShift {
 		builder = builder.Owns(&routev1.Route{})
 	}
+	if r.HasIstio {
+		builder = builder.Owns(&authorino.AuthConfig{}).
+			Owns(&security.AuthorizationPolicy{}).
+			Owns(&networking.DestinationRule{}).
+			Owns(&networking.Gateway{}).
+			Owns(&networking.VirtualService{})
+	}
 	return builder.Complete(r)
 }
 
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
-//+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
-//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-//+kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// NOTE: There MUST be an empty newline at the end of this rbac permissions list, or role generation won't work!!!
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
@@ -261,7 +286,41 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
+	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateRole(ctx, params, registry, "role.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	if r.IsOpenShift {
+		// create default group and role binding in OpenShift cluster
+		result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		result2, err = r.createOrUpdateRoleBinding(ctx, params, registry, "role-binding.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// create simple openshift service route, if configured
 		result2, err = r.createOrUpdateRoute(ctx, params, registry, "http-route.yaml.tmpl")
 		if err != nil {
 			return result2, err
@@ -271,12 +330,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "deployment.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+	if registry.Spec.Istio != nil {
+		result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	return result, nil
@@ -303,6 +364,8 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		status = metav1.ConditionFalse
 		reason = ReasonUpdating
 		message = "Updating deployment for custom resource %s"
+	case ResourceUnchanged:
+		// ignore
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
@@ -344,6 +407,198 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		return err
 	}
 	return nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
+	var result, result2 OperationResult
+
+	// are AuthConfig audiences specified?
+	if len(params.Spec.Istio.Audiences) == 0 {
+		// use operator serviceaccount audiences by default
+		params.Spec.Istio.Audiences = r.Audiences
+		registry.Spec.Istio.Audiences = r.Audiences
+	}
+
+	var err error
+	result, err = r.createOrUpdateVirtualService(ctx, params, registry, "virtual-service.yaml.tmpl")
+	if err != nil {
+		return result, err
+	}
+
+	result2, err = r.createOrUpdateDestinationRule(ctx, params, registry, "destination-rule.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateAuthorizationPolicy(ctx, params, registry, "authorino-authorization-policy.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateAuthConfig(ctx, params, registry, "authconfig.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateGateway(ctx, params, registry, "gateway.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var gateway networking.Gateway
+	if err = r.Apply(params, templateName, &gateway); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &gateway, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, gateway.DeepCopy(), &gateway)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var authConfig authorino.AuthConfig
+	if err = r.Apply(params, templateName, &authConfig); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &authConfig, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, authConfig.DeepCopy(), &authConfig)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var authorizationPolicy security.AuthorizationPolicy
+	if err = r.Apply(params, templateName, &authorizationPolicy); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &authorizationPolicy, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, authorizationPolicy.DeepCopy(), &authorizationPolicy)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateDestinationRule(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var destinationRule networking.DestinationRule
+	if err = r.Apply(params, templateName, &destinationRule); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &destinationRule, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, destinationRule.DeepCopy(), &destinationRule)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateVirtualService(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var virtualService networking.VirtualService
+	if err = r.Apply(params, templateName, &virtualService); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &virtualService, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, virtualService.DeepCopy(), &virtualService)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var roleBinding rbac.RoleBinding
+	if err = r.Apply(params, templateName, &roleBinding); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &roleBinding, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, roleBinding.DeepCopy(), &roleBinding)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var role rbac.Role
+	if err = r.Apply(params, templateName, &role); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &role, r.Scheme); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, role.DeepCopy(), &role)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, params *ModelRegistryParams,
+	_ *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var group userv1.Group
+	if err = r.Apply(params, templateName, &group); err != nil {
+		return result, err
+	}
+
+	result, err = r.createOrUpdate(ctx, group.DeepCopy(), &group)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
@@ -473,6 +728,10 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
 			return result, err
 		}
+		// set metadata.resourceVersion if present
+		if len(currObj.GetResourceVersion()) != 0 {
+			newObj.SetResourceVersion(currObj.GetResourceVersion())
+		}
 		return result, r.Client.Update(ctx, newObj)
 	}
 
@@ -499,14 +758,14 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(registry
 			registry.Namespace))
 }
 
-// wrapper for template parameters
+// ModelRegistryParams is a wrapper for template parameters
 type ModelRegistryParams struct {
 	Name      string
 	Namespace string
 	Spec      modelregistryv1alpha1.ModelRegistrySpec
 }
 
-// executes given template name with params
+// Apply executes given template name with params
 func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object interface{}) error {
 	builder := strings.Builder{}
 	err := r.Template.ExecuteTemplate(&builder, templateName, params)
@@ -532,5 +791,7 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 			fmt.Sprintf("Updated service for custom resource %s in namespace %s",
 				registry.Name,
 				registry.Namespace))
+	case ResourceUnchanged:
+		// ignore
 	}
 }
