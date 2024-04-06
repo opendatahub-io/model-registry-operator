@@ -24,7 +24,7 @@ spec:
       labels:
         app: {{.Name}}
         component: model-registry
-        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/inject: {{with .Spec.Istio}}"true"{{else}}"false"{{end}}
       annotations:
         {{- if .Spec.Postgres}}
         traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.Postgres.Port}}
