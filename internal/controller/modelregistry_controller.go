@@ -457,12 +457,19 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 		result = result2
 	}
 
-	result2, err = r.createOrUpdateGateway(ctx, params, registry, "gateway.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+	if params.Spec.Istio.Gateway != nil {
+		result2, err = r.createOrUpdateGateway(ctx, params, registry, "gateway.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+	} else {
+		// remove gateway if it exists
+		if err = r.deleteGatewayConfig(ctx, params); err != nil {
+			return ResourceUpdated, err
+		}
 	}
 
 	return result, nil
@@ -493,12 +500,19 @@ func (r *ModelRegistryReconciler) deleteIstioConfig(ctx context.Context, params 
 		return ResourceUpdated, err
 	}
 
-	gateway := networking.Gateway{ObjectMeta: objectMeta}
-	if err = r.Client.Delete(ctx, &gateway); client.IgnoreNotFound(err) != nil {
+	if err = r.deleteGatewayConfig(ctx, params); err != nil {
 		return ResourceUpdated, err
 	}
 
 	return ResourceUnchanged, nil
+}
+
+func (r *ModelRegistryReconciler) deleteGatewayConfig(ctx context.Context, params *ModelRegistryParams) error {
+	gateway := networking.Gateway{ObjectMeta: metav1.ObjectMeta{Name: params.Name, Namespace: params.Namespace}}
+	if err := r.Client.Delete(ctx, &gateway); client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
