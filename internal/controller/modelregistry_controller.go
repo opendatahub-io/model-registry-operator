@@ -338,6 +338,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+	} else {
+		result2, err = r.deleteIstioConfig(ctx, params)
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	return result, nil
@@ -458,6 +466,39 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 	}
 
 	return result, nil
+}
+
+func (r *ModelRegistryReconciler) deleteIstioConfig(ctx context.Context, params *ModelRegistryParams) (OperationResult, error) {
+	var err error
+
+	objectMeta := metav1.ObjectMeta{Name: params.Name, Namespace: params.Namespace}
+	virtualService := networking.VirtualService{ObjectMeta: objectMeta}
+	if err = r.Client.Delete(ctx, &virtualService); client.IgnoreNotFound(err) != nil {
+		return ResourceUpdated, err
+	}
+
+	destinationRule := networking.DestinationRule{ObjectMeta: objectMeta}
+	if err = r.Client.Delete(ctx, &destinationRule); client.IgnoreNotFound(err) != nil {
+		return ResourceUpdated, err
+	}
+
+	authorizationPolicy := security.AuthorizationPolicy{ObjectMeta: objectMeta}
+	authorizationPolicy.Name = authorizationPolicy.Name + "-authorino"
+	if err = r.Client.Delete(ctx, &authorizationPolicy); client.IgnoreNotFound(err) != nil {
+		return ResourceUpdated, err
+	}
+
+	authConfig := authorino.AuthConfig{ObjectMeta: objectMeta}
+	if err = r.Client.Delete(ctx, &authConfig); client.IgnoreNotFound(err) != nil {
+		return ResourceUpdated, err
+	}
+
+	gateway := networking.Gateway{ObjectMeta: objectMeta}
+	if err = r.Client.Delete(ctx, &gateway); client.IgnoreNotFound(err) != nil {
+		return ResourceUpdated, err
+	}
+
+	return ResourceUnchanged, nil
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
