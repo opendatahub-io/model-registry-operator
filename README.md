@@ -154,7 +154,10 @@ For Istio Gateway examples, consult your Istio configuration to verify gateway e
 kubectl get route -n istio-system
 ```
 
-To verify the REST gateway service, use the following command:
+#### Verifying the Model Registry REST Service
+
+##### Verifying Istio TLS Gateway Sample
+If using the Istio TLS Gateway sample, to verify the REST gateway service use the following command:
 
 ```shell
 curl -H "Authorization: Bearer $TOKEN" --cacert certs/domain.crt https://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha3/registered_models
@@ -167,12 +170,39 @@ export TOKEN=`oc whoami -t`
 export DOMAIN=`oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'`
 ```
 
-If using a non-TLS gateway, use the command:
+##### Verifying Istio non-TLS Gateway Sample
+If using a non-TLS gateway sample, use the command:
 
 ```shell
 curl -H "Authorization: Bearer $TOKEN" http://modelregistry-sample-rest.$DOMAIN/api/model_registry/v1alpha3/registered_models
 ```
 
+##### Verifying non-Istio Sample
+If using a non-Istio sample and using OpenShift, enable the OpenShift Route using the command:
+
+```shell
+kubectl patch mr modelregistry-sample --type='json' -p='[{"op": "replace", "path": "/spec/rest/serviceRoute", "value": "enabled"}]'
+```
+
+Verify that the Route was created using the command:
+
+```shell
+kubectl get routes.route.openshift.io modelregistry-sample-http
+```
+
+Use the following command to get the OpenShift Route Host:
+
+```shell
+export ROUTE_HOST=`kubectl get routes.route.openshift.io modelregistry-sample-http -ojsonpath='{.status.ingress[0].host}'`
+```
+
+Then verify the REST service using the command:
+
+```shell
+curl http://$ROUTE_HOST/api/model_registry/v1alpha3/registered_models
+```
+
+##### REST Service Output
 The output should be a list of all registered models in the registry, e.g. for an empty registry:
 
 ```json
