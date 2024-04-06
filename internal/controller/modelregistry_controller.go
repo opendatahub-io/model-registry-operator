@@ -330,21 +330,23 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	if registry.Spec.Istio != nil {
-		result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-	} else {
-		result2, err = r.deleteIstioConfig(ctx, params)
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
+	if r.HasIstio {
+		if registry.Spec.Istio != nil {
+			result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
+			if err != nil {
+				return result2, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		} else {
+			result2, err = r.deleteIstioConfig(ctx, params)
+			if err != nil {
+				return result2, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
 		}
 	}
 
