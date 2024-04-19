@@ -143,7 +143,10 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 			// Perform all operations required before remove the finalizer and allow
 			// the Kubernetes API to remove the custom resource.
-			r.doFinalizerOperationsForModelRegistry(modelRegistry)
+			if err = r.doFinalizerOperationsForModelRegistry(ctx, modelRegistry); err != nil {
+				log.Error(err, "Failed to do finalizer operations for modelRegistry")
+				return ctrl.Result{Requeue: true}, nil
+			}
 
 			// TODO(user): If you add operations to the doFinalizerOperationsForModelRegistry method
 			// then you need to ensure that all worked fine before deleting and updating the Downgrade status
@@ -260,6 +263,7 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -467,6 +471,16 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
+		if r.IsOpenShift {
+			result2, err = r.createOrUpdateGatewayRoutes(ctx, params, registry, "gateway-route.yaml.tmpl")
+			if err != nil {
+				return result2, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		}
 	} else {
 		// remove gateway if it exists
 		if err = r.deleteGatewayConfig(ctx, params); err != nil {
@@ -514,7 +528,92 @@ func (r *ModelRegistryReconciler) deleteGatewayConfig(ctx context.Context, param
 	if err := r.Client.Delete(ctx, &gateway); client.IgnoreNotFound(err) != nil {
 		return err
 	}
+	return r.deleteGatewayRoutes(ctx, params.Name)
+}
+
+func (r *ModelRegistryReconciler) deleteGatewayRoutes(ctx context.Context, name string) error {
+	// delete all gateway routes
+	labels := client.MatchingLabels{
+		"app":                     name,
+		"component":               "model-registry",
+		"maistra.io/gateway-name": name,
+	}
+	var list routev1.RouteList
+	if err := r.Client.List(ctx, &list, labels); err != nil {
+		return err
+	}
+	for _, route := range list.Items {
+		if err := r.Client.Delete(ctx, &route); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+
+	// get ingress gateway service
+	var serviceList corev1.ServiceList
+	labels := client.MatchingLabels{"istio": *params.Spec.Istio.Gateway.IstioIngress}
+	if params.Spec.Istio.Gateway.ControlPlane != nil {
+		labels["maistra.io/owner-name"] = *params.Spec.Istio.Gateway.ControlPlane
+	}
+	if err = r.Client.List(ctx, &serviceList, labels); err != nil {
+		return result, err
+	}
+	if len(serviceList.Items) != 1 {
+		return result, fmt.Errorf("missing unique ingress gateway service with labels %s, found %d services",
+			labels, len(serviceList.Items))
+	}
+	params.IngressService = &serviceList.Items[0]
+
+	// create/update REST route
+	result, err = r.handleGatewayRoute(ctx, params, registry, templateName, "-rest", params.Spec.Istio.Gateway.Rest.TLS)
+	if err != nil {
+		return result, err
+	}
+
+	// create/update gRPC route
+	result2, err := r.handleGatewayRoute(ctx, params, registry, templateName, "-grpc", params.Spec.Istio.Gateway.Grpc.TLS)
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string, suffix string,
+	tls *modelregistryv1alpha1.TLSServerSettings) (result OperationResult, err error) {
+
+	// route specific params
+	params.Host = params.Name + suffix
+	params.TLS = tls
+
+	var route routev1.Route
+	if err = r.Apply(params, templateName, &route); err != nil {
+		return result, err
+	}
+
+	if registry.Spec.Istio.Gateway.Rest.GatewayRoute == config.RouteEnabled {
+		result, err = r.createOrUpdate(ctx, route.DeepCopy(), &route)
+		if err != nil {
+			return result, err
+		}
+	} else {
+		// delete the route if it exists
+		if err = r.Client.Delete(ctx, &route); client.IgnoreNotFound(err) != nil {
+			result = ResourceUpdated
+			return result, err
+		}
+	}
+
+	return result, nil
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
@@ -796,11 +895,19 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 }
 
 // finalizeMemcached will perform the required operations before delete the CR.
-func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(registry *modelregistryv1alpha1.ModelRegistry) {
+func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) error {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
 	// resources that are not owned by this CR, like a PVC.
+
+	// delete cross-namespace resources
+	if err := r.Client.Delete(ctx, &userv1.Group{ObjectMeta: metav1.ObjectMeta{Name: registry.Name + "-users"}}); client.IgnoreNotFound(err) != nil {
+		return err
+	}
+	if err := r.deleteGatewayRoutes(ctx, registry.Name); err != nil {
+		return err
+	}
 
 	// Note: It is not recommended to use finalizers with the purpose of delete resources which are
 	// created and managed in the reconciliation. These, such as the Deployment created on this reconcile,
@@ -813,6 +920,8 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(registry
 		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
 			registry.Name,
 			registry.Namespace))
+
+	return nil
 }
 
 // ModelRegistryParams is a wrapper for template parameters
@@ -820,6 +929,11 @@ type ModelRegistryParams struct {
 	Name      string
 	Namespace string
 	Spec      modelregistryv1alpha1.ModelRegistrySpec
+
+	// gateway route parameters
+	Host           string
+	IngressService *corev1.Service
+	TLS            *modelregistryv1alpha1.TLSServerSettings
 }
 
 // Apply executes given template name with params

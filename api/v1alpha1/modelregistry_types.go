@@ -215,6 +215,12 @@ type ServerConfig struct {
 	// https, and the TLS modes to use.
 	//+optional
 	TLS *TLSServerSettings `json:"tls,omitempty"`
+
+	//+kubebuilder:default:enabled
+	//+kubebuilder:validation:Enum=disabled;enabled
+
+	// Creates an OpenShift Route for Gateway Service when set to enabled (default).
+	GatewayRoute string `json:"gatewayRoute,omitempty"`
 }
 
 type GatewayConfig struct {
