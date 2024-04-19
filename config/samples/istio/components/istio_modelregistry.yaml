@@ -9,5 +9,7 @@ spec:
     gateway:
       domain: DOMAIN
       istioIngress: ISTIO_INGRESS
-      rest: {}
-      grpc: {}
+      rest:
+        gatewayRoute: enabled
+      grpc:
+        gatewayRoute: enabled
