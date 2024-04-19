@@ -143,6 +143,13 @@ spec:
                       grpc:
                         description: gRPC  gateway server config
                         properties:
+                          gatewayRoute:
+                            description: Creates an OpenShift Route for Gateway Service
+                              when set to enabled (default).
+                            enum:
+                            - disabled
+                            - enabled
+                            type: string
                           port:
                             description: Listen port for server connections, defaults
                               to 80 without TLS and 443 when TLS settings are present.
@@ -215,6 +222,13 @@ spec:
                       rest:
                         description: Rest gateway server config
                         properties:
+                          gatewayRoute:
+                            description: Creates an OpenShift Route for Gateway Service
+                              when set to enabled (default).
+                            enum:
+                            - disabled
+                            - enabled
+                            type: string
                           port:
                             description: Listen port for server connections, defaults
                               to 80 without TLS and 443 when TLS settings are present.

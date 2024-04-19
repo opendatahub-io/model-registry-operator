@@ -109,6 +109,13 @@ func (r *ModelRegistry) Default() {
 					r.Spec.Istio.Gateway.Grpc.Port = &httpPort
 				}
 			}
+			// enable gateway routes by default
+			if len(r.Spec.Istio.Gateway.Rest.GatewayRoute) == 0 {
+				r.Spec.Istio.Gateway.Rest.GatewayRoute = config.RouteEnabled
+			}
+			if len(r.Spec.Istio.Gateway.Grpc.GatewayRoute) == 0 {
+				r.Spec.Istio.Gateway.Grpc.GatewayRoute = config.RouteEnabled
+			}
 		}
 	}
 }

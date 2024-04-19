@@ -79,6 +79,16 @@ In OpenShift clusters, the user session token can be obtained using the command:
 oc whoami -t
 ```
 
+To help authorize users and service accounts to access the registry, the model registry operator creates a `Role` named `registry-user-<registry-name>`. 
+This role has the required permission to perform a GET on the model registry instance service, e.g. `modelregistry-sample` service. 
+In addition, if running in an OpenShift cluster the operator creates an OpenShift user `Group` called `<registry-name>-users`. 
+So, for included samples it creates a Role named `registry-user-modelregistry-sample` and a Group named `modelregistry-sample-users`.
+
+A Kubernetes or OpenShift cluster administrator can then add users to the `Group`, or create `RoleBinding` for the `Role` to grant permission to specific users and serviceaccounts to access the model registry. 
+
+NOTE: The operator deletes the Group and the Role when the model registry custom resource is deleted. 
+If you have created your own RoleBindings to this Role, the operator will not remove them automatically and hence must be removed manually. 
+
 ##### TLS Certificates
 The project [Makefile](Makefile) includes targets to manage test TLS certificates using a self signed CA certificate. 
 To create test certificates in the directory [certs](certs) and Kubernetes secrets in the `istio-system` namespace, use the command:
@@ -119,12 +129,12 @@ spec:
 EOF
 ```
 
-##### Enable OpenShift Service Mesh Route Creation
-If using OpenShift Service Mesh with Open Data Hub Operator and Gateway Route creation is disabled, it can be enabled by using the command:
+##### OpenShift Gateway Route Creation
+If using OpenShift, the operator will automatically create OpenShift Routes in the ingress gateway's namespace (`istio-system` by default). 
+It will create two routes `<namespace>-modelregistry-sample-rest` and `<namespace>-modelregistry-sample-grpc` for the REST and gRPC gateway endpoints respectively.
 
-```shell
-kubectl patch smcp data-science-smcp -n istio-system --type='json' -p='[{"op": "replace", "path": "/spec/gateways/openshiftRoute/enabled", "value": true}]'
-```
+This automatic route creation can be disabled by setting the properties `spec.istio.gateway.rest.gatewayRoute` or `spec.istio.gateway.grpc.gatewayRoute` to `disabled`. 
+
 
 3. For Istio samples, first configure properties in [istio.env](config/samples/istio/components/istio.env). 
 Install a model registry instance using **ONE** of the following commands:
@@ -148,7 +158,7 @@ kubectl describe mr modelregistry-sample
 
 Check the `Status` of the model registry resource for failed Conditions. 
 
-For Istio Gateway examples, consult your Istio configuration to verify gateway endpoint creation. For OpenShift Service Mesh with gateway route creation enabled, look for model registry routes using the command:
+For Istio Gateway examples, consult your Istio configuration to verify gateway endpoint creation. When OpenShift gateway route creation is enabled (by default), look for model registry routes using the command:
 
 ```shell
 kubectl get route -n istio-system
