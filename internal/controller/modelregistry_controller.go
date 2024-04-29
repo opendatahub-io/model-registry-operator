@@ -240,8 +240,10 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&modelregistryv1alpha1.ModelRegistry{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
-		Owns(&appsv1.Deployment{})
+		Owns(&appsv1.Deployment{}).
+		Owns(&rbac.Role{})
 	if r.IsOpenShift {
+		builder = builder.Owns(&rbac.RoleBinding{})
 		builder = builder.Owns(&routev1.Route{})
 	}
 	if r.HasIstio {
