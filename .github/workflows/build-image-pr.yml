@@ -39,7 +39,7 @@ jobs:
         run: |
           make docker-build
       - name: Start Kind Cluster
-        uses: helm/kind-action@v1.9.0
+        uses: helm/kind-action@v1.10.0
       - name: Load Local Test Image
         env:
           IMG_VERSION: ${{ steps.tags.outputs.tag }}
