@@ -1,0 +1,10 @@
+apiVersion: modelregistry.opendatahub.io/v1alpha1
+kind: ModelRegistry
+metadata:
+  name: modelregistry-sample
+spec:
+  postgres:
+    sslMode: verify-ca
+    sslRootCertificateSecret:
+      name: model-registry-db-credential
+      key: ca.crt

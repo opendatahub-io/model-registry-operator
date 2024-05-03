@@ -64,6 +64,8 @@ make deploy
 * [PostgreSQL with Istio and TLS](config/samples/istio/postgres-tls) PostgreSQL database, Istio, and TLS Gateway endpoints
 * [Secure MySQL without Istio](config/samples/secure-db/mysql) plain Kubernetes model registry services with a sample SSL secured MySQL database
 * [Secure MySQL with Istio](config/samples/secure-db/mysql-tls) SSL secured MySQL database, Istio, and TLS Gateway
+* [Secure PostgreSQL without Istio](config/samples/secure-db/postgres) plain Kubernetes model registry services with a sample SSL secured PostgreSQL database
+* [Secure PostgreSQL with Istio](config/samples/secure-db/postgres-tls) SSL secured PostgreSQL database, Istio, and TLS Gateway
 
 #### Istio Samples
 **WARNING:** Istio samples without TLS are only meant for testing and demos to avoid having to create TLS certificates. They should only be used in local development clusters. 
@@ -153,6 +155,8 @@ kubectl apply -k config/samples/istio/mysql-tls
 kubectl apply -k config/samples/istio/postgres-tls
 kubectl apply -k config/samples/secure-db/mysql
 kubectl apply -k config/samples/secure-db/mysql-tls
+kubectl apply -k config/samples/secure-db/postgres
+kubectl apply -k config/samples/secure-db/postgres-tls
 ```
 
 This will create the appropriate database and model registry resources, which will be reconciled in the controller to create a model registry deployment with other Kubernetes, Istio, and Authorino resources as needed.
