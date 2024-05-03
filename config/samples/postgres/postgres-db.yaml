@@ -72,7 +72,9 @@ items:
           livenessProbe:
             exec:
               command:
-              - /usr/bin/pg_isready
+                - bash
+                - "-c"
+                - "/usr/bin/pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
             initialDelaySeconds: 30
             timeoutSeconds: 2
           name: postgresql
