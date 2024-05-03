@@ -108,6 +108,7 @@ make certificates/clean
 ```
 
 NOTE: The sample database secret `model-registry-db-credential` is created with the CA cert, server key and server cert. However, in production the model registry only needs a secret with the CA cert(s). The production database server will be configured with a secret containing the private key and server cert. 
+The sample certificates use a self-signed CA and does not do cert management like cert rotation, etc. Use your own certificate manager, e.g. https://cert-manager.io/ and create generic kubernetes secrets for REST, gRPC and database with the the keys `tls.key`, `tls.crt`, and `ca.crt`. 
 
 To disable Istio Gateway creation, create a kustomize overlay that removes the `gateway` yaml section in model registry custom resource or manually edit a sample yaml and it's corresponding `replacements.yaml` helper. 
 
