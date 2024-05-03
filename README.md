@@ -62,6 +62,8 @@ make deploy
 * [PostgreSQL with Istio](config/samples/istio/postgres) PostgreSQL database, Istio, and plaintext Gateway
 * [MySQL with Istio and TLS](config/samples/istio/mysql-tls) MySQL database, Istio, and TLS Gateway endpoints
 * [PostgreSQL with Istio and TLS](config/samples/istio/postgres-tls) PostgreSQL database, Istio, and TLS Gateway endpoints
+* [Secure MySQL without Istio](config/samples/secure-db/mysql) plain Kubernetes model registry services with a sample SSL secured MySQL database
+* [Secure MySQL with Istio](config/samples/secure-db/mysql-tls) SSL secured MySQL database, Istio, and TLS Gateway
 
 #### Istio Samples
 **WARNING:** Istio samples without TLS are only meant for testing and demos to avoid having to create TLS certificates. They should only be used in local development clusters. 
@@ -91,19 +93,21 @@ If you have created your own RoleBindings to this Role, the operator will not re
 
 ##### TLS Certificates
 The project [Makefile](Makefile) includes targets to manage test TLS certificates using a self signed CA certificate. 
-To create test certificates in the directory [certs](certs) and Kubernetes secrets in the `istio-system` namespace, use the command:
+To create test certificates in the directory [certs](certs) and Kubernetes secrets in the `istio-system` namespace and current namespace, use the command:
 
 ```shell
 make certificates
 ```
 
-The test CA certificate is generated in the file [certs/domain.crt](certs/domain.crt) along with other certificates. See [generate_certs.sh](scripts/generate_certs.sh) for details. 
+The test CA certificate is generated in the file [certs/domain.crt](certs/domain.crt) along with certificates for REST, gRPC, and Database service. See [generate_certs.sh](scripts/generate_certs.sh) for details. 
 
 To cleanup the certificates and Kubernetes secrets, use the command:
 
 ```shell
 make certificates/clean
 ```
+
+NOTE: The sample database secret `model-registry-db-credential` is created with the CA cert, server key and server cert. However, in production the model registry only needs a secret with the CA cert(s). The production database server will be configured with a secret containing the private key and server cert. 
 
 To disable Istio Gateway creation, create a kustomize overlay that removes the `gateway` yaml section in model registry custom resource or manually edit a sample yaml and it's corresponding `replacements.yaml` helper. 
 
@@ -146,9 +150,11 @@ kubectl apply -k config/samples/istio/mysql
 kubectl apply -k config/samples/istio/postgres
 kubectl apply -k config/samples/istio/mysql-tls
 kubectl apply -k config/samples/istio/postgres-tls
+kubectl apply -k config/samples/secure-db/mysql
+kubectl apply -k config/samples/secure-db/mysql-tls
 ```
 
-This will create the appropriate model registry resource, which will be reconciled in the controller to create a model registry deployment with other Kubernetes, Istio, and Authorino resources as needed.
+This will create the appropriate database and model registry resources, which will be reconciled in the controller to create a model registry deployment with other Kubernetes, Istio, and Authorino resources as needed.
 
 4. Check that the sample model registry was created using the command:
 
