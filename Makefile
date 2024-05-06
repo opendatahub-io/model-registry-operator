@@ -204,6 +204,10 @@ certificates:
       --from-file=tls.key=certs/modelregistry-sample-grpc.domain.key \
       --from-file=tls.crt=certs/modelregistry-sample-grpc.domain.crt \
       --from-file=ca.crt=certs/domain.crt
+	$(KUBECTL) create secret generic model-registry-db-credential \
+      --from-file=tls.key=certs/model-registry-db.key \
+      --from-file=tls.crt=certs/model-registry-db.crt \
+      --from-file=ca.crt=certs/domain.crt
 
 .PHONY: certificates/clean
 certificates/clean:
@@ -211,4 +215,5 @@ certificates/clean:
 	mkdir -p certs
 	rm -f certs/*
 	# delete k8s secrets
-	$(KUBECTL) delete -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
+	$(KUBECTL) delete --ignore-not-found=true -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
+	$(KUBECTL) delete --ignore-not-found=true secrets model-registry-db-credential
