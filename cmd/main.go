@@ -50,7 +50,10 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
-const EnableWebhooks = "ENABLE_WEBHOOKS"
+const (
+	EnableWebhooks      = "ENABLE_WEBHOOKS"
+	CreateAuthResources = "CREATE_AUTH_RESOURCES"
+)
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
@@ -150,16 +153,19 @@ func main() {
 	}
 
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
+	createAuthResources := os.Getenv(CreateAuthResources) != "false"
+
 	if err = (&controller.ModelRegistryReconciler{
-		Client:         client,
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("modelregistry-controller"),
-		Log:            ctrl.Log.WithName("controller"),
-		Template:       template,
-		EnableWebhooks: enableWebhooks,
-		IsOpenShift:    isOpenShift,
-		HasIstio:       hasAuthorino && hasIstio,
-		Audiences:      tokenReview.Status.Audiences,
+		Client:              client,
+		Scheme:              mgr.GetScheme(),
+		Recorder:            mgr.GetEventRecorderFor("modelregistry-controller"),
+		Log:                 ctrl.Log.WithName("controller"),
+		Template:            template,
+		EnableWebhooks:      enableWebhooks,
+		IsOpenShift:         isOpenShift,
+		HasIstio:            hasAuthorino && hasIstio,
+		Audiences:           tokenReview.Status.Audiences,
+		CreateAuthResources: createAuthResources,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

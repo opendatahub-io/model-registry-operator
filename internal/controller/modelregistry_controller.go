@@ -67,14 +67,15 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
-	Log            logr.Logger
-	Template       *template.Template
-	EnableWebhooks bool
-	IsOpenShift    bool
-	HasIstio       bool
-	Audiences      []string
+	Scheme              *runtime.Scheme
+	Recorder            record.EventRecorder
+	Log                 logr.Logger
+	Template            *template.Template
+	EnableWebhooks      bool
+	IsOpenShift         bool
+	HasIstio            bool
+	Audiences           []string
+	CreateAuthResources bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -247,9 +248,11 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Owns(&routev1.Route{})
 	}
 	if r.HasIstio {
-		builder = builder.Owns(&authorino.AuthConfig{}).
-			Owns(&security.AuthorizationPolicy{}).
-			Owns(&networking.DestinationRule{}).
+		if r.CreateAuthResources {
+			builder = builder.Owns(&authorino.AuthConfig{}).
+				Owns(&security.AuthorizationPolicy{})
+		}
+		builder = builder.Owns(&networking.DestinationRule{}).
 			Owns(&networking.Gateway{}).
 			Owns(&networking.VirtualService{})
 	}
@@ -449,20 +452,22 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 		result = result2
 	}
 
-	result2, err = r.createOrUpdateAuthorizationPolicy(ctx, params, registry, "authorino-authorization-policy.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+	if r.CreateAuthResources {
+		result2, err = r.createOrUpdateAuthorizationPolicy(ctx, params, registry, "authorino-authorization-policy.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	result2, err = r.createOrUpdateAuthConfig(ctx, params, registry, "authconfig.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+		result2, err = r.createOrUpdateAuthConfig(ctx, params, registry, "authconfig.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	if params.Spec.Istio.Gateway != nil {
@@ -507,15 +512,17 @@ func (r *ModelRegistryReconciler) deleteIstioConfig(ctx context.Context, params 
 		return ResourceUpdated, err
 	}
 
-	authorizationPolicy := security.AuthorizationPolicy{ObjectMeta: objectMeta}
-	authorizationPolicy.Name = authorizationPolicy.Name + "-authorino"
-	if err = r.Client.Delete(ctx, &authorizationPolicy); client.IgnoreNotFound(err) != nil {
-		return ResourceUpdated, err
-	}
+	if r.CreateAuthResources {
+		authorizationPolicy := security.AuthorizationPolicy{ObjectMeta: objectMeta}
+		authorizationPolicy.Name = authorizationPolicy.Name + "-authorino"
+		if err = r.Client.Delete(ctx, &authorizationPolicy); client.IgnoreNotFound(err) != nil {
+			return ResourceUpdated, err
+		}
 
-	authConfig := authorino.AuthConfig{ObjectMeta: objectMeta}
-	if err = r.Client.Delete(ctx, &authConfig); client.IgnoreNotFound(err) != nil {
-		return ResourceUpdated, err
+		authConfig := authorino.AuthConfig{ObjectMeta: objectMeta}
+		if err = r.Client.Delete(ctx, &authConfig); client.IgnoreNotFound(err) != nil {
+			return ResourceUpdated, err
+		}
 	}
 
 	if err = r.deleteGatewayConfig(ctx, params); err != nil {

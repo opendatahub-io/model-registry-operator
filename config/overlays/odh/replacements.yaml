@@ -29,3 +29,13 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=REST_IMAGE].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.CREATE_AUTH_RESOURCES
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=CREATE_AUTH_RESOURCES].value
