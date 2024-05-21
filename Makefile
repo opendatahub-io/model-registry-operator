@@ -19,6 +19,9 @@ OVERLAY ?= "default"
 # Disable operator webhooks by default for local testing
 ENABLE_WEBHOOKS ?= false
 
+# Enable Auth resources by default for local testing
+CREATE_AUTH_RESOURCES ?= true
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -96,7 +99,7 @@ build: sync-images manifests generate fmt vet ## Build manager binary.
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) go run ./cmd/main.go
+	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) CREATE_AUTH_RESOURCES=$(CREATE_AUTH_RESOURCES) go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

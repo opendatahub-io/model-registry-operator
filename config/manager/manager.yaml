@@ -79,6 +79,8 @@ spec:
             value: quay.io/opendatahub/model-registry:latest
           - name: ENABLE_WEBHOOKS
             value: "false"
+          - name: CREATE_AUTH_RESOURCES
+            value: "true"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
