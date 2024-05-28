@@ -7,7 +7,8 @@ metadata:
     app.kubernetes.io/instance: modelregistry-editor-role
     app.kubernetes.io/component: rbac
     app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry-operator
+#    set by odh operator
+#    app.kubernetes.io/part-of: model-registry-operator
     app.kubernetes.io/managed-by: kustomize
   name: modelregistry-editor-role
 rules:
