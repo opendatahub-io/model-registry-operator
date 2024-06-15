@@ -337,6 +337,10 @@ type ModelRegistryStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=mr
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
+//+kubebuilder:printcolumn:name="Istio",type=string,JSONPath=`.status.conditions[?(@.type=="IstioAvailable")].status`,priority=2
+//+kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.status.conditions[?(@.type=="GatewayAvailable")].status`,priority=2
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ModelRegistry is the Schema for the modelregistries API
 type ModelRegistry struct {
