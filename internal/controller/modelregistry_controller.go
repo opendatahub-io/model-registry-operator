@@ -48,22 +48,6 @@ import (
 
 const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
 
-// Definitions to manage status conditions
-const (
-	// ConditionTypeAvailable represents the status of the Deployment reconciliation
-	ConditionTypeAvailable = "Available"
-	// ConditionTypeProgressing represents the status used when the custom resource is being deployed.
-	ConditionTypeProgressing = "Progressing"
-	// ConditionTypeDegraded represents the status used when the custom resource is deleted and the finalizer operations must occur.
-	ConditionTypeDegraded = "Degraded"
-
-	ReasonCreated     = "CreatedDeployment"
-	ReasonCreating    = "CreatingDeployment"
-	ReasonUpdating    = "UpdatingDeployment"
-	ReasonAvailable   = "DeploymentAvailable"
-	ReasonUnavailable = "DeploymentUnavailable"
-)
-
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
@@ -362,72 +346,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	return result, nil
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
-	log := klog.FromContext(ctx)
-
-	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
-	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
-		log.Error(err, "Failed to re-fetch modelRegistry")
-		return err
-	}
-
-	status := metav1.ConditionTrue
-	reason := ReasonCreated
-	message := "Deployment for custom resource %s was successfully created"
-	switch operationResult {
-	case ResourceCreated:
-		status = metav1.ConditionFalse
-		reason = ReasonCreating
-		message = "Creating deployment for custom resource %s"
-	case ResourceUpdated:
-		status = metav1.ConditionFalse
-		reason = ReasonUpdating
-		message = "Updating deployment for custom resource %s"
-	case ResourceUnchanged:
-		// ignore
-	}
-
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
-		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
-
-	// determine registry available condition
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
-		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return err
-	}
-	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
-
-	// check deployment availability
-	available := false
-	for _, c := range deployment.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable {
-			available = c.Status == corev1.ConditionTrue
-			break
-		}
-	}
-
-	if available {
-		status = metav1.ConditionTrue
-		reason = ReasonAvailable
-		message = "Deployment for custom resource %s is available"
-	} else {
-		status = metav1.ConditionFalse
-		reason = ReasonUnavailable
-		message = "Deployment for custom resource %s is not available"
-	}
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
-		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
-
-	if err := r.Status().Update(ctx, modelRegistry); err != nil {
-		log.Error(err, "Failed to update modelRegistry status")
-		return err
-	}
-	return nil
-}
-
 func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
 
@@ -542,11 +460,7 @@ func (r *ModelRegistryReconciler) deleteGatewayConfig(ctx context.Context, param
 
 func (r *ModelRegistryReconciler) deleteGatewayRoutes(ctx context.Context, name string) error {
 	// delete all gateway routes
-	labels := client.MatchingLabels{
-		"app":                     name,
-		"component":               "model-registry",
-		"maistra.io/gateway-name": name,
-	}
+	labels := getRouteLabels(name)
 	var list routev1.RouteList
 	if err := r.Client.List(ctx, &list, labels); err != nil {
 		return err
@@ -557,6 +471,15 @@ func (r *ModelRegistryReconciler) deleteGatewayRoutes(ctx context.Context, name 
 		}
 	}
 	return nil
+}
+
+func getRouteLabels(name string) client.MatchingLabels {
+	labels := client.MatchingLabels{
+		"app":                     name,
+		"component":               "model-registry",
+		"maistra.io/gateway-name": name,
+	}
+	return labels
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Context, params *ModelRegistryParams,

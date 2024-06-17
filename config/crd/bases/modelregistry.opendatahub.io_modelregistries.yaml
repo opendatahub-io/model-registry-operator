@@ -16,7 +16,22 @@ spec:
     singular: modelregistry
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Available")].status
+      name: Available
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="IstioAvailable")].status
+      name: Istio
+      priority: 2
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="GatewayAvailable")].status
+      name: Gateway
+      priority: 2
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ModelRegistry is the Schema for the modelregistries API
