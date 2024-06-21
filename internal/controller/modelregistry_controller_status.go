@@ -325,13 +325,12 @@ func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, 
 				if available {
 					reason = ReasonResourcesAvailable
 					message = "Istio resources for model registry %s are available"
+				} else {
+					reason = ReasonResourcesUnavailable
+					message = fmt.Sprintf("Istio AuthConfig for model registry %%s is not ready: {reason: %s, message: %s}", c.Reason, c.Message)
 				}
 				break
 			}
-		}
-		if !available {
-			reason = ReasonResourcesUnavailable
-			message = "Istio AuthConfig for model registry %s is not ready"
 		}
 	}
 	return message, available, reason
@@ -469,7 +468,7 @@ func (r *ModelRegistryReconciler) CheckRouteIngressConditions(routes *routev1.Ro
 					routeAvailable[routeType] = available
 
 					if !available {
-						routeMessage[routeType] = fmt.Sprintf("Istio Gateway Host %s in Route %s for model registry %%s is not available", ingress.Host, routeName)
+						routeMessage[routeType] = fmt.Sprintf("Istio Gateway Host %s in Route %s for model registry %%s is not available: {reason: %s, message: %s}", ingress.Host, routeName, c.Reason, c.Message)
 					}
 					break
 				}
