@@ -61,74 +61,162 @@ const (
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 )
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) (bool, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
 	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
 		log.Error(err, "Failed to re-fetch modelRegistry")
-		return err
+		return false, err
 	}
 
 	status := metav1.ConditionTrue
 	reason := ReasonDeploymentCreated
-	message := "Deployment for model registry %s was successfully created"
+	message := "Deployment was successfully created"
 	switch operationResult {
 	case ResourceCreated:
 		status = metav1.ConditionFalse
 		reason = ReasonDeploymentCreating
-		message = "Creating deployment for model registry %s"
+		message = "Creating deployment"
 	case ResourceUpdated:
 		status = metav1.ConditionFalse
 		reason = ReasonDeploymentUpdating
-		message = "Updating deployment for model registry %s"
+		message = "Updating deployment"
 	case ResourceUnchanged:
 		// ignore
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeProgressing,
 		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
+		Message: message})
 
 	// determine registry available condition
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
 		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return err
+		return false, err
 	}
 	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
 
-	// check deployment availability
-	available := false
+	// check deployment conditions errors
+	available := true
+	failed := false
+	progressing := true
 	for _, c := range deployment.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable {
-			available = c.Status == corev1.ConditionTrue
-			break
+		switch c.Type {
+		case appsv1.DeploymentAvailable:
+			if !failed && progressing {
+				available = c.Status == corev1.ConditionTrue
+				if !available {
+					message = c.Message
+				}
+			}
+		case appsv1.DeploymentProgressing:
+			if c.Status == corev1.ConditionFalse && !failed {
+				available = false
+				progressing = false
+				message = c.Message
+			}
+		case appsv1.DeploymentReplicaFailure:
+			if c.Status == corev1.ConditionTrue {
+				available = false
+				failed = true
+				message = c.Message
+			}
 		}
+	}
+	if !available {
+		reason = ReasonDeploymentUnavailable
+		message = fmt.Sprintf("Deployment is unavailable: %s", message)
+	}
+
+	// look for pod level detailed errors, if present
+	unavailableReplicas := deployment.Status.UnavailableReplicas
+	if unavailableReplicas != 0 {
+		available, reason, message = r.CheckPodStatus(ctx, req, available, reason, message, unavailableReplicas)
 	}
 
 	if available {
 		status = metav1.ConditionTrue
 		reason = ReasonDeploymentAvailable
-		message = "Deployment for model registry %s is available"
+		message = "Deployment is available"
 	} else {
 		status = metav1.ConditionFalse
-		reason = ReasonDeploymentUnavailable
-		message = "Deployment for model registry %s is not available"
 	}
 
-	if r.HasIstio {
+	if available && r.HasIstio {
 		status, reason, message = r.SetIstioAndGatewayConditions(ctx, req, modelRegistry, status, reason, message)
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
 		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
+		Message: message})
 	if err := r.Status().Update(ctx, modelRegistry); err != nil {
 		log.Error(err, "Failed to update modelRegistry status")
-		return err
+		return false, err
 	}
-	return nil
+
+	return available, nil
+}
+
+func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
+	available bool, reason string, message string, unavailableReplicas int32) (bool, string, string) {
+
+	available = false
+	reason = ReasonDeploymentUnavailable
+	foundError := false
+
+	// find the not ready pod and get message
+	var pods corev1.PodList
+	r.Client.List(ctx, &pods, client.MatchingLabels{"app": req.Name, "component": "model-registry"}, client.InNamespace(req.Namespace))
+	for _, p := range pods.Items {
+		// look for not ready container status first
+		failedContainers := make(map[string]string)
+		for _, s := range p.Status.ContainerStatuses {
+			if !s.Ready {
+				if s.State.Waiting != nil {
+					failedContainers[s.Name] = fmt.Sprintf("{waiting: {reason: %s, message: %s}}", s.State.Waiting.Reason, s.State.Waiting.Message)
+				} else if s.State.Terminated != nil {
+					failedContainers[s.Name] = fmt.Sprintf("{terminated: {reason: %s, message: %s}}", s.State.Terminated.Reason, s.State.Terminated.Message)
+				}
+			}
+		}
+		if len(failedContainers) > 0 {
+			foundError = true
+			var containerErrors strings.Builder
+			first := ""
+			containerErrors.WriteString("[")
+			for c, e := range failedContainers {
+				containerErrors.WriteString(fmt.Sprintf("%s%s: %s", first, c, e))
+				if first == "" {
+					first = ", "
+				}
+			}
+			containerErrors.WriteString("]")
+			message = fmt.Sprintf("Deployment is unavailable: pod %s has unready containers %s", p.Name, containerErrors.String())
+		} else {
+
+			// else use not ready pod status
+			for _, c := range p.Status.Conditions {
+				if c.Type == corev1.PodReady && c.Status == corev1.ConditionFalse {
+					foundError = true
+					message = fmt.Sprintf("Deployment is unavailable: pod %s containers not ready: {reason: %s, message: %s}", p.Name, c.Reason, c.Message)
+					break
+				}
+			}
+		}
+		// report first pod error
+		if foundError {
+			break
+		}
+	}
+
+	// generic error if a specific one was not found
+	if !foundError {
+		message = fmt.Sprintf("Deployment is unavailable: %d containers unavailable", unavailableReplicas)
+	}
+
+	return available, reason, message
 }
 
 func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Context, req ctrl.Request,
@@ -139,7 +227,7 @@ func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Conte
 		if !r.SetIstioCondition(ctx, req, modelRegistry) {
 			status = metav1.ConditionFalse
 			reason = ReasonResourcesUnavailable
-			message = "Istio resources for model registry %s are not available"
+			message = "Istio resources are unavailable"
 		}
 
 		// set Gateway available condition
@@ -147,7 +235,7 @@ func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Conte
 			if !r.SetGatewayCondition(ctx, req, modelRegistry) {
 				status = metav1.ConditionFalse
 				reason = ReasonResourcesUnavailable
-				message = "Istio Gateway resources for model registry %s are not available"
+				message = "Istio Gateway resources are unavailable"
 			}
 		} else {
 			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
@@ -166,7 +254,7 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 	log := klog.FromContext(ctx)
 
 	reason := ReasonResourcesCreated
-	message := "Istio resources for model registry %s were successfully created"
+	message := "Istio resources were successfully created"
 
 	available := true
 	// verify that virtualservice, destinationrule, authorizationpolicy are available
@@ -188,7 +276,7 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 	}
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeIstio,
 		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
+		Message: message})
 
 	return status == metav1.ConditionTrue
 }
@@ -202,7 +290,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 		client.InNamespace(name.Namespace)); err != nil {
 
 		log.Error(err, "Failed to get model registry pods", "name", name)
-		message = fmt.Sprintf("Failed to find Pods for model registry %%s: %s", err.Error())
+		message = fmt.Sprintf("Failed to find Pods: %s", err.Error())
 		reason = ReasonResourcesUnavailable
 		status = metav1.ConditionFalse
 
@@ -210,7 +298,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 		// check that pods have 3 containers
 		for _, pod := range pods.Items {
 			if len(pod.Spec.Containers) != 3 {
-				message = fmt.Sprintf("Istio proxy unavailable in Pod %s for model registry %%s", pod.Name)
+				message = fmt.Sprintf("Istio proxy unavailable in Pod %s", pod.Name)
 				reason = ReasonResourcesUnavailable
 				status = metav1.ConditionFalse
 				break
@@ -225,7 +313,7 @@ func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, 
 	authConfig := &authorino.AuthConfig{}
 	if err := r.Get(ctx, name, authConfig); err != nil {
 		log.Error(err, "Failed to get model registry Istio Authorino AuthConfig", "name", name)
-		message = fmt.Sprintf("Failed to find AuthConfig for model registry %%s: %s", err.Error())
+		message = fmt.Sprintf("Failed to find AuthConfig: %s", err.Error())
 		available = false
 	}
 
@@ -236,14 +324,13 @@ func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, 
 				available = c.Status == corev1.ConditionTrue
 				if available {
 					reason = ReasonResourcesAvailable
-					message = "Istio resources for model registry %s are available"
+					message = "Istio resources are available"
+				} else {
+					reason = ReasonResourcesUnavailable
+					message = fmt.Sprintf("Istio AuthConfig is not ready: {reason: %s, message: %s}", c.Reason, c.Message)
 				}
 				break
 			}
-		}
-		if !available {
-			reason = ReasonResourcesUnavailable
-			message = "Istio AuthConfig for model registry %s is not ready"
 		}
 	}
 	return message, available, reason
@@ -256,13 +343,13 @@ func (r *ModelRegistryReconciler) CheckIstioResourcesAvailable(ctx context.Conte
 	resource = &v1beta1.VirtualService{}
 	if err := r.Get(ctx, name, resource); err != nil {
 		log.Error(err, "Failed to get model registry Istio VirtualService", "name", name)
-		message = fmt.Sprintf("Failed to find VirtualService for model registry %%s: %s", err.Error())
+		message = fmt.Sprintf("Failed to find VirtualService: %s", err.Error())
 		available = false
 	}
 	resource = &v1beta1.DestinationRule{}
 	if err := r.Get(ctx, name, resource); err != nil {
 		log.Error(err, "Failed to get model registry Istio DestinationRule", "name", name)
-		message = fmt.Sprintf("Failed to find DestinationRule for model registry %%s: %s", err.Error())
+		message = fmt.Sprintf("Failed to find DestinationRule: %s", err.Error())
 		available = false
 	}
 	resource = &v1beta12.AuthorizationPolicy{}
@@ -270,7 +357,7 @@ func (r *ModelRegistryReconciler) CheckIstioResourcesAvailable(ctx context.Conte
 	policyName.Name = policyName.Name + "-authorino"
 	if err := r.Get(ctx, policyName, resource); err != nil {
 		log.Error(err, "Failed to get model registry Istio AuthorizationPolicy", "name", policyName)
-		message = fmt.Sprintf("Failed to find AuthorizationPolicy %s for model registry %%s: %s", policyName, err.Error())
+		message = fmt.Sprintf("Failed to find AuthorizationPolicy %s: %s", policyName, err.Error())
 		available = false
 	}
 
@@ -283,7 +370,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 	log := klog.FromContext(ctx)
 
 	reason := ReasonResourcesCreated
-	message := "Istio Gateway resources for model registry %s were successfully created"
+	message := "Istio Gateway resources were successfully created"
 
 	available := true
 	// verify that gateway is available
@@ -291,7 +378,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 	resource := &v1beta1.Gateway{}
 	if err := r.Get(ctx, name, resource); err != nil {
 		log.Error(err, "Failed to get model registry Istio Gateway", "name", name)
-		message = fmt.Sprintf("Failed to find Gateway for model registry %%s: %s", err.Error())
+		message = fmt.Sprintf("Failed to find Gateway: %s", err.Error())
 		available = false
 	}
 
@@ -302,7 +389,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 		// set Gateway condition true if routes are available
 		if available {
 			reason = ReasonResourcesAvailable
-			message = "Istio Gateway resources for model registry %s are available"
+			message = "Istio Gateway resources are available"
 		}
 	}
 
@@ -317,7 +404,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 	}
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeGateway,
 		Status: status, Reason: reason,
-		Message: fmt.Sprintf(message, modelRegistry.Name)})
+		Message: message})
 
 	return status == metav1.ConditionTrue
 }
@@ -335,7 +422,7 @@ func (r *ModelRegistryReconciler) CheckGatewayRoutes(ctx context.Context, modelR
 		labels := getRouteLabels(name.Name)
 		if err := r.Client.List(ctx, routes, labels); err != nil {
 			log.Error(err, "Failed to get model registry Routes", "name", name)
-			message = fmt.Sprintf("Failed to find Routes for model registry %%s: %s", err.Error())
+			message = fmt.Sprintf("Failed to find Routes: %s", err.Error())
 			available = false
 		}
 
@@ -346,18 +433,24 @@ func (r *ModelRegistryReconciler) CheckGatewayRoutes(ctx context.Context, modelR
 			available = r.CheckRouteIngressConditions(routes, available, routeAvailable, routeMessage)
 
 			// check that expected routes are available
+			restError := false
 			if restRouteEnabled && !routeAvailable["rest"] {
+				restError = true
 				message = routeMessage["rest"]
 				if len(message) == 0 {
 					available = false
-					message = "Istio Gateway REST Route missing for model registry %s"
+					message = "Istio Gateway REST Route missing"
 				}
 			}
 			if grpcRouteEnabled && !routeAvailable["grpc"] {
-				message = routeMessage["grpc"]
+				if restError {
+					message = fmt.Sprintf("%s, %s", message, routeMessage["grpc"])
+				} else {
+					message = routeMessage["grpc"]
+				}
 				if len(message) == 0 {
 					available = false
-					message = "Istio Gateway GRPC Route missing for model registry %s"
+					message = "Istio Gateway GRPC Route missing"
 				}
 			}
 		}
@@ -374,14 +467,15 @@ func (r *ModelRegistryReconciler) CheckRouteIngressConditions(routes *routev1.Ro
 			for _, c := range ingress.Conditions {
 
 				if c.Type == routev1.RouteAdmitted {
-					available = c.Status == corev1.ConditionTrue
+					routeAdmitted := c.Status == corev1.ConditionTrue
 
 					routeName := route.Name
 					routeType := routeName[strings.LastIndex(routeName, "-")+1:]
-					routeAvailable[routeType] = available
+					routeAvailable[routeType] = routeAdmitted
 
-					if !available {
-						routeMessage[routeType] = fmt.Sprintf("Istio Gateway Host %s in Route %s for model registry %%s is not available", ingress.Host, routeName)
+					if !routeAdmitted {
+						available = false
+						routeMessage[routeType] = fmt.Sprintf("Host %s in Route %s is unavailable: {reason: %s, message: %s}", ingress.Host, routeName, c.Reason, c.Message)
 					}
 					break
 				}
