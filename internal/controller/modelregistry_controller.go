@@ -197,7 +197,8 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.logResultAsEvent(modelRegistry, result)
 
 	// set custom resource status
-	if err = r.setRegistryStatus(ctx, req, result); err != nil {
+	available := false
+	if available, err = r.setRegistryStatus(ctx, req, result); err != nil {
 		return ctrl.Result{Requeue: true}, err
 	}
 	log.Info("status reconciled")
@@ -206,7 +207,8 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		// requeue to update status
 		return ctrl.Result{Requeue: true}, nil
 	}
-	return ctrl.Result{}, nil
+
+	return ctrl.Result{Requeue: !available}, nil
 }
 
 func IgnoreDeletingErrors(err error) error {

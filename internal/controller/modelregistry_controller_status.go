@@ -61,13 +61,13 @@ const (
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 )
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) error {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) (bool, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
 	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
 		log.Error(err, "Failed to re-fetch modelRegistry")
-		return err
+		return false, err
 	}
 
 	status := metav1.ConditionTrue
@@ -94,17 +94,46 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
 		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return err
+		return false, err
 	}
 	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
 
-	// check deployment availability
-	available := false
+	// check deployment conditions errors
+	available := true
+	failed := false
+	progressing := true
 	for _, c := range deployment.Status.Conditions {
-		if c.Type == appsv1.DeploymentAvailable {
-			available = c.Status == corev1.ConditionTrue
-			break
+		switch c.Type {
+		case appsv1.DeploymentAvailable:
+			if !failed && progressing {
+				available = c.Status == corev1.ConditionTrue
+				if !available {
+					message = c.Message
+				}
+			}
+		case appsv1.DeploymentProgressing:
+			if c.Status == corev1.ConditionFalse && !failed {
+				available = false
+				progressing = false
+				message = c.Message
+			}
+		case appsv1.DeploymentReplicaFailure:
+			if c.Status == corev1.ConditionTrue {
+				available = false
+				failed = true
+				message = c.Message
+			}
 		}
+	}
+	if !available {
+		reason = ReasonDeploymentUnavailable
+		message = fmt.Sprintf("Deployment for model registry %%s is unavailable: %s", message)
+	}
+
+	// look for pod level detailed errors, if present
+	unavailableReplicas := deployment.Status.UnavailableReplicas
+	if unavailableReplicas != 0 {
+		available, reason, message = r.CheckPodStatus(ctx, req, available, reason, message, unavailableReplicas)
 	}
 
 	if available {
@@ -113,11 +142,9 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		message = "Deployment for model registry %s is available"
 	} else {
 		status = metav1.ConditionFalse
-		reason = ReasonDeploymentUnavailable
-		message = "Deployment for model registry %s is not available"
 	}
 
-	if r.HasIstio {
+	if available && r.HasIstio {
 		status, reason, message = r.SetIstioAndGatewayConditions(ctx, req, modelRegistry, status, reason, message)
 	}
 
@@ -126,9 +153,70 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		Message: fmt.Sprintf(message, modelRegistry.Name)})
 	if err := r.Status().Update(ctx, modelRegistry); err != nil {
 		log.Error(err, "Failed to update modelRegistry status")
-		return err
+		return false, err
 	}
-	return nil
+
+	return available, nil
+}
+
+func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
+	available bool, reason string, message string, unavailableReplicas int32) (bool, string, string) {
+
+	available = false
+	reason = ReasonDeploymentUnavailable
+	foundError := false
+
+	// find the not ready pod and get message
+	var pods corev1.PodList
+	r.Client.List(ctx, &pods, client.MatchingLabels{"app": req.Name, "component": "model-registry"}, client.InNamespace(req.Namespace))
+	for _, p := range pods.Items {
+		// look for not ready container status first
+		failedContainers := make(map[string]string)
+		for _, s := range p.Status.ContainerStatuses {
+			if !s.Ready {
+				if s.State.Waiting != nil {
+					failedContainers[s.Name] = fmt.Sprintf("{waiting: {reason: %s, message: %s}}", s.State.Waiting.Reason, s.State.Waiting.Message)
+				} else if s.State.Terminated != nil {
+					failedContainers[s.Name] = fmt.Sprintf("{terminated: {reason: %s, message: %s}}", s.State.Terminated.Reason, s.State.Terminated.Message)
+				}
+			}
+		}
+		if len(failedContainers) > 0 {
+			foundError = true
+			var containerErrors strings.Builder
+			first := ""
+			containerErrors.WriteString("[")
+			for c, e := range failedContainers {
+				containerErrors.WriteString(fmt.Sprintf("%s%s: %s", first, c, e))
+				if first == "" {
+					first = ", "
+				}
+			}
+			containerErrors.WriteString("]")
+			message = fmt.Sprintf("Deployment for model registry %%s is unavailable: pod %s has unready containers %v", p.Name, containerErrors.String())
+		} else {
+
+			// else use not ready pod status
+			for _, c := range p.Status.Conditions {
+				if c.Type == corev1.PodReady && c.Status == corev1.ConditionFalse {
+					foundError = true
+					message = fmt.Sprintf("Deployment for model registry %%s is unavailable: pod %s containers not ready: %s", p.Name, c.Message)
+					break
+				}
+			}
+		}
+		// report first pod error
+		if foundError {
+			break
+		}
+	}
+
+	// generic error if a specific one was not found
+	if !foundError {
+		message = fmt.Sprintf("Deployment for model registry %%s is unavailable: %d containers not available", unavailableReplicas)
+	}
+
+	return available, reason, message
 }
 
 func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Context, req ctrl.Request,
