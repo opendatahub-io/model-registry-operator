@@ -383,7 +383,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 	}
 
 	// check routes Ingress Admitted condition
-	if available {
+	if available && r.IsOpenShift {
 		message, available = r.CheckGatewayRoutes(ctx, modelRegistry, name, log, message, available)
 
 		// set Gateway condition true if routes are available
