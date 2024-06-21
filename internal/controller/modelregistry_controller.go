@@ -36,12 +36,17 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	pkgbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
 	"text/template"
 )
@@ -231,7 +236,20 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&rbac.Role{})
 	if r.IsOpenShift {
 		builder = builder.Owns(&rbac.RoleBinding{})
-		builder = builder.Owns(&routev1.Route{})
+
+		labelsPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				"component":                    "model-registry",
+				"app.kubernetes.io/created-by": "model-registry-operator",
+			},
+		})
+		if err != nil {
+			return err
+		}
+		builder = builder.Watches(
+			&routev1.Route{},
+			handler.EnqueueRequestsFromMapFunc(r.GetRegistryForRoute),
+			pkgbuilder.WithPredicates(labelsPredicate))
 	}
 	if r.HasIstio {
 		if r.CreateAuthResources {
@@ -243,6 +261,30 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			Owns(&networking.VirtualService{})
 	}
 	return builder.Complete(r)
+}
+
+// GetRegistryForRoute maps route name to model registry reconcile request
+func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, object client.Object) []reconcile.Request {
+	route := object.(*routev1.Route)
+
+	labels := route.GetObjectMeta().GetLabels()
+	name := labels["app"]
+	if len(name) == 0 {
+		logger := klog.FromContext(ctx)
+		logger.Error(nil, "missing 'app' label in model registry route", "route", route.Name)
+		return nil
+	}
+
+	namespace := labels["maistra.io/gateway-namespace"]
+	if len(namespace) == 0 {
+		logger := klog.FromContext(ctx)
+		logger.Error(nil, "missing 'maistra.io/gateway-namespace' label in model registry route", "route", route.Name)
+		return nil
+	}
+
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}},
+	}
 }
 
 // NOTE: There MUST be an empty newline at the end of this rbac permissions list, or role generation won't work!!!
