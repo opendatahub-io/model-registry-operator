@@ -99,7 +99,8 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
 
 	// check deployment conditions errors
-	available := true
+	// start with available=false to force DeploymentAvailable condition to set it to true later
+	available := false
 	failed := false
 	progressing := true
 	for _, c := range deployment.Status.Conditions {
