@@ -199,10 +199,26 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 			result, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespaceName,
 			})
+
 			if err != nil {
 				return err
 			}
 			if !result.IsZero() {
+				// set DeploymentAvailable condition in status to True to make reconcile succeed
+				deployment := &appsv1.Deployment{}
+				derr := k8sClient.Get(ctx, typeNamespaceName, deployment)
+				if derr != nil {
+					return derr
+				}
+				conditions := deployment.Status.Conditions
+				if len(conditions) == 0 {
+					deployment.Status.Conditions = append(conditions, appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue})
+					derr = k8sClient.Status().Update(ctx, deployment)
+					if derr != nil {
+						return derr
+					}
+				}
+
 				return fmt.Errorf("non-empty reconcile result")
 			}
 			// reconcile done!
