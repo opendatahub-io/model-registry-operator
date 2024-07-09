@@ -331,6 +331,13 @@ type ModelRegistryStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	// Hosts where model registry services are available
+	// NOTE: Gateway service names are different for gRPC and REST service routes
+	Hosts []string `json:"hosts"`
+
+	// Formatted Host names separated by comma
+	HostsStr string `json:"hostsStr"`
+
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -341,6 +348,7 @@ type ModelRegistryStatus struct {
 //+kubebuilder:printcolumn:name="Istio",type=string,JSONPath=`.status.conditions[?(@.type=="IstioAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.status.conditions[?(@.type=="GatewayAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
+//+kubebuilder:printcolumn:name="Hosts",type=string,JSONPath=`.status.hostsStr`,priority=2
 //+kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].message`,priority=2
 
 // ModelRegistry is the Schema for the modelregistries API

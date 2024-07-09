@@ -70,6 +70,8 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		return false, err
 	}
 
+	r.setRegistryStatusHosts(req, modelRegistry)
+
 	status := metav1.ConditionTrue
 	reason := ReasonDeploymentCreated
 	message := "Deployment was successfully created"
@@ -158,6 +160,26 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	return available, nil
+}
+
+func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, registry *modelregistryv1alpha1.ModelRegistry) {
+
+	var hosts []string
+
+	istio := registry.Spec.Istio
+	name := req.Name
+	if istio != nil && istio.Gateway != nil && len(istio.Gateway.Domain) != 0 {
+		domain := istio.Gateway.Domain
+		hosts = append(hosts, fmt.Sprintf("%s-rest.%s", name, domain))
+		hosts = append(hosts, fmt.Sprintf("%s-grpc.%s", name, domain))
+	}
+	namespace := req.Namespace
+	hosts = append(hosts, fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace))
+	hosts = append(hosts, fmt.Sprintf("%s.%s", name, namespace))
+	hosts = append(hosts, name)
+
+	registry.Status.Hosts = hosts
+	registry.Status.HostsStr = strings.Join(hosts, ",")
 }
 
 func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
