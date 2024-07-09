@@ -51,7 +51,11 @@ import (
 	"text/template"
 )
 
-const modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
+const (
+	modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
+	DisplayNameAnnotation  = "openshift.io/display-name"
+	DescriptionAnnotation  = "openshift.io/description"
+)
 
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
@@ -787,6 +791,21 @@ func (r *ModelRegistryReconciler) createOrUpdateService(ctx context.Context, par
 	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
 		return result, err
 	}
+
+	// copy display name and description from MR to the Service
+	if name, ok := registry.Annotations[DisplayNameAnnotation]; ok {
+		if service.Annotations == nil {
+			service.Annotations = make(map[string]string)
+		}
+		service.Annotations[DisplayNameAnnotation] = name
+	}
+	if description, ok := registry.Annotations[DescriptionAnnotation]; ok {
+		if service.Annotations == nil {
+			service.Annotations = make(map[string]string)
+		}
+		service.Annotations[DescriptionAnnotation] = description
+	}
+
 	if result, err = r.createOrUpdate(ctx, service.DeepCopy(), &service); err != nil {
 		return result, err
 	}
