@@ -27,6 +27,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"strings"
 	"text/template"
 	"time"
 
@@ -239,12 +240,26 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 		Eventually(func() error {
 			err := k8sClient.Get(ctx, typeNamespaceName, modelRegistry)
 			Expect(err).To(Not(HaveOccurred()))
+
+			// also check hosts in status
+			hosts := modelRegistry.Status.Hosts
+			Expect(len(hosts)).To(Equal(3))
+			name := modelRegistry.Name
+			namespace := modelRegistry.Namespace
+			Expect(hosts[0]).
+				To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
+			Expect(hosts[1]).
+				To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
+			Expect(hosts[2]).
+				To(Equal(name))
+			Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
+
 			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeProgressing) {
 				return fmt.Errorf("Condition %s is not true", ConditionTypeProgressing)
 			}
-			//if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeAvailable) {
-			//	return fmt.Errorf("Condition %s is not true", ConditionTypeAvailable)
-			//}
+			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeAvailable) {
+				return fmt.Errorf("Condition %s is not true", ConditionTypeAvailable)
+			}
 			return nil
 		}, time.Minute, time.Second).Should(Succeed())
 

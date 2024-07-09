@@ -31,6 +31,10 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.hostsStr
+      name: Hosts
+      priority: 2
+      type: string
     - jsonPath: .status.conditions[?(@.type=="Available")].message
       name: Status
       priority: 2
@@ -701,6 +705,18 @@ spec:
                   - type
                   type: object
                 type: array
+              hosts:
+                description: 'Hosts where model registry services are available NOTE:
+                  Gateway service names are different for gRPC and REST service routes'
+                items:
+                  type: string
+                type: array
+              hostsStr:
+                description: Formatted Host names separated by comma
+                type: string
+            required:
+            - hosts
+            - hostsStr
             type: object
         type: object
     served: true
