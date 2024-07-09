@@ -40,6 +40,8 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 )
 
+const DescriptionPrefix = "Test Registry "
+
 var _ = Describe("ModelRegistry controller", func() {
 
 	Context("ModelRegistry controller test", func() {
@@ -89,8 +91,9 @@ var _ = Describe("ModelRegistry controller", func() {
 				var restPort int32 = 8080
 				modelRegistry = &v1alpha1.ModelRegistry{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      registryName,
-						Namespace: namespace.Name,
+						Name:        registryName,
+						Namespace:   namespace.Name,
+						Annotations: map[string]string{DisplayNameAnnotation: registryName, DescriptionAnnotation: DescriptionPrefix + registryName},
 					},
 					Spec: v1alpha1.ModelRegistrySpec{
 						Grpc: v1alpha1.GrpcSpec{
@@ -242,6 +245,22 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 			//if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeAvailable) {
 			//	return fmt.Errorf("Condition %s is not true", ConditionTypeAvailable)
 			//}
+			return nil
+		}, time.Minute, time.Second).Should(Succeed())
+
+		By("Checking the display name and description were copied to the ModelRegistry service")
+		Eventually(func() error {
+
+			service := &corev1.Service{}
+			err := k8sClient.Get(ctx, typeNamespaceName, service)
+			Expect(err).To(Not(HaveOccurred()))
+
+			name := service.Annotations[DisplayNameAnnotation]
+			Expect(name).To(Equal(typeNamespaceName.Name))
+
+			description := service.Annotations[DescriptionAnnotation]
+			Expect(description).To(Equal(DescriptionPrefix + typeNamespaceName.Name))
+
 			return nil
 		}, time.Minute, time.Second).Should(Succeed())
 
