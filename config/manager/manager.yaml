@@ -81,6 +81,8 @@ spec:
             value: "false"
           - name: CREATE_AUTH_RESOURCES
             value: "true"
+          - name: DEFAULT_DOMAIN
+            value: ""
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

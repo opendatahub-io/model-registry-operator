@@ -161,7 +161,11 @@ spec:
                         description: Maistra/OpenShift Servicemesh control plane name
                         type: string
                       domain:
-                        description: Domain name for Gateway configuration
+                        description: Domain name for Gateway configuration. If not
+                          provided, it is set automatically using model registry operator
+                          env variable DEFAULT_DOMAIN. If the env variable is not
+                          set, it is set to the OpenShift `cluster` ingress domain
+                          in an OpenShift cluster.
                         type: string
                       grpc:
                         description: gRPC  gateway server config
@@ -317,7 +321,6 @@ spec:
                             type: object
                         type: object
                     required:
-                    - domain
                     - grpc
                     - rest
                     type: object

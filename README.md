@@ -38,7 +38,7 @@ If Authorino provider is from a non Open Data Hub cluster, configure its selecto
 To use the Istio model registry samples the following configuration data is needed in the [istio.env](config/samples/istio/components/istio.env) file:
 
 * AUTH_PROVIDER - name of the authorino external auth provider configured in the Istio control plane (defaults to `opendatahub-auth-provider` for Open Data Hub data science cluster with OpenShift Service Mesh enabled).
-* DOMAIN - hostname domain suffix for gateway endpoints. 
+* DOMAIN - hostname domain suffix for gateway endpoints. This field is optional in an OpenShift cluster and set automatically if left empty.
 This depends upon your cluster's external load balancer config. In OpenShift clusters, it can be obtained with the command:
 ```shell
 oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'

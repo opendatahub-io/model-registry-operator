@@ -25,6 +25,7 @@ import (
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -69,6 +70,7 @@ type ModelRegistryReconciler struct {
 	HasIstio            bool
 	Audiences           []string
 	CreateAuthResources bool
+	DefaultDomain       string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -299,6 +301,7 @@ func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, objec
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
@@ -598,7 +601,21 @@ func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params
 
 func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+
 	result = ResourceUnchanged
+
+	// autoconfigure domain if needed
+	domainUpdated := false
+	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
+		err = r.setClusterDomain(ctx, registry)
+		if err != nil {
+			return result, err
+		}
+		// update current reconcile spec
+		params.Spec = registry.Spec
+		domainUpdated = true
+	}
+
 	var gateway networking.Gateway
 	if err = r.Apply(params, templateName, &gateway); err != nil {
 		return result, err
@@ -611,7 +628,12 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 	if err != nil {
 		return result, err
 	}
-	return result, nil
+
+	if !domainUpdated {
+		return result, nil
+	} else {
+		return ResourceUpdated, nil
+	}
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
@@ -960,4 +982,26 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 	case ResourceUnchanged:
 		// ignore
 	}
+}
+
+func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) (err error) {
+	if len(r.DefaultDomain) != 0 {
+		registry.Spec.Istio.Gateway.Domain = r.DefaultDomain
+	} else if r.IsOpenShift {
+		ingress := configv1.Ingress{}
+		namespacedName := types.NamespacedName{Name: "cluster"}
+		err = r.Client.Get(context.Background(), namespacedName, &ingress)
+		if err != nil {
+			return err
+		}
+
+		// remember default domain for next time
+		r.DefaultDomain = ingress.Spec.Domain
+		registry.Spec.Istio.Gateway.Domain = r.DefaultDomain
+	} else {
+		return fmt.Errorf("model registry %s is missing gateway domain and default domain is not configured",
+			registry.Name)
+	}
+	// update domain in model registry resource
+	return r.Client.Update(ctx, registry)
 }
