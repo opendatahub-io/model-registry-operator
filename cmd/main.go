@@ -32,6 +32,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	oapi "github.com/openshift/api"
+	oapiconfig "github.com/openshift/api/config/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -53,12 +54,14 @@ var (
 const (
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
 	CreateAuthResources = "CREATE_AUTH_RESOURCES"
+	DefaultDomain       = "DEFAULT_DOMAIN"
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	// openshift scheme
 	utilruntime.Must(oapi.Install(scheme))
+	utilruntime.Must(oapiconfig.Install(scheme))
 	// authorino scheme
 	utilruntime.Must(authorino.AddToScheme(scheme))
 	// istio security scheme
@@ -154,6 +157,7 @@ func main() {
 
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(CreateAuthResources) != "false"
+	defaultDomain := os.Getenv(DefaultDomain)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
@@ -166,6 +170,7 @@ func main() {
 		HasIstio:            hasAuthorino && hasIstio,
 		Audiences:           tokenReview.Status.Audiences,
 		CreateAuthResources: createAuthResources,
+		DefaultDomain:       defaultDomain,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

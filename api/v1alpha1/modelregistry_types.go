@@ -224,10 +224,12 @@ type ServerConfig struct {
 }
 
 type GatewayConfig struct {
-	//+kubebuilder:required
+	//+optional
 
-	// Domain name for Gateway configuration
-	Domain string `json:"domain"`
+	// Domain name for Gateway configuration.
+	// If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
+	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
+	Domain string `json:"domain,omitempty"`
 
 	//+kubebuilder:default=ingressgateway
 

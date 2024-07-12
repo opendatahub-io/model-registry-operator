@@ -197,7 +197,7 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: certificates
 certificates:
 	# generate TLS certs
-	scripts/generate_certs.sh $(DOMAIN)
+	scripts/generate_certs.sh $(or $(DOMAIN),$(shell oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'))
 	# create secrets from TLS certs
 	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-rest-credential \
       --from-file=tls.key=certs/modelregistry-sample-rest.domain.key \
