@@ -1,4 +1,8 @@
 DOMAIN=$1
+if [ -z ${DOMAIN} ]; then
+  echo "Missing command line parameter for certificate domain"
+  exit 1
+fi
 mkdir -p certs
 # create CA cert
 openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:2048 -subj "/O=modelregistry Inc./CN=$DOMAIN" -keyout certs/domain.key -out certs/domain.crt
