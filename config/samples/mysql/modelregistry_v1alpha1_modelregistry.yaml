@@ -14,7 +14,7 @@ spec:
     port: 9090
   rest:
     port: 8080
-    serviceRoute: disabled
+    serviceRoute: enabled
   mysql:
     host: model-registry-db
     database: model_registry
