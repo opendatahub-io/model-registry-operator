@@ -83,6 +83,8 @@ spec:
             value: "true"
           - name: DEFAULT_DOMAIN
             value: ""
+          - name: DEFAULT_CERT
+            value: ""
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

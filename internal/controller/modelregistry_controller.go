@@ -71,6 +71,7 @@ type ModelRegistryReconciler struct {
 	Audiences           []string
 	CreateAuthResources bool
 	DefaultDomain       string
+	DefaultCert         string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -604,16 +605,20 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 
 	result = ResourceUnchanged
 
+	updated := false
 	// autoconfigure domain if needed
-	domainUpdated := false
 	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
 		err = r.setClusterDomain(ctx, registry)
 		if err != nil {
 			return result, err
 		}
+		updated = true
+	}
+	// set default cert if needed
+	updated = updated || r.setDefaultCert(registry)
+	if updated {
 		// update current reconcile spec
 		params.Spec = registry.Spec
-		domainUpdated = true
 	}
 
 	var gateway networking.Gateway
@@ -629,7 +634,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 		return result, err
 	}
 
-	if !domainUpdated {
+	if !updated {
 		return result, nil
 	} else {
 		return ResourceUpdated, nil
@@ -1004,4 +1009,18 @@ func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry
 	}
 	// update domain in model registry resource
 	return r.Client.Update(ctx, registry)
+}
+
+func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1.ModelRegistry) bool {
+	updated := false
+	gateway := registry.Spec.Istio.Gateway
+	if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != "ISTIO_MUTUAL" && gateway.Rest.TLS.CredentialName == nil {
+		gateway.Rest.TLS.CredentialName = &r.DefaultCert
+		updated = true
+	}
+	if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != "ISTIO_MUTUAL" && gateway.Grpc.TLS.CredentialName == nil {
+		gateway.Grpc.TLS.CredentialName = &r.DefaultCert
+		updated = true
+	}
+	return updated
 }

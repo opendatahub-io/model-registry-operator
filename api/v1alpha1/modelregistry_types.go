@@ -189,6 +189,7 @@ type TLSServerSettings struct {
 	Mode string `json:"mode"`
 
 	// The name of the secret that holds the TLS certs including the CA certificates.
+	// If not provided, it is set automatically using model registry operator env variable DEFAULT_CERT.
 	// An Opaque secret should contain the following
 	// keys and values: `tls.key: <privateKey>` and `tls.crt: <serverCert>` or
 	// `key: <privateKey>` and `cert: <serverCert>`.
