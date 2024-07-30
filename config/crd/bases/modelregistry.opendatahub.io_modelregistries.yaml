@@ -192,19 +192,21 @@ spec:
                             properties:
                               credentialName:
                                 description: 'The name of the secret that holds the
-                                  TLS certs including the CA certificates. An Opaque
-                                  secret should contain the following keys and values:
-                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
-                                  or `key: <privateKey>` and `cert: <serverCert>`.
-                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
-                                  <CertificateRevocationList>` can be provided in
-                                  the same secret or a separate secret named `<secret>-cacert`.
-                                  A TLS secret for server certificates with an additional
-                                  `tls.ocsp-staple` key for specifying OCSP staple
-                                  information, `ca.crt` key for CA certificates and
-                                  `ca.crl` for certificate revocation list is also
-                                  supported. Only one of server certificates and CA
-                                  certificate or credentialName can be specified.'
+                                  TLS certs including the CA certificates. If not
+                                  provided, it is set automatically using model registry
+                                  operator env variable DEFAULT_CERT. An Opaque secret
+                                  should contain the following keys and values: `tls.key:
+                                  <privateKey>` and `tls.crt: <serverCert>` or `key:
+                                  <privateKey>` and `cert: <serverCert>`. For mutual
+                                  TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
+                                  can be provided in the same secret or a separate
+                                  secret named `<secret>-cacert`. A TLS secret for
+                                  server certificates with an additional `tls.ocsp-staple`
+                                  key for specifying OCSP staple information, `ca.crt`
+                                  key for CA certificates and `ca.crl` for certificate
+                                  revocation list is also supported. Only one of server
+                                  certificates and CA certificate or credentialName
+                                  can be specified.'
                                 type: string
                               mode:
                                 default: SIMPLE
@@ -271,19 +273,21 @@ spec:
                             properties:
                               credentialName:
                                 description: 'The name of the secret that holds the
-                                  TLS certs including the CA certificates. An Opaque
-                                  secret should contain the following keys and values:
-                                  `tls.key: <privateKey>` and `tls.crt: <serverCert>`
-                                  or `key: <privateKey>` and `cert: <serverCert>`.
-                                  For mutual TLS, `cacert: <CACertificate>` and `crl:
-                                  <CertificateRevocationList>` can be provided in
-                                  the same secret or a separate secret named `<secret>-cacert`.
-                                  A TLS secret for server certificates with an additional
-                                  `tls.ocsp-staple` key for specifying OCSP staple
-                                  information, `ca.crt` key for CA certificates and
-                                  `ca.crl` for certificate revocation list is also
-                                  supported. Only one of server certificates and CA
-                                  certificate or credentialName can be specified.'
+                                  TLS certs including the CA certificates. If not
+                                  provided, it is set automatically using model registry
+                                  operator env variable DEFAULT_CERT. An Opaque secret
+                                  should contain the following keys and values: `tls.key:
+                                  <privateKey>` and `tls.crt: <serverCert>` or `key:
+                                  <privateKey>` and `cert: <serverCert>`. For mutual
+                                  TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
+                                  can be provided in the same secret or a separate
+                                  secret named `<secret>-cacert`. A TLS secret for
+                                  server certificates with an additional `tls.ocsp-staple`
+                                  key for specifying OCSP staple information, `ca.crt`
+                                  key for CA certificates and `ca.crl` for certificate
+                                  revocation list is also supported. Only one of server
+                                  certificates and CA certificate or credentialName
+                                  can be specified.'
                                 type: string
                               mode:
                                 default: SIMPLE

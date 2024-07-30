@@ -55,6 +55,7 @@ const (
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
 	CreateAuthResources = "CREATE_AUTH_RESOURCES"
 	DefaultDomain       = "DEFAULT_DOMAIN"
+	DefaultCert         = "DEFAULT_CERT"
 )
 
 func init() {
@@ -158,6 +159,7 @@ func main() {
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(DefaultDomain)
+	defaultCert := os.Getenv(DefaultCert)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
@@ -171,6 +173,7 @@ func main() {
 		Audiences:           tokenReview.Status.Audiences,
 		CreateAuthResources: createAuthResources,
 		DefaultDomain:       defaultDomain,
+		DefaultCert:         defaultCert,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
