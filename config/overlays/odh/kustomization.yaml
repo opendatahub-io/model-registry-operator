@@ -4,9 +4,13 @@ kind: Kustomization
 # Adds odh namespace to all resources.
 namespace: opendatahub
 
-# patch to remove default `system` namespace in ../../manager/manager.yaml
 patches:
-  - path: delete-namespace.yaml
+  # patch to remove default `system` namespace in ../../manager/manager.yaml
+  - path: patches/delete-namespace.yaml
+  # patch to add OpenShift serving cert annotation in metrics service
+  - path: patches/auth_proxy_service_patch.yaml
+  # patch to add serving cert to auth proxy container
+  - path: patches/manager_auth_proxy_patch.yaml
 
 # Labels to add to all resources and selectors.
 labels:

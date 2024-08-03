@@ -49,3 +49,24 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=DEFAULT_CERT].value
+# Metrics service name replacements for auth proxy serving cert
+- source:
+    kind: Service
+    name: controller-manager-metrics-service
+    fieldPath: metadata.name
+  targets:
+    - select:
+        kind: Service
+        name: controller-manager-metrics-service
+      fieldPaths:
+        - metadata.annotations.[service.beta.openshift.io/serving-cert-secret-name]
+- source:
+    kind: Service
+    name: controller-manager-metrics-service
+    fieldPath: metadata.name
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.volumes.[name=server-cert].secret.secretName
