@@ -18,10 +18,11 @@ package config
 
 import (
 	"embed"
+	"text/template"
+
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"text/template"
 )
 
 //go:embed templates/*.yaml.tmpl
@@ -32,7 +33,7 @@ const (
 	GrpcImage        = "GRPC_IMAGE"
 	RestImage        = "REST_IMAGE"
 	DefaultGrpcImage = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage = "quay.io/opendatahub/model-registry:v0.2.4"
 	RouteDisabled    = "disabled"
 	RouteEnabled     = "enabled"
 )
