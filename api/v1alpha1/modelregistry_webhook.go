@@ -17,9 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -150,7 +151,11 @@ func (r *ModelRegistry) ValidateDelete() (admission.Warnings, error) {
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, error) {
 	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
-		return nil, fmt.Errorf("MUST set one of `postgres` or `mysql` database connection properties")
+		return nil, errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name,
+			field.ErrorList{
+				field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
+				field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
+			})
 	}
 	return nil, nil
 }
