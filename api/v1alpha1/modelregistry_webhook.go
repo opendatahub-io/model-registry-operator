@@ -17,9 +17,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -45,7 +46,7 @@ func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
-//+kubebuilder:webhook:path=/mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=true,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=mmodelregistry.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=true,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=mmodelregistry.opendatahub.io,admissionReviewVersions=v1
 
 var (
 	_         webhook.Defaulter = &ModelRegistry{}
@@ -121,7 +122,7 @@ func (r *ModelRegistry) Default() {
 }
 
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-//+kubebuilder:webhook:path=/validate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=false,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=vmodelregistry.kb.io,admissionReviewVersions=v1
+//+kubebuilder:webhook:path=/validate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=false,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=vmodelregistry.opendatahub.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &ModelRegistry{}
 
@@ -150,7 +151,11 @@ func (r *ModelRegistry) ValidateDelete() (admission.Warnings, error) {
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, error) {
 	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
-		return nil, fmt.Errorf("MUST set one of `postgres` or `mysql` database connection properties")
+		return nil, errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name,
+			field.ErrorList{
+				field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
+				field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
+			})
 	}
 	return nil, nil
 }
