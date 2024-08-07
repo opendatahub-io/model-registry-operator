@@ -12,7 +12,7 @@ webhooks:
       namespace: system
       path: /mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry
   failurePolicy: Fail
-  name: mmodelregistry.kb.io
+  name: mmodelregistry.opendatahub.io
   rules:
   - apiGroups:
     - modelregistry.opendatahub.io
@@ -38,7 +38,7 @@ webhooks:
       namespace: system
       path: /validate-modelregistry-opendatahub-io-v1alpha1-modelregistry
   failurePolicy: Fail
-  name: vmodelregistry.kb.io
+  name: vmodelregistry.opendatahub.io
   rules:
   - apiGroups:
     - modelregistry.opendatahub.io

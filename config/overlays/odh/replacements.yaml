@@ -60,13 +60,24 @@
         name: controller-manager-metrics-service
       fieldPaths:
         - metadata.annotations.[service.beta.openshift.io/serving-cert-secret-name]
-- source:
-    kind: Service
-    name: controller-manager-metrics-service
-    fieldPath: metadata.name
-  targets:
     - select:
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.volumes.[name=server-cert].secret.secretName
+        - spec.template.spec.volumes.[name=^server-cert$].secret.secretName
+# Webhook service name replacement for webhook-server port serving cert
+- source:
+    kind: Service
+    name: webhook-service
+    fieldPath: metadata.name
+  targets:
+    - select:
+        kind: Service
+        name: webhook-service
+      fieldPaths:
+        - metadata.annotations.[service.beta.openshift.io/serving-cert-secret-name]
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.volumes.[name=^cert$].secret.secretName
