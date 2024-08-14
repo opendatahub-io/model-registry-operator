@@ -64,6 +64,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
+        # uses regex since kustomize v4.5.3, hence the full match below
         - spec.template.spec.volumes.[name=^server-cert$].secret.secretName
 # Webhook service name replacement for webhook-server port serving cert
 - source:
@@ -80,4 +81,5 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
+        # uses regex since kustomize v4.5.3, hence the full match below
         - spec.template.spec.volumes.[name=^cert$].secret.secretName
