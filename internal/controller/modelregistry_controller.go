@@ -20,6 +20,9 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	"strings"
+	"text/template"
+
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
@@ -48,8 +51,6 @@ import (
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
-	"text/template"
 )
 
 const (
@@ -995,7 +996,7 @@ func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry
 	} else if r.IsOpenShift {
 		ingress := configv1.Ingress{}
 		namespacedName := types.NamespacedName{Name: "cluster"}
-		err = r.Client.Get(context.Background(), namespacedName, &ingress)
+		err = r.Client.Get(ctx, namespacedName, &ingress)
 		if err != nil {
 			return err
 		}
