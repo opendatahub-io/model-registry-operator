@@ -12,6 +12,11 @@ metadata:
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
+  annotations:
+    {{- if and .Spec.Istio .Spec.Istio.Gateway .Spec.Istio.Gateway.Domain}}
+    routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Rest.Port}}
+    routing.opendatahub.io/external-address-grpc: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Grpc.Port}}
+    {{- end}}
 spec:
   ports:
     - name: grpc-api

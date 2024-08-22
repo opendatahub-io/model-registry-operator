@@ -194,6 +194,13 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// set defaults in registry from reconciler
+	err = r.setRegistryDefaults(ctx, modelRegistry)
+	if err != nil {
+		log.Error(err, "error setting registry defaults")
+		return ctrl.Result{}, err
+	}
+
 	params := &ModelRegistryParams{
 		Name:      req.Name,
 		Namespace: req.Namespace,
@@ -605,23 +612,6 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 
 	result = ResourceUnchanged
-
-	updated := false
-	// autoconfigure domain if needed
-	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
-		err = r.setClusterDomain(ctx, registry)
-		if err != nil {
-			return result, err
-		}
-		updated = true
-	}
-	// set default cert if needed
-	updated = updated || r.setDefaultCert(registry)
-	if updated {
-		// update current reconcile spec
-		params.Spec = registry.Spec
-	}
-
 	var gateway networking.Gateway
 	if err = r.Apply(params, templateName, &gateway); err != nil {
 		return result, err
@@ -635,11 +625,33 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 		return result, err
 	}
 
-	if !updated {
-		return result, nil
-	} else {
-		return ResourceUpdated, nil
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) setRegistryDefaults(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) (err error) {
+
+	if registry.Spec.Istio == nil || registry.Spec.Istio.Gateway == nil {
+		return nil
 	}
+
+	// autoconfigure domain if needed
+	domainUpdated := false
+	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
+		err = r.setClusterDomain(ctx, registry)
+		if err != nil {
+			return err
+		}
+		domainUpdated = true
+	}
+
+	// set default cert if needed
+	certUpdated := r.setDefaultCert(registry)
+
+	// update registry if domain or cert were updated
+	if domainUpdated || certUpdated {
+		err = r.Client.Update(ctx, registry)
+	}
+	return err
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
@@ -1008,8 +1020,7 @@ func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry
 		return fmt.Errorf("model registry %s is missing gateway domain and default domain is not configured",
 			registry.Name)
 	}
-	// update domain in model registry resource
-	return r.Client.Update(ctx, registry)
+	return nil
 }
 
 func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1.ModelRegistry) bool {
