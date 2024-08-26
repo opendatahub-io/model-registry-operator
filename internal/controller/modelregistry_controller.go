@@ -211,7 +211,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	result, err := r.updateRegistryResources(ctx, params, modelRegistry)
 	if err != nil {
 		log.Error(err, "service reconcile error")
-		return ctrl.Result{}, err
+		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{}, err)
 	}
 	log.Info("service reconciled", "status", result)
 	r.logResultAsEvent(modelRegistry, result)
@@ -219,16 +219,12 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// set custom resource status
 	available := false
 	if available, err = r.setRegistryStatus(ctx, req, result); err != nil {
-		return ctrl.Result{Requeue: true}, err
+		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
 	}
 	log.Info("status reconciled")
 
-	if result != ResourceUnchanged {
-		// requeue to update status
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	return ctrl.Result{Requeue: !available}, nil
+	// requeue to update status
+	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
 }
 
 func IgnoreDeletingErrors(err error) error {
@@ -1035,4 +1031,18 @@ func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1
 		updated = true
 	}
 	return updated
+}
+
+func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry, result ctrl.Result, err error) (ctrl.Result, error) {
+	if err != nil {
+		// set Available condition to false, and message to err message
+		meta.SetStatusCondition(&registry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
+			Status: metav1.ConditionFalse, Reason: ReasonDeploymentUnavailable,
+			Message: fmt.Sprintf("unexpected reconcile error: %v", err)})
+		if err1 := r.Status().Update(ctx, registry); err1 != nil {
+			// log update error in operator logs and return original error
+			klog.FromContext(ctx).Error(err1, "Failed to update modelRegistry status")
+		}
+	}
+	return result, err
 }
