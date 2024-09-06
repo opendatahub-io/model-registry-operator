@@ -169,23 +169,7 @@ func main() {
 	// default auth env variables
 	defaultAuthProvider := os.Getenv(DefaultAuthProvider)
 	defaultAuthConfigLabelsString := os.Getenv(DefaultAuthConfigLabels)
-	defaultAuthConfigLabels := make(map[string]string)
-	if len(defaultAuthConfigLabelsString) != 0 {
-		// split key=value pairs separated by commas
-		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
-		for _, pair := range pairs {
-			// split key value pair
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) > 0 {
-				key := parts[0]
-				var value string
-				if len(parts) > 1 {
-					value = parts[1]
-				}
-				defaultAuthConfigLabels[key] = value
-			}
-		}
-	}
+	defaultAuthConfigLabels := getAuthConfigLabels(defaultAuthConfigLabelsString)
 	setupLog.Info("default registry authorino config", DefaultAuthProvider, defaultAuthProvider, DefaultAuthConfigLabels, defaultAuthConfigLabels)
 
 	if err = (&controller.ModelRegistryReconciler{
@@ -229,4 +213,25 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getAuthConfigLabels(defaultAuthConfigLabelsString string) map[string]string {
+	defaultAuthConfigLabels := make(map[string]string)
+	if len(defaultAuthConfigLabelsString) != 0 {
+		// split key=value pairs separated by commas
+		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
+		for _, pair := range pairs {
+			// split key value pair
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) > 0 {
+				key := parts[0]
+				var value string
+				if len(parts) > 1 {
+					value = parts[1]
+				}
+				defaultAuthConfigLabels[key] = value
+			}
+		}
+	}
+	return defaultAuthConfigLabels
 }
