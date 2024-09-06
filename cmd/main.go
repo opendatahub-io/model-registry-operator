@@ -26,6 +26,7 @@ import (
 	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -52,10 +53,12 @@ var (
 )
 
 const (
-	EnableWebhooks      = "ENABLE_WEBHOOKS"
-	CreateAuthResources = "CREATE_AUTH_RESOURCES"
-	DefaultDomain       = "DEFAULT_DOMAIN"
-	DefaultCert         = "DEFAULT_CERT"
+	EnableWebhooks          = "ENABLE_WEBHOOKS"
+	CreateAuthResources     = "CREATE_AUTH_RESOURCES"
+	DefaultDomain           = "DEFAULT_DOMAIN"
+	DefaultCert             = "DEFAULT_CERT"
+	DefaultAuthProvider     = "DEFAULT_AUTH_PROVIDER"
+	DefaultAuthConfigLabels = "DEFAULT_AUTH_CONFIG_LABELS"
 )
 
 func init() {
@@ -155,25 +158,35 @@ func main() {
 			hasIstio = true
 		}
 	}
+	setupLog.Info("cluster config", "isOpenShift", isOpenShift, "hasAuthorino", hasAuthorino, "hasIstio", hasIstio)
 
 	enableWebhooks := os.Getenv(EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(DefaultDomain)
 	defaultCert := os.Getenv(DefaultCert)
+	setupLog.Info("default registry config", DefaultDomain, defaultDomain, DefaultCert, defaultCert)
+
+	// default auth env variables
+	defaultAuthProvider := os.Getenv(DefaultAuthProvider)
+	defaultAuthConfigLabelsString := os.Getenv(DefaultAuthConfigLabels)
+	defaultAuthConfigLabels := getAuthConfigLabels(defaultAuthConfigLabelsString)
+	setupLog.Info("default registry authorino config", DefaultAuthProvider, defaultAuthProvider, DefaultAuthConfigLabels, defaultAuthConfigLabels)
 
 	if err = (&controller.ModelRegistryReconciler{
-		Client:              client,
-		Scheme:              mgr.GetScheme(),
-		Recorder:            mgr.GetEventRecorderFor("modelregistry-controller"),
-		Log:                 ctrl.Log.WithName("controller"),
-		Template:            template,
-		EnableWebhooks:      enableWebhooks,
-		IsOpenShift:         isOpenShift,
-		HasIstio:            hasAuthorino && hasIstio,
-		Audiences:           tokenReview.Status.Audiences,
-		CreateAuthResources: createAuthResources,
-		DefaultDomain:       defaultDomain,
-		DefaultCert:         defaultCert,
+		Client:                  client,
+		Scheme:                  mgr.GetScheme(),
+		Recorder:                mgr.GetEventRecorderFor("modelregistry-controller"),
+		Log:                     ctrl.Log.WithName("controller"),
+		Template:                template,
+		EnableWebhooks:          enableWebhooks,
+		IsOpenShift:             isOpenShift,
+		HasIstio:                hasAuthorino && hasIstio,
+		Audiences:               tokenReview.Status.Audiences,
+		CreateAuthResources:     createAuthResources,
+		DefaultDomain:           defaultDomain,
+		DefaultCert:             defaultCert,
+		DefaultAuthProvider:     defaultAuthProvider,
+		DefaultAuthConfigLabels: defaultAuthConfigLabels,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
@@ -200,4 +213,25 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getAuthConfigLabels(defaultAuthConfigLabelsString string) map[string]string {
+	defaultAuthConfigLabels := make(map[string]string)
+	if len(defaultAuthConfigLabelsString) != 0 {
+		// split key=value pairs separated by commas
+		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
+		for _, pair := range pairs {
+			// split key value pair
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) > 0 {
+				key := parts[0]
+				var value string
+				if len(parts) > 1 {
+					value = parts[1]
+				}
+				defaultAuthConfigLabels[key] = value
+			}
+		}
+	}
+	return defaultAuthConfigLabels
 }

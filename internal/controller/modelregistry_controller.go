@@ -62,17 +62,19 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	Scheme              *runtime.Scheme
-	Recorder            record.EventRecorder
-	Log                 logr.Logger
-	Template            *template.Template
-	EnableWebhooks      bool
-	IsOpenShift         bool
-	HasIstio            bool
-	Audiences           []string
-	CreateAuthResources bool
-	DefaultDomain       string
-	DefaultCert         string
+	Scheme                  *runtime.Scheme
+	Recorder                record.EventRecorder
+	Log                     logr.Logger
+	Template                *template.Template
+	EnableWebhooks          bool
+	IsOpenShift             bool
+	HasIstio                bool
+	Audiences               []string
+	CreateAuthResources     bool
+	DefaultDomain           string
+	DefaultCert             string
+	DefaultAuthProvider     string
+	DefaultAuthConfigLabels map[string]string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -631,20 +633,31 @@ func (r *ModelRegistryReconciler) setRegistryDefaults(ctx context.Context, regis
 	}
 
 	// autoconfigure domain if needed
-	domainUpdated := false
+	updated := false
 	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
 		err = r.setClusterDomain(ctx, registry)
 		if err != nil {
 			return err
 		}
-		domainUpdated = true
+		updated = true
 	}
 
 	// set default cert if needed
-	certUpdated := r.setDefaultCert(registry)
+	certUpdated, err := r.setDefaultCert(registry)
+	if err != nil {
+		return err
+	}
+	updated = certUpdated || updated
 
-	// update registry if domain or cert were updated
-	if domainUpdated || certUpdated {
+	// set default auth properties if needed
+	authUpdated, err := r.setDefaultAuthProperties(registry)
+	if err != nil {
+		return err
+	}
+	updated = authUpdated || updated
+
+	// update registry in k8s if it was changed to use defaults
+	if updated {
 		err = r.Client.Update(ctx, registry)
 	}
 	return err
@@ -1019,18 +1032,51 @@ func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry
 	return nil
 }
 
-func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1.ModelRegistry) bool {
+func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1.ModelRegistry) (bool, error) {
 	updated := false
 	gateway := registry.Spec.Istio.Gateway
-	if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != "ISTIO_MUTUAL" && gateway.Rest.TLS.CredentialName == nil {
+
+	// replace nil or zero len credential names
+	if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != "ISTIO_MUTUAL" &&
+		(gateway.Rest.TLS.CredentialName == nil || len(*gateway.Rest.TLS.CredentialName) == 0) {
+		if len(r.DefaultCert) == 0 {
+			return false, fmt.Errorf("model registry %s is missing rest credentialName and default cert is not configured",
+				registry.Name)
+		}
 		gateway.Rest.TLS.CredentialName = &r.DefaultCert
 		updated = true
 	}
-	if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != "ISTIO_MUTUAL" && gateway.Grpc.TLS.CredentialName == nil {
+	if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != "ISTIO_MUTUAL" &&
+		(gateway.Grpc.TLS.CredentialName == nil || len(*gateway.Grpc.TLS.CredentialName) == 0) {
+		if len(r.DefaultCert) == 0 {
+			return false, fmt.Errorf("model registry %s is missing grpc credentialName and default cert is not configured",
+				registry.Name)
+		}
 		gateway.Grpc.TLS.CredentialName = &r.DefaultCert
 		updated = true
 	}
-	return updated
+	return updated, nil
+}
+
+func (r *ModelRegistryReconciler) setDefaultAuthProperties(registry *modelregistryv1alpha1.ModelRegistry) (bool, error) {
+	updated := false
+	istio := registry.Spec.Istio
+	if len(istio.AuthProvider) == 0 {
+		if len(r.DefaultAuthProvider) == 0 {
+			return false, fmt.Errorf("model registry %s is missing authProvider and default authprovider is not configured",
+				registry.Name)
+		}
+		istio.AuthProvider = r.DefaultAuthProvider
+		updated = true
+	}
+	if len(istio.AuthConfigLabels) == 0 && len(r.DefaultAuthConfigLabels) > 0 {
+		istio.AuthConfigLabels = make(map[string]string, len(r.DefaultAuthConfigLabels))
+		for key, value := range r.DefaultAuthConfigLabels {
+			istio.AuthConfigLabels[key] = value
+		}
+		updated = true
+	}
+	return updated, nil
 }
 
 func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry, result ctrl.Result, err error) (ctrl.Result, error) {
