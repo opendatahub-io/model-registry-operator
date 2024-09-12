@@ -148,10 +148,14 @@ spec:
                   authConfigLabels:
                     additionalProperties:
                       type: string
-                    description: Authorino AuthConfig selector labels
+                    description: "Authorino AuthConfig selector labels. \n If missing,
+                      it is set using the operator environment property DEFAULT_AUTH_CONFIG_LABELS"
                     type: object
                   authProvider:
-                    description: Authorino authentication provider name
+                    description: "Authorino authentication provider name \n If missing,
+                      it is set using the operator environment property DEFAULT_AUTH_PROVIDER
+                      Model registry will have an error status if the operator property
+                      is also missing"
                     type: string
                   gateway:
                     description: Optional Istio Gateway for registry services. Gateway
@@ -239,8 +243,6 @@ spec:
                                 - ISTIO_MUTUAL
                                 - OPTIONAL_MUTUAL
                                 type: string
-                            required:
-                            - mode
                             type: object
                         type: object
                       istioIngress:
@@ -320,8 +322,6 @@ spec:
                                 - ISTIO_MUTUAL
                                 - OPTIONAL_MUTUAL
                                 type: string
-                            required:
-                            - mode
                             type: object
                         type: object
                     required:
@@ -341,8 +341,6 @@ spec:
                       for mTLS authentication. When this mode is used, all other fields
                       in `ClientTLSSettings` should be empty."
                     type: string
-                required:
-                - authProvider
                 type: object
               mysql:
                 description: MySQL configuration options
@@ -721,9 +719,6 @@ spec:
               hostsStr:
                 description: Formatted Host names separated by comma
                 type: string
-            required:
-            - hosts
-            - hostsStr
             type: object
         type: object
     served: true

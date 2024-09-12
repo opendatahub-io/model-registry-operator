@@ -186,7 +186,7 @@ type TLSServerSettings struct {
 	// ISTIO_MUTUAL: Secure connections from the downstream using mutual TLS by presenting server certificates for authentication. Compared to Mutual mode, this mode uses certificates, representing gateway workload identity, generated automatically by Istio for mTLS authentication. When this mode is used, all other TLS fields should be empty.
 	//
 	// OPTIONAL_MUTUAL: Similar to MUTUAL mode, except that the client certificate is optional. Unlike SIMPLE mode, A client certificate will still be explicitly requested during handshake, but the client is not required to send a certificate. If a client certificate is presented, it will be validated. ca_certificates should be specified for validating client certificates.
-	Mode string `json:"mode"`
+	Mode string `json:"mode,omitempty"`
 
 	// The name of the secret that holds the TLS certs including the CA certificates.
 	// If not provided, it is set automatically using model registry operator env variable DEFAULT_CERT.
@@ -249,16 +249,19 @@ type GatewayConfig struct {
 }
 
 type IstioConfig struct {
-	//+kubebuilder:required
 
 	// Authorino authentication provider name
-	AuthProvider string `json:"authProvider"`
+	//
+	// If missing, it is set using the operator environment property DEFAULT_AUTH_PROVIDER
+	// Model registry will have an error status if the operator property is also missing
+	AuthProvider string `json:"authProvider,omitempty"`
 
-	// Authorino AuthConfig selector labels
+	// Authorino AuthConfig selector labels.
+	//
+	// If missing, it is set using the operator environment property DEFAULT_AUTH_CONFIG_LABELS
 	//+optional
 	AuthConfigLabels map[string]string `json:"authConfigLabels,omitempty"`
 
-	//+kubebuilder:required
 	//+kubebuilder:default=ISTIO_MUTUAL
 	//+kubebuilder:Enum=DISABLE;SIMPLE;MUTUAL;ISTIO_MUTUAL
 
@@ -336,10 +339,10 @@ type ModelRegistryStatus struct {
 
 	// Hosts where model registry services are available
 	// NOTE: Gateway service names are different for gRPC and REST service routes
-	Hosts []string `json:"hosts"`
+	Hosts []string `json:"hosts,omitempty"`
 
 	// Formatted Host names separated by comma
-	HostsStr string `json:"hostsStr"`
+	HostsStr string `json:"hostsStr,omitempty"`
 
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
