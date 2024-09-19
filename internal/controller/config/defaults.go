@@ -140,12 +140,10 @@ var (
 	defaultIsOpenShift = false
 )
 
-func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) error {
+func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) {
 	defaultDomain = domain
 	defaultClient = client
 	defaultIsOpenShift = isOpenShift
-
-	return nil
 }
 
 func GetDefaultDomain() string {

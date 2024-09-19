@@ -162,11 +162,7 @@ func main() {
 	setupLog.Info("default registry authorino config", config.DefaultAuthProvider, defaultAuthProvider, config.DefaultAuthConfigLabels, defaultAuthConfigLabelsString)
 
 	// set default values for defaulting webhook
-	err = config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
-	if err != nil {
-		setupLog.Error(err, "error setting default domain")
-		os.Exit(1)
-	}
+	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
 	config.SetDefaultAudiences(tokenReview.Status.Audiences)
 	config.SetDefaultCert(defaultCert)
 	config.SetDefaultAuthProvider(defaultAuthProvider)
