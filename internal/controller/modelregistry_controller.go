@@ -28,7 +28,6 @@ import (
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
-	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -62,19 +61,14 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	Scheme                  *runtime.Scheme
-	Recorder                record.EventRecorder
-	Log                     logr.Logger
-	Template                *template.Template
-	EnableWebhooks          bool
-	IsOpenShift             bool
-	HasIstio                bool
-	Audiences               []string
-	CreateAuthResources     bool
-	DefaultDomain           string
-	DefaultCert             string
-	DefaultAuthProvider     string
-	DefaultAuthConfigLabels map[string]string
+	Scheme              *runtime.Scheme
+	Recorder            record.EventRecorder
+	Log                 logr.Logger
+	Template            *template.Template
+	EnableWebhooks      bool
+	IsOpenShift         bool
+	HasIstio            bool
+	CreateAuthResources bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -188,25 +182,18 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
 		if !isMarkedToBeDeleted {
-			_, err = modelRegistry.ValidateDatabase()
+			_, err = modelRegistry.ValidateCreate()
 			if err != nil {
-				log.Error(err, "validate database error")
+				log.Error(err, "validate registry error")
 				return ctrl.Result{}, err
 			}
 		}
 	}
 
-	// set defaults in registry from reconciler
-	err = r.setRegistryDefaults(ctx, modelRegistry)
-	if err != nil {
-		log.Error(err, "error setting registry defaults")
-		return ctrl.Result{}, err
-	}
-
 	params := &ModelRegistryParams{
 		Name:      req.Name,
 		Namespace: req.Namespace,
-		Spec:      modelRegistry.Spec,
+		Spec:      &modelRegistry.Spec,
 	}
 
 	// update registry service
@@ -406,13 +393,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 
 func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
-
-	// are AuthConfig audiences specified?
-	if len(params.Spec.Istio.Audiences) == 0 {
-		// use operator serviceaccount audiences by default
-		params.Spec.Istio.Audiences = r.Audiences
-		registry.Spec.Istio.Audiences = r.Audiences
-	}
 
 	var err error
 	result, err = r.createOrUpdateVirtualService(ctx, params, registry, "virtual-service.yaml.tmpl")
@@ -624,43 +604,6 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 	}
 
 	return result, nil
-}
-
-func (r *ModelRegistryReconciler) setRegistryDefaults(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) (err error) {
-
-	if registry.Spec.Istio == nil || registry.Spec.Istio.Gateway == nil {
-		return nil
-	}
-
-	// autoconfigure domain if needed
-	updated := false
-	if len(registry.Spec.Istio.Gateway.Domain) == 0 {
-		err = r.setClusterDomain(ctx, registry)
-		if err != nil {
-			return err
-		}
-		updated = true
-	}
-
-	// set default cert if needed
-	certUpdated, err := r.setDefaultCert(registry)
-	if err != nil {
-		return err
-	}
-	updated = certUpdated || updated
-
-	// set default auth properties if needed
-	authUpdated, err := r.setDefaultAuthProperties(registry)
-	if err != nil {
-		return err
-	}
-	updated = authUpdated || updated
-
-	// update registry in k8s if it was changed to use defaults
-	if updated {
-		err = r.Client.Update(ctx, registry)
-	}
-	return err
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
@@ -972,7 +915,7 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 type ModelRegistryParams struct {
 	Name      string
 	Namespace string
-	Spec      modelregistryv1alpha1.ModelRegistrySpec
+	Spec      *modelregistryv1alpha1.ModelRegistrySpec
 
 	// gateway route parameters
 	Host           string
@@ -1009,74 +952,6 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 	case ResourceUnchanged:
 		// ignore
 	}
-}
-
-func (r *ModelRegistryReconciler) setClusterDomain(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) (err error) {
-	if len(r.DefaultDomain) != 0 {
-		registry.Spec.Istio.Gateway.Domain = r.DefaultDomain
-	} else if r.IsOpenShift {
-		ingress := configv1.Ingress{}
-		namespacedName := types.NamespacedName{Name: "cluster"}
-		err = r.Client.Get(ctx, namespacedName, &ingress)
-		if err != nil {
-			return err
-		}
-
-		// remember default domain for next time
-		r.DefaultDomain = ingress.Spec.Domain
-		registry.Spec.Istio.Gateway.Domain = r.DefaultDomain
-	} else {
-		return fmt.Errorf("model registry %s is missing gateway domain and default domain is not configured",
-			registry.Name)
-	}
-	return nil
-}
-
-func (r *ModelRegistryReconciler) setDefaultCert(registry *modelregistryv1alpha1.ModelRegistry) (bool, error) {
-	updated := false
-	gateway := registry.Spec.Istio.Gateway
-
-	// replace nil or zero len credential names
-	if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != "ISTIO_MUTUAL" &&
-		(gateway.Rest.TLS.CredentialName == nil || len(*gateway.Rest.TLS.CredentialName) == 0) {
-		if len(r.DefaultCert) == 0 {
-			return false, fmt.Errorf("model registry %s is missing rest credentialName and default cert is not configured",
-				registry.Name)
-		}
-		gateway.Rest.TLS.CredentialName = &r.DefaultCert
-		updated = true
-	}
-	if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != "ISTIO_MUTUAL" &&
-		(gateway.Grpc.TLS.CredentialName == nil || len(*gateway.Grpc.TLS.CredentialName) == 0) {
-		if len(r.DefaultCert) == 0 {
-			return false, fmt.Errorf("model registry %s is missing grpc credentialName and default cert is not configured",
-				registry.Name)
-		}
-		gateway.Grpc.TLS.CredentialName = &r.DefaultCert
-		updated = true
-	}
-	return updated, nil
-}
-
-func (r *ModelRegistryReconciler) setDefaultAuthProperties(registry *modelregistryv1alpha1.ModelRegistry) (bool, error) {
-	updated := false
-	istio := registry.Spec.Istio
-	if len(istio.AuthProvider) == 0 {
-		if len(r.DefaultAuthProvider) == 0 {
-			return false, fmt.Errorf("model registry %s is missing authProvider and default authprovider is not configured",
-				registry.Name)
-		}
-		istio.AuthProvider = r.DefaultAuthProvider
-		updated = true
-	}
-	if len(istio.AuthConfigLabels) == 0 && len(r.DefaultAuthConfigLabels) > 0 {
-		istio.AuthConfigLabels = make(map[string]string, len(r.DefaultAuthConfigLabels))
-		for key, value := range r.DefaultAuthConfigLabels {
-			istio.AuthConfigLabels[key] = value
-		}
-		updated = true
-	}
-	return updated, nil
 }
 
 func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry, result ctrl.Result, err error) (ctrl.Result, error) {
