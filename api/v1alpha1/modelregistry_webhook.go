@@ -165,17 +165,18 @@ var _ webhook.Validator = &ModelRegistry{}
 func (r *ModelRegistry) ValidateCreate() (admission.Warnings, error) {
 	modelregistrylog.Info("validate create", "name", r.Name)
 
-	return r.validateRegistry()
+	return r.ValidateRegistry()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *ModelRegistry) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
 	modelregistrylog.Info("validate update", "name", r.Name)
 
-	return r.validateRegistry()
+	return r.ValidateRegistry()
 }
 
-func (r *ModelRegistry) validateRegistry() (warnings admission.Warnings, err error) {
+// ValidateRegistry validates registry spec
+func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err error) {
 	warnings, errList := r.ValidateDatabase()
 	warn, errList2 := r.ValidateIstioConfig()
 

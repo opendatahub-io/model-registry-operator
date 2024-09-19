@@ -182,7 +182,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
 		if !isMarkedToBeDeleted {
-			_, err = modelRegistry.ValidateCreate()
+			_, err = modelRegistry.ValidateRegistry()
 			if err != nil {
 				log.Error(err, "validate registry error")
 				return ctrl.Result{}, err
