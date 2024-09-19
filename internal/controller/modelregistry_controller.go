@@ -20,6 +20,7 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"strings"
 	"text/template"
 
@@ -424,6 +425,7 @@ func (r *ModelRegistryReconciler) createOrUpdateIstioConfig(ctx context.Context,
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
 	}
 
 	if params.Spec.Istio.Gateway != nil {
@@ -571,7 +573,7 @@ func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params
 	}
 
 	if registry.Spec.Istio.Gateway.Rest.GatewayRoute == config.RouteEnabled {
-		result, err = r.createOrUpdate(ctx, route.DeepCopy(), &route)
+		result, err = r.createOrUpdate(ctx, &routev1.Route{}, &route)
 		if err != nil {
 			return result, err
 		}
@@ -598,7 +600,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, gateway.DeepCopy(), &gateway)
+	result, err = r.createOrUpdate(ctx, &networking.Gateway{}, &gateway)
 	if err != nil {
 		return result, err
 	}
@@ -617,7 +619,11 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, 
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, authConfig.DeepCopy(), &authConfig)
+	// NOTE: AuthConfig CRD uses maps, which is not supported in k8s 3-way merge patch
+	// use an Unstructured current object to force it to use a json merge patch instead
+	current := unstructured.Unstructured{}
+	current.SetGroupVersionKind(authConfig.GroupVersionKind())
+	result, err = r.createOrUpdate(ctx, &current, &authConfig)
 	if err != nil {
 		return result, err
 	}
@@ -635,7 +641,7 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, authorizationPolicy.DeepCopy(), &authorizationPolicy)
+	result, err = r.createOrUpdate(ctx, &security.AuthorizationPolicy{}, &authorizationPolicy)
 	if err != nil {
 		return result, err
 	}
@@ -653,7 +659,7 @@ func (r *ModelRegistryReconciler) createOrUpdateDestinationRule(ctx context.Cont
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, destinationRule.DeepCopy(), &destinationRule)
+	result, err = r.createOrUpdate(ctx, &networking.DestinationRule{}, &destinationRule)
 	if err != nil {
 		return result, err
 	}
@@ -671,7 +677,7 @@ func (r *ModelRegistryReconciler) createOrUpdateVirtualService(ctx context.Conte
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, virtualService.DeepCopy(), &virtualService)
+	result, err = r.createOrUpdate(ctx, &networking.VirtualService{}, &virtualService)
 	if err != nil {
 		return result, err
 	}
@@ -689,7 +695,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context,
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, roleBinding.DeepCopy(), &roleBinding)
+	result, err = r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
 	if err != nil {
 		return result, err
 	}
@@ -707,7 +713,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, role.DeepCopy(), &role)
+	result, err = r.createOrUpdate(ctx, &rbac.Role{}, &role)
 	if err != nil {
 		return result, err
 	}
@@ -722,7 +728,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, param
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, group.DeepCopy(), &group)
+	result, err = r.createOrUpdate(ctx, &userv1.Group{}, &group)
 	if err != nil {
 		return result, err
 	}
@@ -740,7 +746,7 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, deployment.DeepCopy(), &deployment)
+	result, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
 		return result, err
 	}
@@ -759,7 +765,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, param
 	}
 
 	if registry.Spec.Rest.ServiceRoute == config.RouteEnabled {
-		if result, err = r.createOrUpdate(ctx, route.DeepCopy(), &route); err != nil {
+		if result, err = r.createOrUpdate(ctx, &routev1.Route{}, &route); err != nil {
 			return result, err
 		}
 	} else {
@@ -798,7 +804,7 @@ func (r *ModelRegistryReconciler) createOrUpdateService(ctx context.Context, par
 		service.Annotations[DescriptionAnnotation] = description
 	}
 
-	if result, err = r.createOrUpdate(ctx, service.DeepCopy(), &service); err != nil {
+	if result, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -815,7 +821,7 @@ func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Conte
 		return result, err
 	}
 
-	if result, err = r.createOrUpdate(ctx, sa.DeepCopy(), &sa); err != nil {
+	if result, err = r.createOrUpdate(ctx, &corev1.ServiceAccount{}, &sa); err != nil {
 		return result, err
 	}
 	return result, nil

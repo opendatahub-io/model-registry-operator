@@ -54,8 +54,8 @@ func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 var (
 	_                   webhook.Defaulter = &ModelRegistry{}
 	defaultIstioGateway                   = DefaultIstioGateway
-	httpPort            int32             = DefaultHttpPort
 	httpsPort           int32             = DefaultHttpsPort
+	httpPort            int32             = DefaultHttpPort
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -88,69 +88,67 @@ func (r *ModelRegistry) Default() {
 	}
 
 	// istio defaults
-	istio := r.Spec.Istio
-	if istio != nil {
+	if r.Spec.Istio != nil {
 		// set default TlsMode
-		if len(istio.TlsMode) == 0 {
-			istio.TlsMode = DefaultTlsMode
+		if len(r.Spec.Istio.TlsMode) == 0 {
+			r.Spec.Istio.TlsMode = DefaultTlsMode
 		}
 		// set default audiences
-		if len(istio.Audiences) == 0 {
-			istio.Audiences = config.GetDefaultAudiences()
+		if len(r.Spec.Istio.Audiences) == 0 {
+			r.Spec.Istio.Audiences = config.GetDefaultAudiences()
 		}
 		// set default authprovider
-		if len(istio.AuthProvider) == 0 {
-			istio.AuthProvider = config.GetDefaultAuthProvider()
+		if len(r.Spec.Istio.AuthProvider) == 0 {
+			r.Spec.Istio.AuthProvider = config.GetDefaultAuthProvider()
 		}
 		// set default authconfig labels
-		if len(istio.AuthConfigLabels) == 0 {
-			istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
+		if len(r.Spec.Istio.AuthConfigLabels) == 0 {
+			r.Spec.Istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
 		}
 
-		gateway := istio.Gateway
-		if gateway != nil {
+		if r.Spec.Istio.Gateway != nil {
 			// set default domain
-			if len(gateway.Domain) == 0 {
-				gateway.Domain = config.GetDefaultDomain()
+			if len(r.Spec.Istio.Gateway.Domain) == 0 {
+				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
 			}
 			// set ingress gateway if not set
-			if gateway.IstioIngress == nil {
-				gateway.IstioIngress = &defaultIstioGateway
+			if r.Spec.Istio.Gateway.IstioIngress == nil {
+				r.Spec.Istio.Gateway.IstioIngress = &defaultIstioGateway
 			}
 			// set default gateway ports if needed
-			if gateway.Rest.Port == nil {
-				if gateway.Rest.TLS != nil {
-					gateway.Rest.Port = &httpsPort
+			if r.Spec.Istio.Gateway.Rest.Port == nil {
+				if r.Spec.Istio.Gateway.Rest.TLS != nil {
+					r.Spec.Istio.Gateway.Rest.Port = &httpsPort
 				} else {
-					gateway.Rest.Port = &httpPort
+					r.Spec.Istio.Gateway.Rest.Port = &httpPort
 				}
 			}
-			if gateway.Grpc.Port == nil {
-				if gateway.Grpc.TLS != nil {
-					gateway.Grpc.Port = &httpsPort
+			if r.Spec.Istio.Gateway.Grpc.Port == nil {
+				if r.Spec.Istio.Gateway.Grpc.TLS != nil {
+					r.Spec.Istio.Gateway.Grpc.Port = &httpsPort
 				} else {
-					gateway.Grpc.Port = &httpPort
+					r.Spec.Istio.Gateway.Grpc.Port = &httpPort
 				}
 			}
 
 			// enable gateway routes by default
-			if len(gateway.Rest.GatewayRoute) == 0 {
-				gateway.Rest.GatewayRoute = config.RouteEnabled
+			if len(r.Spec.Istio.Gateway.Rest.GatewayRoute) == 0 {
+				r.Spec.Istio.Gateway.Rest.GatewayRoute = config.RouteEnabled
 			}
-			if len(gateway.Grpc.GatewayRoute) == 0 {
-				gateway.Grpc.GatewayRoute = config.RouteEnabled
+			if len(r.Spec.Istio.Gateway.Grpc.GatewayRoute) == 0 {
+				r.Spec.Istio.Gateway.Grpc.GatewayRoute = config.RouteEnabled
 			}
 
 			// set default cert
-			if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != DefaultTlsMode &&
-				(gateway.Rest.TLS.CredentialName == nil || len(*gateway.Rest.TLS.CredentialName) == 0) {
+			if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Rest.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Rest.TLS.CredentialName) == 0) {
 				cert := config.GetDefaultCert()
-				gateway.Rest.TLS.CredentialName = &cert
+				r.Spec.Istio.Gateway.Rest.TLS.CredentialName = &cert
 			}
-			if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != DefaultTlsMode &&
-				(gateway.Grpc.TLS.CredentialName == nil || len(*gateway.Grpc.TLS.CredentialName) == 0) {
+			if r.Spec.Istio.Gateway.Grpc.TLS != nil && r.Spec.Istio.Gateway.Grpc.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Grpc.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Grpc.TLS.CredentialName) == 0) {
 				cert := config.GetDefaultCert()
-				gateway.Grpc.TLS.CredentialName = &cert
+				r.Spec.Istio.Gateway.Grpc.TLS.CredentialName = &cert
 			}
 		}
 	}
