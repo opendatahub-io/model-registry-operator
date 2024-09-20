@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,12 +31,14 @@ import (
 // log is for logging in this package.
 var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
-// default ports
 const (
-	DEFAULT_TLS_MODE      = "ISTIO_MUTUAL"
-	DEFAULT_HTTP_PORT     = 80
-	DEFAULT_HTTPS_PORT    = 443
-	DEFAULT_ISTIO_GATEWAY = "ingressgateway"
+	// default ports
+	DefaultHttpPort  = 80
+	DefaultHttpsPort = 443
+
+	DefaultTlsMode      = IstioMutualTlsMode
+	IstioMutualTlsMode  = "ISTIO_MUTUAL"
+	DefaultIstioGateway = "ingressgateway"
 )
 
 func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
@@ -49,10 +52,10 @@ func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:webhook:path=/mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=true,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=mmodelregistry.opendatahub.io,admissionReviewVersions=v1
 
 var (
-	_         webhook.Defaulter = &ModelRegistry{}
-	gateway                     = DEFAULT_ISTIO_GATEWAY
-	httpPort  int32             = DEFAULT_HTTP_PORT
-	httpsPort int32             = DEFAULT_HTTPS_PORT
+	_                   webhook.Defaulter = &ModelRegistry{}
+	defaultIstioGateway                   = DefaultIstioGateway
+	httpsPort           int32             = DefaultHttpsPort
+	httpPort            int32             = DefaultHttpPort
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -88,12 +91,29 @@ func (r *ModelRegistry) Default() {
 	if r.Spec.Istio != nil {
 		// set default TlsMode
 		if len(r.Spec.Istio.TlsMode) == 0 {
-			r.Spec.Istio.TlsMode = DEFAULT_TLS_MODE
+			r.Spec.Istio.TlsMode = DefaultTlsMode
 		}
+		// set default audiences
+		if len(r.Spec.Istio.Audiences) == 0 {
+			r.Spec.Istio.Audiences = config.GetDefaultAudiences()
+		}
+		// set default authprovider
+		if len(r.Spec.Istio.AuthProvider) == 0 {
+			r.Spec.Istio.AuthProvider = config.GetDefaultAuthProvider()
+		}
+		// set default authconfig labels
+		if len(r.Spec.Istio.AuthConfigLabels) == 0 {
+			r.Spec.Istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
+		}
+
 		if r.Spec.Istio.Gateway != nil {
+			// set default domain
+			if len(r.Spec.Istio.Gateway.Domain) == 0 {
+				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
+			}
 			// set ingress gateway if not set
 			if r.Spec.Istio.Gateway.IstioIngress == nil {
-				r.Spec.Istio.Gateway.IstioIngress = &gateway
+				r.Spec.Istio.Gateway.IstioIngress = &defaultIstioGateway
 			}
 			// set default gateway ports if needed
 			if r.Spec.Istio.Gateway.Rest.Port == nil {
@@ -110,12 +130,25 @@ func (r *ModelRegistry) Default() {
 					r.Spec.Istio.Gateway.Grpc.Port = &httpPort
 				}
 			}
+
 			// enable gateway routes by default
 			if len(r.Spec.Istio.Gateway.Rest.GatewayRoute) == 0 {
 				r.Spec.Istio.Gateway.Rest.GatewayRoute = config.RouteEnabled
 			}
 			if len(r.Spec.Istio.Gateway.Grpc.GatewayRoute) == 0 {
 				r.Spec.Istio.Gateway.Grpc.GatewayRoute = config.RouteEnabled
+			}
+
+			// set default cert
+			if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Rest.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Rest.TLS.CredentialName) == 0) {
+				cert := config.GetDefaultCert()
+				r.Spec.Istio.Gateway.Rest.TLS.CredentialName = &cert
+			}
+			if r.Spec.Istio.Gateway.Grpc.TLS != nil && r.Spec.Istio.Gateway.Grpc.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Grpc.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Grpc.TLS.CredentialName) == 0) {
+				cert := config.GetDefaultCert()
+				r.Spec.Istio.Gateway.Grpc.TLS.CredentialName = &cert
 			}
 		}
 	}
@@ -130,14 +163,28 @@ var _ webhook.Validator = &ModelRegistry{}
 func (r *ModelRegistry) ValidateCreate() (admission.Warnings, error) {
 	modelregistrylog.Info("validate create", "name", r.Name)
 
-	return r.ValidateDatabase()
+	return r.ValidateRegistry()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *ModelRegistry) ValidateUpdate(old runtime.Object) (admission.Warnings, error) {
+func (r *ModelRegistry) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
 	modelregistrylog.Info("validate update", "name", r.Name)
 
-	return r.ValidateDatabase()
+	return r.ValidateRegistry()
+}
+
+// ValidateRegistry validates registry spec
+func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err error) {
+	warnings, errList := r.ValidateDatabase()
+	warn, errList2 := r.ValidateIstioConfig()
+
+	// combine warnings and errors
+	warnings = append(warnings, warn...)
+	errList = append(errList, errList2...)
+	if len(errList) != 0 {
+		err = errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name, errList)
+	}
+	return
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -149,13 +196,50 @@ func (r *ModelRegistry) ValidateDelete() (admission.Warnings, error) {
 }
 
 // ValidateDatabase validates that at least one database config is present
-func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, error) {
+func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
 	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
-		return nil, errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name,
-			field.ErrorList{
-				field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
-				field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
-			})
+		return nil, field.ErrorList{
+			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
+			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
+		}
 	}
 	return nil, nil
+}
+
+// ValidateIstioConfig validates the istio and gateway config
+func (r *ModelRegistry) ValidateIstioConfig() (warnings admission.Warnings, err field.ErrorList) {
+	istio := r.Spec.Istio
+	if istio != nil {
+		istioPath := field.NewPath("spec").Child("istio")
+		if len(istio.AuthProvider) == 0 {
+			err = append(err, field.Required(istioPath.Child("authProvider"),
+				fmt.Sprintf("missing authProvider and operator environment variable %s", config.DefaultAuthProvider)))
+		}
+		if len(istio.AuthConfigLabels) == 0 {
+			err = append(err, field.Required(istioPath.Child("authConfigLabels"),
+				fmt.Sprintf("missing authConfigLabels and operator environment variable %s", config.DefaultAuthConfigLabels)))
+		}
+
+		// validate gateway
+		gateway := istio.Gateway
+		if gateway != nil {
+			gatewayPath := istioPath.Child("gateway")
+			if len(gateway.Domain) == 0 {
+				err = append(err, field.Required(gatewayPath.Child("domain"),
+					fmt.Sprintf("missing domain and operator environment variable %s", config.DefaultDomain)))
+			}
+			if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != DefaultTlsMode &&
+				(gateway.Rest.TLS.CredentialName == nil || len(*gateway.Rest.TLS.CredentialName) == 0) {
+				err = append(err, field.Required(gatewayPath.Child("rest").Child("tls").Child("credentialName"),
+					fmt.Sprintf("missing rest credentialName and operator environment variable %s", config.DefaultCert)))
+			}
+			if gateway.Grpc.TLS != nil && gateway.Grpc.TLS.Mode != DefaultTlsMode &&
+				(gateway.Grpc.TLS.CredentialName == nil || len(*gateway.Grpc.TLS.CredentialName) == 0) {
+				err = append(err, field.Required(gatewayPath.Child("grpc").Child("tls").Child("credentialName"),
+					fmt.Sprintf("missing grpc credentialName and operator environment variable %s", config.DefaultCert)))
+			}
+		}
+	}
+
+	return
 }

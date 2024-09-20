@@ -17,10 +17,16 @@ limitations under the License.
 package config
 
 import (
+	"context"
 	"embed"
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	klog "sigs.k8s.io/controller-runtime/pkg/log"
+	"strings"
 	"text/template"
 )
 
@@ -35,10 +41,24 @@ const (
 	DefaultRestImage = "quay.io/opendatahub/model-registry:latest"
 	RouteDisabled    = "disabled"
 	RouteEnabled     = "enabled"
+
+	// config env variables
+	EnableWebhooks          = "ENABLE_WEBHOOKS"
+	CreateAuthResources     = "CREATE_AUTH_RESOURCES"
+	DefaultDomain           = "DEFAULT_DOMAIN"
+	DefaultCert             = "DEFAULT_CERT"
+	DefaultAuthProvider     = "DEFAULT_AUTH_PROVIDER"
+	DefaultAuthConfigLabels = "DEFAULT_AUTH_CONFIG_LABELS"
 )
 
-// Default ResourceRequirements
 var (
+	defaultAuthConfigLabels map[string]string
+	defaultAuthProvider     = ""
+	defaultCert             = ""
+	defaultDomain           = ""
+	defaultAudiences        []string
+
+	// Default ResourceRequirements
 	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
 	MlmdGRPCResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
 )
@@ -74,4 +94,89 @@ func ParseTemplates() (*template.Template, error) {
 		return nil, err
 	}
 	return template, err
+}
+
+func SetDefaultAudiences(audiences []string) {
+	defaultAudiences = make([]string, len(audiences))
+	copy(defaultAudiences, audiences)
+}
+
+func GetDefaultAudiences() []string {
+	result := make([]string, len(defaultAudiences))
+	copy(result, defaultAudiences)
+	return result
+}
+
+func SetDefaultAuthProvider(provider string) {
+	defaultAuthProvider = provider
+}
+
+func GetDefaultAuthProvider() string {
+	return defaultAuthProvider
+}
+
+func SetDefaultAuthConfigLabels(labelsStr string) {
+	defaultAuthConfigLabels = getAuthConfigLabels(labelsStr)
+}
+
+func GetDefaultAuthConfigLabels() map[string]string {
+	configLabels := make(map[string]string, len(defaultAuthConfigLabels))
+	for k, v := range defaultAuthConfigLabels {
+		configLabels[k] = v
+	}
+	return configLabels
+}
+
+func SetDefaultCert(cert string) {
+	defaultCert = cert
+}
+
+func GetDefaultCert() string {
+	return defaultCert
+}
+
+var (
+	defaultClient      client.Client
+	defaultIsOpenShift = false
+)
+
+func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) {
+	defaultDomain = domain
+	defaultClient = client
+	defaultIsOpenShift = isOpenShift
+}
+
+func GetDefaultDomain() string {
+	if len(defaultDomain) == 0 && defaultIsOpenShift {
+		ingress := configv1.Ingress{}
+		namespacedName := types.NamespacedName{Name: "cluster"}
+		err := defaultClient.Get(context.Background(), namespacedName, &ingress)
+		if err != nil {
+			klog.Log.Error(err, "error getting OpenShift domain name", ingress.GetObjectKind(), namespacedName)
+			return ""
+		}
+		defaultDomain = ingress.Spec.Domain
+	}
+	return defaultDomain
+}
+
+func getAuthConfigLabels(defaultAuthConfigLabelsString string) map[string]string {
+	authConfigLabels := make(map[string]string)
+	if len(defaultAuthConfigLabelsString) != 0 {
+		// split key=value pairs separated by commas
+		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
+		for _, pair := range pairs {
+			// split key value pair
+			parts := strings.SplitN(pair, "=", 2)
+			if len(parts) > 0 {
+				key := parts[0]
+				var value string
+				if len(parts) > 1 {
+					value = parts[1]
+				}
+				authConfigLabels[key] = value
+			}
+		}
+	}
+	return authConfigLabels
 }
