@@ -944,7 +944,7 @@ func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateNam
 	if err != nil {
 		return fmt.Errorf("error parsing templates %w", err)
 	}
-	err = yaml.Unmarshal([]byte(builder.String()), object)
+	err = yaml.UnmarshalStrict([]byte(builder.String()), object)
 	if err != nil {
 		return fmt.Errorf("error creating %T for model registry %s in namespace %s", object, params.Name, params.Namespace)
 	}
