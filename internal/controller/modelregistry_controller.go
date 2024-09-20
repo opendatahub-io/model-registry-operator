@@ -610,6 +610,14 @@ func (r *ModelRegistryReconciler) createOrUpdateGateway(ctx context.Context, par
 
 func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	// TODO: Audiences property was not being correctly updated to the default value in previous operator versions
+	// Replace this with a conversion webhook in the future
+	// Are AuthConfig audiences specified?
+	if len(params.Spec.Istio.Audiences) == 0 {
+		// use operator serviceaccount audiences by default
+		params.Spec.Istio.Audiences = config.GetDefaultAudiences()
+	}
+
 	result = ResourceUnchanged
 	var authConfig authorino.AuthConfig
 	if err = r.Apply(params, templateName, &authConfig); err != nil {
