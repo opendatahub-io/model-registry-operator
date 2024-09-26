@@ -9,4 +9,4 @@ spec:
   name: opendatahub-operator
   source: community-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: opendatahub-operator.v2.18.1
+  startingCSV: opendatahub-operator.v2.18.2
