@@ -5,10 +5,12 @@ A model registry is an important component in the lifecycle of AI/ML models, an 
 ![Model Registry](./images/model-registry.png)
 
 
-The below are links more documention on Model Registry
+The below are links more documentation on Model Registry
 
 1. [Introduction](./introduction.md)
 2. [Install Model Registry](./install.md)
-3. [How to use Model Registry Python library](./getting-started.md)
+3. [Install and using Model Registry using UI](./how-to-use-ui.md)
+4. [How to use Model Registry Python library](./getting-started.md)
+5. [Deploy a model using UI](./deploy-model.md)
 
 

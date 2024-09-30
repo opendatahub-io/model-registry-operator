@@ -2,7 +2,7 @@
 
 Once the model is designed and uploaded to a S3 bucket and "registered" in the Model Registry, user can choose to deploy the model for inferencing.
 
-It is expected that you have access to Open Datahub Dashboard. Using the Dashboard, create or use existing "Data Science Project"
+It is expected that you have access to Open Data Hub Dashboard. Using the Dashboard, create or use existing "Data Science Project"
 
 ![Model Registry](./images/dashboard-home.png)
 
@@ -14,14 +14,14 @@ Which pops this window
 
 ![Model Registry](./images/dashboard-modelregistry-deploy1.png)
 
-Select the target "project" you want to deploy this model into from the drop down box. Note that Model Registry is not scoped to a single porject, it can scoped to whole cluster, or to more than one project. So it is required that user choose the project where they want to deploy into. Which will bring to this page
+Select the target "project" you want to deploy this model into from the drop down box. Note that Model Registry is not scoped to a single project, it can scoped to whole cluster, or to more than one project. So it is required that user choose the project where they want to deploy into. Which will bring to this page
 
 ![Model Registry](./images/dashboard-modelregistry-deploy2.png)
 
 On this dialog box please select
 * Serving Runtime: Model Runtime server you want to use to run your model
 * Model Framework: Select the model framework that model is designed from dropdown list.
-* Data Connection: This is one key property user must provide. Since Model Registry only contains metadata information not actual physical model, user need to provide credentails to access the model on S3 bucket. Here if "data connection" is aleady available in the project you can select to reuse, if not user has option to provide the credentils to the S3 bucket to reach to the model.
+* Data Connection: This is one key property user must provide. Since Model Registry only contains metadata information not actual physical model, user need to provide credentials to access the model on S3 bucket. Here if "data connection" is already available in the project you can select to reuse, if not user has option to provide the credentials to the S3 bucket to reach to the model.
 
 Once you make all the other selections, click deploy. This should show the "Deployments" tab and status of the deployment.
 

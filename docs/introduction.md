@@ -90,5 +90,5 @@ Users need to evalaute which information they would like to track and customize 
 * Notes/Comments: Any additional notes or explanations provided by the model developer or reviewer.
 
 
-The above provided as some guidence on what kind of information can be saved and looked up in a Model Registry, however users need evaluate their needs and come up what metadata they want to track with their models. Model Registry does force beyond some general model information.
+The above provided as some guidance on what kind of information can be saved and looked up in a Model Registry, however users need evaluate their needs and come up what metadata they want to track with their models. Model Registry does force beyond some general model information.
 

@@ -5,7 +5,7 @@ This document outlines the instructions to install the Model Registry using "Ope
 ## Prerequisites 
 The following prerequisites are needed for the Operator to work correctly.
 <ol>
-<li> Access to OpenShift Cluster 4.17 + (recommened)
+<li> Access to OpenShift Cluster 4.17 + (recommend)
 <li> To install the operators you need "cluster-admin" access
 <li> Make sure you have enough capacity on the cluster to install a "data science cluster" minimum is with HCP cluster is 2 nodes of m6i
 <li> Model registry currently only works MySQL or MariaDB database, if you have an access to external database collect the credentials for it. You  need `user-id`, `password`, `host`, `port`, `database-name`
@@ -69,7 +69,7 @@ verify subscription "Succeeded" in install
 oc get csv servicemeshoperator.v2.6.1 -n openshift-operators -o json | jq '.status.phase' 
 ```
 
-<li> Search and install Serverless Operator (this did not work from commandline last time, I used OpenShift console instead.)
+<li> Search and install Serverless Operator (this did not work from command line last time, I used OpenShift console instead.)
 
 ```
 oc apply -f - <<EOF
@@ -117,12 +117,11 @@ verify subscription "Succeeded" in install
 oc get csv opendatahub-operator.v2.18.2 -n openshift-operators -o json | jq '.status.phase'
 ```
 
-<li> If you are using local storage mechanisams for S3 bucket, try installing "minio" operator and configure its access (TDB..)
-<li>
+<li> If you are using local storage mechanisms for S3 bucket, try installing "minio" operator and configure its access (TDB..)
 </ol>
 
 ## Install "Data Science Cluster" 
-Once all the operators all installed and no errors reported, then proceed to installing a "Data Science Cluster". You can navigate "Open data Hub" operator install from left navigation under "Operators --> Installed Operators" and click on "Open Data Hub Operator" and switch to the tab "DSC" and create DSC and make sure edit the YAML set the modelregistry to `managed` state like shown below
+Once all the operators all installed and no errors reported, then proceed to installing a "Data Science Cluster". You can navigate "Open data Hub" operator install from left navigation under "Operators --> Installed Operators" and click on "Open Data Hub Operator" and switch to the tab "DSC" and create DSC and make sure edit the YAML set the `modelregistry` to `managed` state like shown below
 
 ```
 modelregistry:
@@ -221,7 +220,7 @@ oc get dsc default-dsc -o json | jq '.status.phase'
 
 ## Install Database (skip if you using existing database)
 
-Model Registry currently requires MySQL database 8.0.3 or above to function correctly. If you have a database already available you can skip this section all toghether. For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
+Model Registry currently requires MySQL database 8.0.3 or above to function correctly. If you have a database already available you can skip this section all together. For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
 
 Create `namespace` where you want to host the database
 ```
@@ -493,7 +492,7 @@ ODH Dashboard is UI component for all AI/ML operations that user can use for han
 echo "https://$(oc get routes -n opendatahub -l app=odh-dashboard -o json | jq '.items[].status.ingress[].host | select(contains("odh-dashboard"))')" | tr -d '"'
 ```
 
-Copy the above URL to your web-browser and login using credentials used above or user credentails you may have received from your ODH administrator. Once you are logged into the Dashboard find "Model Registry" on left navigation to see the available models, please note intially this list may be empty.
+Copy the above URL to your web-browser and login using credentials used above or user credentials you may have received from your ODH administrator. Once you are logged into the Dashboard find "Model Registry" on left navigation to see the available models, please note initially this list may be empty.
 
-Now, there are a couple different ways you can "register" model using Python code or directly using the Dashboard UI into Model Registy. For these instuctions please follow to [python libarary usage](./getting-started.md)
+Now, there are a couple different ways you can "register" model using Python code or directly using the Dashboard UI into Model Registry. For these instructions please follow to [python library usage](./getting-started.md)
 

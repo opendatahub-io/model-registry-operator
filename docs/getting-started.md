@@ -1,14 +1,14 @@
 # Model Registry Python Library Usage
 
-This document introduces Model Registry Python library and some of its methods for registering and viewing models inside the Model Registry, however this should not be considered as full library reference. This is only is only used as a document to how start using the Model Registry. Refer the Python library documention for full library reference.
+This document introduces Model Registry Python library and some of its methods for registering and viewing models inside the Model Registry, however this should not be considered as full library reference. This is only is only used as a document to how start using the Model Registry. Refer the Python library documentation for full library reference.
 
 ## Prerequisites
-It is expected that you have access to Open Datahub Dashboard
+It is expected that you have access to Open Data Hub Dashboard
 <ol>
 <li> You have logged into Dashboard
 <li> Created a "Data Science Project"
 <li> Configured any Cluster Storage.
-<li> Configured Data Connections needed for your project. For creating a data conenction you would require connection details for S3 bucket.
+<li> Configured Data Connections needed for your project. For creating a data connection you would require connection details for S3 bucket.
 <li> Created Workbench and logged into it.
 </ol>
 
