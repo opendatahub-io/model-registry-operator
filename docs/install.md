@@ -327,7 +327,7 @@ items:
               command:
                 - /bin/bash
                 - -c
-                - mysqladmin -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} ping
+                - mysqladmin -u\${MYSQL_USER} -p\${MYSQL_ROOT_PASSWORD} ping
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -340,7 +340,7 @@ items:
               command:
               - /bin/bash
               - -c
-              - mysql -D ${MYSQL_DATABASE} -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'
+              - mysql -D \${MYSQL_DATABASE} -u\${MYSQL_USER} -p\${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'
             initialDelaySeconds: 10
             timeoutSeconds: 5
           securityContext:
