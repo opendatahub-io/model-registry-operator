@@ -88,17 +88,17 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet envtest ## Run tests.
+test: manifests generate fmt vet govulncheck envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
 ##@ Build
 
 .PHONY: build
-build: sync-images manifests generate fmt vet ## Build manager binary.
+build: sync-images manifests generate fmt vet govulncheck ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run
-run: manifests generate fmt vet ## Run a controller from your host.
+run: manifests generate fmt vet govulncheck ## Run a controller from your host.
 	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) CREATE_AUTH_RESOURCES=$(CREATE_AUTH_RESOURCES) go run ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
@@ -169,6 +169,8 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_VERSION ?= v0.0.0-20240320141353-395cfc7486e6
+GOVULNCHECK ?= $(LOCALBIN)/govulncheck
+GOVULNCHECK_VERSION ?= v1.1.3
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
@@ -193,6 +195,17 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+
+.PHONY: govulncheck
+govulncheck: $(GOVULNCHECK) ## Download govulncheck locally if necessary. If wrong version is installed, it will be removed before downloading.
+	$(GOVULNCHECK) ./...
+
+$(GOVULNCHECK): $(LOCALBIN)
+	@if test -x $(LOCALBIN)/govulncheck && ! $(LOCALBIN)/govulncheck -version | grep -q $(GOVULNCHECK_VERSION); then \
+		echo "$(LOCALBIN)/govulncheck version is not expected $(GOVULNCHECK_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/govulncheck; \
+	fi
+	test -s $(LOCALBIN)/govulncheck || GOBIN=$(LOCALBIN) GO111MODULE=on go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 .PHONY: certificates
 certificates:
