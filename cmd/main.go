@@ -26,6 +26,8 @@ import (
 	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -68,9 +70,23 @@ func init() {
 
 func main() {
 	var metricsAddr string
+	var metricsCertDir string
+	var metricsCertName string
+	var metricsKeyName string
+	var secureMetrics bool
+
 	var enableLeaderElection bool
 	var probeAddr string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "The address the metric endpoint binds to.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	flag.StringVar(&metricsCertDir, "metrics-cert-dir", "", "The directory that contains the metrics endpoint key and certificate.\n"+
+		"Generates and uses a self-signed certificate if not specified.\n"+
+		"MUST be specified in production.")
+	flag.StringVar(&metricsCertName, "metrics-cert-name", "", "The metrics endpoint server certificate filename.")
+	flag.StringVar(&metricsKeyName, "metrics-key-name", "", "The metrics endpoint key filename.")
+
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -83,9 +99,21 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// set metrics server options, including custom cert if provided
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		CertDir:       metricsCertDir,
+		CertName:      metricsCertName,
+		KeyName:       metricsKeyName,
+	}
+	if secureMetrics {
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
+		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "85f368d1.opendatahub.io",
