@@ -201,7 +201,7 @@ govulncheck: $(GOVULNCHECK) ## Download govulncheck locally if necessary. If wro
 	$(GOVULNCHECK) ./...
 
 $(GOVULNCHECK): $(LOCALBIN)
-	@if test -x $(LOCALBIN)/govulncheck && ! $(LOCALBIN)/govulncheck version | grep -q $(GOVULNCHECK_VERSION); then \
+	@if test -x $(LOCALBIN)/govulncheck && ! $(LOCALBIN)/govulncheck -version | grep -q $(GOVULNCHECK_VERSION); then \
 		echo "$(LOCALBIN)/govulncheck version is not expected $(GOVULNCHECK_VERSION). Removing it before installing."; \
 		rm -rf $(LOCALBIN)/govulncheck; \
 	fi
