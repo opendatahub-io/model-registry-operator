@@ -8,14 +8,15 @@ spec:
   template:
     spec:
       containers:
-      - name: kube-rbac-proxy
+      - name: manager
         args:
-        - "--secure-listen-address=0.0.0.0:8443"
-        - "--upstream=http://127.0.0.1:8080/"
-        - "--logtostderr=true"
-        - "--v=0"
-        - "--tls-cert-file=/etc/server-cert/tls.crt"
-        - "--tls-private-key-file=/etc/server-cert/tls.key"
+        - "--health-probe-bind-address=:8081"
+        - "--metrics-bind-address=:8443"
+        - "--leader-elect"
+        - "--metrics-secure=true"
+        - "--metrics-cert-dir=/etc/server-cert/"
+        - "--metrics-cert-name=tls.crt"
+        - "--metrics-key-name=tls.key"
         # name must match the volume name below
         volumeMounts:
         - name: server-cert
