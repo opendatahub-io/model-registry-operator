@@ -19,6 +19,9 @@ package config
 import (
 	"context"
 	"embed"
+	"strings"
+	"text/template"
+
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -26,8 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
-	"strings"
-	"text/template"
 )
 
 //go:embed templates/*.yaml.tmpl
@@ -38,7 +39,7 @@ const (
 	GrpcImage        = "GRPC_IMAGE"
 	RestImage        = "REST_IMAGE"
 	DefaultGrpcImage = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage = "quay.io/opendatahub/model-registry:v0.2.8"
 	RouteDisabled    = "disabled"
 	RouteEnabled     = "enabled"
 
