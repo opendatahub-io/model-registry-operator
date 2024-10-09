@@ -59,7 +59,7 @@ it will bring this screen for registering a model
 
 ![Model Registry](./images/dashboard-modelregistry-registermodel.png)
 
-Another way register the model is using [Python library](./getting-started.md). Note that when you register a model first time, it creates a model record and another record for a initial version that is defined. If you ever need to deploy a another iteration of the model after re-training try to add a new version of the model under the same original model record. So, a model record can contain any number of versions underneath. Each version is individually managed. The below screen shows when model is drilled down to version level.
+Another way register the model is using [Python library](./getting-started.md). Note that when you register a model the first time, it creates a Registered Model entry and related entries for the initial version that is defined. If you ever need to deploy another iteration of the model after re-training, try to add a new Model Version of the model under the original Registered Model entry. A Registered Model can contain any number of Model Versions underneath. Each version is individually managed. The below screen shows when model is drilled down to version level.
 
 ![Model Registry](./images/dashboard-modelregistry-model-versions.png)
 
