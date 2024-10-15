@@ -1,6 +1,5 @@
 # Build arguments
 ARG SOURCE_CODE=.
-ARG CI_CONTAINER_VERSION="unknown"
  
 # Build the manager binary
 FROM registry.access.redhat.com/ubi8/go-toolset@sha256:4ec05fd5b355106cc0d990021a05b71bbfb9231e4f5bdc0c5316515edf6a1c96 as builder
@@ -32,12 +31,10 @@ ENTRYPOINT ["/manager"]
  
 LABEL com.redhat.component="odh-model-registry-operator-container" \
       name="managed-open-data-hub/odh-model-registry-operator-rhel8" \
-      version="${CI_CONTAINER_VERSION}" \
-      git.url="${CI_MODEL_REGISTRY_OPERATOR_UPSTREAM_URL}" \
-      git.commit="${CI_MODEL_REGISTRY_OPERATOR_UPSTREAM_COMMIT}" \
+      description="Manages lifecycle of RHOAI Model Registry custom resources and associated Kubernetes resources" \
       summary="odh-model-registry-operator-container" \
+      maintainer="['managed-open-data-hub@redhat.com']" \
       io.openshift.expose-services="" \
       io.k8s.display-name="odh-model-registry-operator-container" \
-      maintainer="['managed-open-data-hub@redhat.com']" \
-      description="Manages lifecycle of RHOAI Model Registry custom resources and associated Kubernetes resources" \
+      io.k8s.description="odh-model-registry-operator" \
       com.redhat.license_terms="https://www.redhat.com/licenses/Red_Hat_Standard_EULA_20191108.pdf"
