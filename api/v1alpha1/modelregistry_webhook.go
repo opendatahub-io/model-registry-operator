@@ -17,12 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -44,6 +46,7 @@ const (
 func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
+		WithValidator(&modelRegistryValidator{Client: mgr.GetClient()}).
 		Complete()
 }
 
@@ -154,25 +157,6 @@ func (r *ModelRegistry) Default() {
 	}
 }
 
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
-//+kubebuilder:webhook:path=/validate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=false,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=vmodelregistry.opendatahub.io,admissionReviewVersions=v1
-
-var _ webhook.Validator = &ModelRegistry{}
-
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *ModelRegistry) ValidateCreate() (admission.Warnings, error) {
-	modelregistrylog.Info("validate create", "name", r.Name)
-
-	return r.ValidateRegistry()
-}
-
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *ModelRegistry) ValidateUpdate(_ runtime.Object) (admission.Warnings, error) {
-	modelregistrylog.Info("validate update", "name", r.Name)
-
-	return r.ValidateRegistry()
-}
-
 // ValidateRegistry validates registry spec
 func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err error) {
 	warnings, errList := r.ValidateDatabase()
@@ -185,14 +169,6 @@ func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err err
 		err = errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name, errList)
 	}
 	return
-}
-
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *ModelRegistry) ValidateDelete() (admission.Warnings, error) {
-	modelregistrylog.Info("validate delete", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object deletion.
-	return nil, nil
 }
 
 // ValidateDatabase validates that at least one database config is present
@@ -242,4 +218,82 @@ func (r *ModelRegistry) ValidateIstioConfig() (warnings admission.Warnings, err 
 	}
 
 	return
+}
+
+// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
+//+kubebuilder:webhook:path=/validate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=false,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=vmodelregistry.opendatahub.io,admissionReviewVersions=v1
+
+// NOTE: this type MUST not be exported, or kubebuilder thinks its a CRD and tried to generate code for it!!!
+type modelRegistryValidator struct {
+	client.Client
+}
+
+var _ webhook.CustomValidator = &modelRegistryValidator{}
+
+// Return an error if the object is invalid.
+func (v *modelRegistryValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, err := v.toModelRegistry(obj)
+	if err != nil {
+		return
+	}
+	modelregistrylog.Info("validate create", "name", r.Name)
+
+	// make sure registry name is unique in the cluster
+	warnings, err = v.validateName(ctx, r)
+	if err != nil {
+		return
+	}
+
+	return r.ValidateRegistry()
+}
+
+func (v *modelRegistryValidator) toModelRegistry(obj runtime.Object) (*ModelRegistry, error) {
+	r, ok := obj.(*ModelRegistry)
+	if !ok {
+		return nil, errors.NewBadRequest(fmt.Sprintf("unsupported type %s", obj.GetObjectKind().GroupVersionKind().String()))
+	}
+	return r, nil
+}
+
+func (v *modelRegistryValidator) validateName(ctx context.Context, r *ModelRegistry) (warnings admission.Warnings, err error) {
+	registries := &ModelRegistryList{}
+	err = v.Client.List(ctx, registries)
+	if err != nil {
+		return
+	}
+
+	for _, registry := range registries.Items {
+		if registry.Name == r.Name {
+			return warnings, errors.NewInvalid(r.GroupVersionKind().GroupKind(),
+				r.Name, field.ErrorList{
+					field.Duplicate(field.NewPath("metadata").Child("name"),
+						fmt.Sprintf("registry named %s already exists in namespace %s",
+							registry.Name, registry.Namespace)),
+				})
+		}
+	}
+	return
+}
+
+// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
+func (v *modelRegistryValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (warnings admission.Warnings, err error) {
+	r, err := v.toModelRegistry(newObj)
+	if err != nil {
+		return
+	}
+	modelregistrylog.Info("validate update", "name", r.Name)
+
+	return r.ValidateRegistry()
+}
+
+// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
+func (v *modelRegistryValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	r, err := v.toModelRegistry(obj)
+	if err != nil {
+		return
+	}
+	modelregistrylog.Info("validate delete", "name", r.Name)
+
+	// TODO(user): fill in your validation logic upon object deletion.
+	return nil, nil
 }
