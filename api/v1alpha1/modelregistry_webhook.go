@@ -230,7 +230,7 @@ type modelRegistryValidator struct {
 
 var _ webhook.CustomValidator = &modelRegistryValidator{}
 
-// Return an error if the object is invalid.
+// ValidateCreate validates the object on creation. The optional warnings will be added to the response as warning messages. Return an error if the object is invalid.
 func (v *modelRegistryValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	r, err := v.toModelRegistry(obj)
 	if err != nil {
@@ -275,7 +275,7 @@ func (v *modelRegistryValidator) validateName(ctx context.Context, r *ModelRegis
 	return
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
+// ValidateUpdate validates the object on update. The optional warnings will be added to the response as warning messages. Return an error if the object is invalid.
 func (v *modelRegistryValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (warnings admission.Warnings, err error) {
 	r, err := v.toModelRegistry(newObj)
 	if err != nil {
@@ -286,7 +286,7 @@ func (v *modelRegistryValidator) ValidateUpdate(_ context.Context, _, newObj run
 	return r.ValidateRegistry()
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
+// ValidateDelete validates the object on deletion. The optional warnings will be added to the response as warning messages. Return an error if the object is invalid.
 func (v *modelRegistryValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	r, err := v.toModelRegistry(obj)
 	if err != nil {
