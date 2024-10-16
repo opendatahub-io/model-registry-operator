@@ -20,6 +20,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net"
 	"path/filepath"
 	"runtime"
@@ -40,6 +42,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+)
+
+const (
+	namespaceBase = "webhook-test-ns"
+	mrNameBase    = "webhook-test"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -93,6 +100,9 @@ var _ = BeforeSuite(func() {
 	err = admissionv1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = corev1.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
+
 	//+kubebuilder:scaffold:scheme
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme})
@@ -144,3 +154,44 @@ var _ = AfterSuite(func() {
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
+
+var _ = Describe("Model Registry validating webhook", func() {
+	// TODO add tests for defaulting webhook and MR config validation
+
+	It("Should not allow creation of duplicate MR instance in cluster", func(ctx context.Context) {
+		suffix1 := "-mr1"
+		mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
+		Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
+		suffix2 := "-mr2"
+		mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
+		Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
+	})
+})
+
+func newModelRegistry(ctx context.Context, name string, namespace string) *ModelRegistry {
+	// create test namespace
+	Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespace},
+	}))).Should(Succeed())
+
+	// return
+	return &ModelRegistry{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: ModelRegistrySpec{
+			Rest: RestSpec{},
+			Grpc: GrpcSpec{},
+			MySQL: &MySQLConfig{
+				Host:     "test-db",
+				Username: "test-user",
+				PasswordSecret: &SecretKeyValue{
+					Name: "test-secret",
+					Key:  "test-key",
+				},
+				Database: "test-db",
+			},
+		},
+	}
+}
