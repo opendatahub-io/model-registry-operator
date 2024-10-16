@@ -160,11 +160,16 @@ var _ = Describe("Model Registry validating webhook", func() {
 
 	It("Should not allow creation of duplicate MR instance in cluster", func(ctx context.Context) {
 		suffix1 := "-mr1"
+		suffix2 := "-mr2"
+		// create mr1
 		mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
 		Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
-		suffix2 := "-mr2"
+		// mr1 creation in another ns should fail
 		mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
 		Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
+		// mr2 creation in another ns should succeed
+		mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
+		Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
 	})
 })
 
