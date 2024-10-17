@@ -164,7 +164,7 @@ var _ = Describe("Model Registry validating webhook", func() {
 		// create mr1
 		mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
 		Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
-		// mr1 creation in another ns should fail
+		// mr1 creation with same name and suffix, in another ns should fail
 		mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
 		Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
 		// mr2 creation with another suffix, in another ns should succeed
