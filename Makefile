@@ -208,7 +208,7 @@ $(GOVULNCHECK): $(LOCALBIN)
 	test -s $(LOCALBIN)/govulncheck || GOBIN=$(LOCALBIN) GO111MODULE=on go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 .PHONY: certificates
-certificates:
+certificates: certificates/clean
 	# generate TLS certs
 	scripts/generate_certs.sh $(or $(DOMAIN),$(shell oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'))
 	# create secrets from TLS certs
@@ -224,6 +224,9 @@ certificates:
       --from-file=tls.key=certs/model-registry-db.key \
       --from-file=tls.crt=certs/model-registry-db.crt \
       --from-file=ca.crt=certs/domain.crt
+    # create CA cert configmap
+	$(KUBECTL) create configmap model-registry-db-credential \
+      --from-file=ca.crt=certs/domain.crt
 
 .PHONY: certificates/clean
 certificates/clean:
@@ -233,3 +236,5 @@ certificates/clean:
 	# delete k8s secrets
 	$(KUBECTL) delete --ignore-not-found=true -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
 	$(KUBECTL) delete --ignore-not-found=true secrets model-registry-db-credential
+	# delete k8s configmap
+	$(KUBECTL) delete --ignore-not-found=true configmaps model-registry-db-credential

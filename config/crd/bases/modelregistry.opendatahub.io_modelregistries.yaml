@@ -417,6 +417,20 @@ spec:
                     - key
                     - name
                     type: object
+                  sslRootCertificateConfigMap:
+                    description: This parameter specifies the Kubernetes ConfigMap
+                      name and key containing certificate authority (CA) certificate.
+                    properties:
+                      key:
+                        description: Key name in configmap
+                        type: string
+                      name:
+                        description: Kubernetes configmap name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
                   sslRootCertificateSecret:
                     description: This parameter specifies the Kubernetes Secret name
                       and key containing certificate authority (CA) certificate.
@@ -431,6 +445,11 @@ spec:
                     - key
                     - name
                     type: object
+                  sslRootCertificatesConfigMapName:
+                    description: This parameter specifies the Kubernetes ConfigMap
+                      name containing multiple certificate authority (CA) certificate(s)
+                      as keys.
+                    type: string
                   sslRootCertificatesSecretName:
                     description: This parameter specifies the Kubernetes Secret name
                       containing multiple certificate authority (CA) certificate(s)
@@ -539,6 +558,20 @@ spec:
                         type: string
                       name:
                         description: Kubernetes secret name
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                  sslRootCertificateConfigMap:
+                    description: This parameter specifies the Kubernetes ConfigMap
+                      name and key containing SSL certificate authority (CA) certificate(s).
+                    properties:
+                      key:
+                        description: Key name in configmap
+                        type: string
+                      name:
+                        description: Kubernetes configmap name
                         type: string
                     required:
                     - key

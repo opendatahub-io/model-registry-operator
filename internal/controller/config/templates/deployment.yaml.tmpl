@@ -62,7 +62,9 @@ spec:
                 {{- if .Spec.Postgres.SSLPasswordSecret}}
             - --postgres_config_sslpassword=${POSTGRES_SSLPASSWORD}
                 {{- end}}
-                {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+                {{- if .Spec.Postgres.SSLRootCertificateConfigMap}}
+            - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateConfigMap.Key}}
+                {{- else if .Spec.Postgres.SSLRootCertificateSecret}}
             - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
                 {{- end}}
             {{- else if .Spec.MySQL}}
@@ -85,10 +87,12 @@ spec:
                 {{- if .Spec.MySQL.SSLKeySecret}}
             - --mysql_config_sslkey=/etc/mysql_ssl_key/{{.Spec.MySQL.SSLKeySecret.Key}}
                 {{- end}}
-                {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+                {{- if .Spec.MySQL.SSLRootCertificateConfigMap}}
+            - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateConfigMap.Key}}
+                {{- else if .Spec.MySQL.SSLRootCertificateSecret}}
             - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
                 {{- end}}
-                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+                {{- if or .Spec.MySQL.SSLRootCertificatesConfigMapName .Spec.MySQL.SSLRootCertificatesSecretName}}
             - --mysql_config_sslcapath=/etc/mysql_ssl_rootcerts/
                 {{- end}}
                 {{- if .Spec.MySQL.SSLCipher}}
@@ -138,7 +142,7 @@ spec:
               mountPath: /etc/postgres_ssl_key
               readOnly: true
                 {{- end}}
-                {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+                {{- if or .Spec.Postgres.SSLRootCertificateConfigMap .Spec.Postgres.SSLRootCertificateSecret}}
             - name: postgres-ssl-rootcert
               mountPath: /etc/postgres_ssl_rootcert
               readOnly: true
@@ -154,12 +158,12 @@ spec:
               mountPath: /etc/mysql_ssl_key
               readOnly: true
                 {{- end}}
-                {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+                {{- if or .Spec.MySQL.SSLRootCertificateConfigMap .Spec.MySQL.SSLRootCertificateSecret}}
             - name: mysql-ssl-rootcert
               mountPath: /etc/mysql_ssl_rootcert
               readOnly: true
                 {{- end}}
-                {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+                {{- if or .Spec.MySQL.SSLRootCertificatesConfigMapName .Spec.MySQL.SSLRootCertificatesSecretName}}
             - name: mysql-ssl-rootcerts
               mountPath: /etc/mysql_ssl_rootcerts
               readOnly: true
@@ -244,7 +248,12 @@ spec:
             secretName: {{.Spec.Postgres.SSLKeySecret.Name}}
             defaultMode: 0600
             {{- end}}
-            {{- if .Spec.Postgres.SSLRootCertificateSecret}}
+            {{- if .Spec.Postgres.SSLRootCertificateConfigMap}}
+        - name: postgres-ssl-rootcert
+          configMap:
+            name: {{.Spec.Postgres.SSLRootCertificateConfigMap.Name}}
+            defaultMode: 0600
+            {{- else if .Spec.Postgres.SSLRootCertificateSecret}}
         - name: postgres-ssl-rootcert
           secret:
             secretName: {{.Spec.Postgres.SSLRootCertificateSecret.Name}}
@@ -263,13 +272,23 @@ spec:
             secretName: {{.Spec.MySQL.SSLKeySecret.Name}}
             defaultMode: 0600
             {{- end}}
-            {{- if .Spec.MySQL.SSLRootCertificateSecret}}
+            {{- if .Spec.MySQL.SSLRootCertificateConfigMap}}
+        - name: mysql-ssl-rootcert
+          configMap:
+            name: {{.Spec.MySQL.SSLRootCertificateConfigMap.Name}}
+            defaultMode: 0600
+            {{- else if .Spec.MySQL.SSLRootCertificateSecret}}
         - name: mysql-ssl-rootcert
           secret:
             secretName: {{.Spec.MySQL.SSLRootCertificateSecret.Name}}
             defaultMode: 0600
             {{- end}}
-            {{- if .Spec.MySQL.SSLRootCertificatesSecretName}}
+            {{- if .Spec.MySQL.SSLRootCertificatesConfigMapName}}
+        - name: mysql-ssl-rootcerts
+          configMap:
+            name: {{.Spec.MySQL.SSLRootCertificatesConfigMapName}}
+            defaultMode: 0600
+            {{- else if .Spec.MySQL.SSLRootCertificatesSecretName}}
         - name: mysql-ssl-rootcerts
           secret:
             secretName: {{.Spec.MySQL.SSLRootCertificatesSecretName}}
