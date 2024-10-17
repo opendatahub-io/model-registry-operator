@@ -24,10 +24,20 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+type ConfigMapKeyValue struct {
+	// +kubebuilder:validation:Required
+	// Kubernetes configmap name
+	Name string `json:"name"`
+	// +kubebuilder:validation:Required
+	// Key name in configmap
+	Key string `json:"key"`
+}
+
 type SecretKeyValue struct {
 	// +kubebuilder:validation:Required
 	// Kubernetes secret name
 	Name string `json:"name"`
+	// +kubebuilder:validation:Required
 	// Key name in secret
 	Key string `json:"key"`
 }
@@ -76,6 +86,9 @@ type PostgresConfig struct {
 	// to be stored in encrypted form on disk even when interactive
 	// passphrase input is not practical.
 	SSLPasswordSecret *SecretKeyValue `json:"sslPasswordSecret,omitempty"`
+	// This parameter specifies the Kubernetes ConfigMap name and key containing SSL
+	// certificate authority (CA) certificate(s).
+	SSLRootCertificateConfigMap *ConfigMapKeyValue `json:"sslRootCertificateConfigMap,omitempty"`
 	// This parameter specifies the Kubernetes Secret name and key containing SSL
 	// certificate authority (CA) certificate(s).
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
@@ -121,6 +134,12 @@ type MySQLConfig struct {
 	// This parameter specifies the Kubernetes Secret name and key used for the
 	// client private key.
 	SSLKeySecret *SecretKeyValue `json:"sslKeySecret,omitempty"`
+	// This parameter specifies the Kubernetes ConfigMap name and key containing
+	// certificate authority (CA) certificate.
+	SSLRootCertificateConfigMap *ConfigMapKeyValue `json:"sslRootCertificateConfigMap,omitempty"`
+	// This parameter specifies the Kubernetes ConfigMap name containing
+	// multiple certificate authority (CA) certificate(s) as keys.
+	SSLRootCertificatesConfigMapName *string `json:"sslRootCertificatesConfigMapName,omitempty"`
 	// This parameter specifies the Kubernetes Secret name and key containing
 	// certificate authority (CA) certificate.
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
