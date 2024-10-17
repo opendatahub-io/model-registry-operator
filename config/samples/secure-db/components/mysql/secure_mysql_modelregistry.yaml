@@ -4,6 +4,6 @@ metadata:
   name: modelregistry-sample
 spec:
   mysql:
-    sslRootCertificateSecret:
+    sslRootCertificateConfigMap:
       name: model-registry-db-credential
       key: ca.crt
