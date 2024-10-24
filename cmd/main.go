@@ -25,6 +25,7 @@ import (
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 
@@ -178,6 +179,12 @@ func main() {
 	}
 	setupLog.Info("cluster config", "isOpenShift", isOpenShift, "hasAuthorino", hasAuthorino, "hasIstio", hasIstio)
 
+	clientset, err := kubernetes.NewForConfig(mgrRestConfig)
+	if err != nil {
+		setupLog.Error(err, "error getting kubernetes clientset")
+		os.Exit(1)
+	}
+
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
@@ -198,6 +205,7 @@ func main() {
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
+		ClientSet:           clientset,
 		Scheme:              mgr.GetScheme(),
 		Recorder:            mgr.GetEventRecorderFor("modelregistry-controller"),
 		Log:                 ctrl.Log.WithName("controller"),

@@ -21,6 +21,7 @@ import (
 	errors2 "errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes"
 	"strings"
 	"text/template"
 
@@ -62,6 +63,7 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
+	ClientSet           *kubernetes.Clientset
 	Scheme              *runtime.Scheme
 	Recorder            record.EventRecorder
 	Log                 logr.Logger
