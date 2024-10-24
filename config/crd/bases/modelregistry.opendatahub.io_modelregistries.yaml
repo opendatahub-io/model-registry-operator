@@ -752,6 +752,10 @@ spec:
               hostsStr:
                 description: Formatted Host names separated by comma
                 type: string
+              specDefaults:
+                description: SpecDefaults is a JSON string containing default spec
+                  values that were used for model registry deployment
+                type: string
             type: object
         type: object
     served: true

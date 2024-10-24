@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -61,7 +63,7 @@ const (
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 )
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) (bool, error) {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (bool, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
@@ -71,6 +73,10 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	r.setRegistryStatusHosts(req, modelRegistry)
+	if err := r.setRegistryStatusSpecDefaults(modelRegistry, params.Spec); err != nil {
+		// log error but continue updating rest of the status since it's not a blocker
+		log.Error(err, "Failed to set registry status defaults")
+	}
 
 	status := metav1.ConditionTrue
 	reason := ReasonDeploymentCreated
@@ -180,6 +186,23 @@ func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, regis
 
 	registry.Status.Hosts = hosts
 	registry.Status.HostsStr = strings.Join(hosts, ",")
+}
+
+func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *modelregistryv1alpha1.ModelRegistry, spec *modelregistryv1alpha1.ModelRegistrySpec) error {
+	originalJson, err := json.Marshal(registry.Spec)
+	if err != nil {
+		return fmt.Errorf("error marshalling spec for model registry %s: %w", registry.Name, err)
+	}
+	newJson, err := json.Marshal(spec)
+	if err != nil {
+		return fmt.Errorf("error marshalling spec with defaults for model registry %s: %w", registry.Name, err)
+	}
+	mergePatch, err := jsonpatch.CreateMergePatch(originalJson, newJson)
+	if err != nil {
+		return fmt.Errorf("error creating spec defaults: %w", err)
+	}
+	registry.Status.SpecDefaults = string(mergePatch)
+	return nil
 }
 
 func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
