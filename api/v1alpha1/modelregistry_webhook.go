@@ -65,6 +65,9 @@ var (
 func (r *ModelRegistry) Default() {
 	modelregistrylog.Info("default", "name", r.Name)
 
+	// handle annotation mutations
+	r.HandleAnnotations()
+
 	if len(r.Spec.Rest.ServiceRoute) == 0 {
 		r.Spec.Rest.ServiceRoute = config.RouteDisabled
 	}
