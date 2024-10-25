@@ -179,6 +179,9 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// set runtime default properties in memory for reconciliation
+	modelRegistry.RuntimeDefaults()
+
 	// set defaults and validate if not using webhooks
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
@@ -208,7 +211,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// set custom resource status
 	available := false
-	if available, err = r.setRegistryStatus(ctx, req, result); err != nil {
+	if available, err = r.setRegistryStatus(ctx, req, params, result); err != nil {
 		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
 	}
 	log.Info("status reconciled")

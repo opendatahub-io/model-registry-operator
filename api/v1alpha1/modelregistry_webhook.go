@@ -65,21 +65,11 @@ var (
 func (r *ModelRegistry) Default() {
 	modelregistrylog.Info("default", "name", r.Name)
 
-	if r.Spec.Grpc.Resources == nil {
-		r.Spec.Grpc.Resources = config.MlmdGRPCResourceRequirements.DeepCopy()
-	}
-	if len(r.Spec.Grpc.Image) == 0 {
-		r.Spec.Grpc.Image = config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
-	}
+	// handle annotation mutations
+	r.HandleAnnotations()
 
 	if len(r.Spec.Rest.ServiceRoute) == 0 {
 		r.Spec.Rest.ServiceRoute = config.RouteDisabled
-	}
-	if r.Spec.Rest.Resources == nil {
-		r.Spec.Rest.Resources = config.MlmdRestResourceRequirements.DeepCopy()
-	}
-	if len(r.Spec.Rest.Image) == 0 {
-		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
 
 	// Fixes default database configs that get set for some reason in Kind cluster
@@ -96,24 +86,8 @@ func (r *ModelRegistry) Default() {
 		if len(r.Spec.Istio.TlsMode) == 0 {
 			r.Spec.Istio.TlsMode = DefaultTlsMode
 		}
-		// set default audiences
-		if len(r.Spec.Istio.Audiences) == 0 {
-			r.Spec.Istio.Audiences = config.GetDefaultAudiences()
-		}
-		// set default authprovider
-		if len(r.Spec.Istio.AuthProvider) == 0 {
-			r.Spec.Istio.AuthProvider = config.GetDefaultAuthProvider()
-		}
-		// set default authconfig labels
-		if len(r.Spec.Istio.AuthConfigLabels) == 0 {
-			r.Spec.Istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
-		}
 
 		if r.Spec.Istio.Gateway != nil {
-			// set default domain
-			if len(r.Spec.Istio.Gateway.Domain) == 0 {
-				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
-			}
 			// set ingress gateway if not set
 			if r.Spec.Istio.Gateway.IstioIngress == nil {
 				r.Spec.Istio.Gateway.IstioIngress = &defaultIstioGateway
@@ -141,6 +115,48 @@ func (r *ModelRegistry) Default() {
 			if len(r.Spec.Istio.Gateway.Grpc.GatewayRoute) == 0 {
 				r.Spec.Istio.Gateway.Grpc.GatewayRoute = config.RouteEnabled
 			}
+		}
+	}
+}
+
+// RuntimeDefaults sets default values from the operator environment, which could change at runtime
+func (r *ModelRegistry) RuntimeDefaults() {
+	modelregistrylog.Info("runtime defaults", "name", r.Name)
+
+	if r.Spec.Grpc.Resources == nil {
+		r.Spec.Grpc.Resources = config.MlmdGRPCResourceRequirements.DeepCopy()
+	}
+	if len(r.Spec.Grpc.Image) == 0 {
+		r.Spec.Grpc.Image = config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
+	}
+
+	if r.Spec.Rest.Resources == nil {
+		r.Spec.Rest.Resources = config.MlmdRestResourceRequirements.DeepCopy()
+	}
+	if len(r.Spec.Rest.Image) == 0 {
+		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
+	}
+
+	// istio defaults
+	if r.Spec.Istio != nil {
+		// set default audiences
+		if len(r.Spec.Istio.Audiences) == 0 {
+			r.Spec.Istio.Audiences = config.GetDefaultAudiences()
+		}
+		// set default authprovider
+		if len(r.Spec.Istio.AuthProvider) == 0 {
+			r.Spec.Istio.AuthProvider = config.GetDefaultAuthProvider()
+		}
+		// set default authconfig labels
+		if len(r.Spec.Istio.AuthConfigLabels) == 0 {
+			r.Spec.Istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
+		}
+
+		if r.Spec.Istio.Gateway != nil {
+			// set default domain
+			if len(r.Spec.Istio.Gateway.Domain) == 0 {
+				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
+			}
 
 			// set default cert
 			if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.TLS.Mode != DefaultTlsMode &&
@@ -159,6 +175,9 @@ func (r *ModelRegistry) Default() {
 
 // ValidateRegistry validates registry spec
 func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err error) {
+	// set runtime defaults before validation, just like the reconcile loop
+	r.RuntimeDefaults()
+
 	warnings, errList := r.ValidateDatabase()
 	warn, errList2 := r.ValidateIstioConfig()
 
