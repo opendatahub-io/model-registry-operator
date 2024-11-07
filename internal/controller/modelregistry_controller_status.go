@@ -65,7 +65,8 @@ const (
 	ReasonResourcesAvailable   = "ResourcesAvailable"
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 
-	grpcContainerName = "grpc-container"
+	grpcContainerName       = "grpc-container"
+	containerCreatingReason = "ContainerCreating"
 )
 
 // errRegexp is based on the CHECK_EQ macro output used by mlmd container.
@@ -231,8 +232,8 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 		failedContainers := make(map[string]string)
 		for _, s := range p.Status.ContainerStatuses {
 			if !s.Ready {
-				// look for MLMD container errors
-				if s.Name == grpcContainerName {
+				// look for MLMD container errors, make sure it has also been created
+				if s.Name == grpcContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
 					// check container log for MLMD errors
 					dbError, err := r.getGrpcContainerDBerror(ctx, p)
 					if err != nil {
