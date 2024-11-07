@@ -21,6 +21,7 @@ import (
 	errors2 "errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes"
 	"strings"
 	"text/template"
 
@@ -62,6 +63,7 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
+	ClientSet           *kubernetes.Clientset
 	Scheme              *runtime.Scheme
 	Recorder            record.EventRecorder
 	Log                 logr.Logger
@@ -298,6 +300,7 @@ func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, objec
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods/log,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
