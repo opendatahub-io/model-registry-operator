@@ -125,24 +125,19 @@ func (r *ModelRegistry) Default() {
 	}
 
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
-	r.cleanupRuntimeDefaults()
+	r.CleanupRuntimeDefaults()
 }
 
-// cleanupRuntimeDefaults removes runtime defaults on first reconcile, when specDefaults is empty,
-// also including model registries reconciled by older operator versions before adding specDefaults support.
+// CleanupRuntimeDefaults removes runtime defaults. Usually on first reconcile, when specDefaults is empty,
+// or for model registries reconciled by older operator versions before adding specDefaults support.
 // It removes images if they are the same as the operator defaults (ignoring version tag),
 // and it removes default runtime values that match default runtime properties set in the operator
 // since they are redundant as custom property values.
-func (r *ModelRegistry) cleanupRuntimeDefaults() {
+func (r *ModelRegistry) CleanupRuntimeDefaults() {
 	// if specDefaults hasn't been set for new MRs or all properties were set in a previous version
 	if r.Status.SpecDefaults != "" && r.Status.SpecDefaults != "{}" {
-		// also check if any runtime default properties will be set in the next reconcile
-		// this is required because specDefaults could be stale
-		deepCopy := r.DeepCopy() // do not modify this registry
-		if deepCopy.RuntimeDefaults() {
-			// model registry has custom values set for runtime properties
-			return
-		}
+		// model registry has custom values set for runtime properties
+		return
 	}
 
 	// check grpc image against operator default grpc image repo
@@ -214,28 +209,21 @@ func (r *ModelRegistry) cleanupRuntimeDefaults() {
 }
 
 // RuntimeDefaults sets default values from the operator environment, which could change at runtime.
-// Returns true if any properties were set to a default value, false if all default values are overridden.
-func (r *ModelRegistry) RuntimeDefaults() bool {
+func (r *ModelRegistry) RuntimeDefaults() {
 	modelregistrylog.Info("runtime defaults", "name", r.Name)
-
-	modified := false
 
 	if r.Spec.Grpc.Resources == nil {
 		r.Spec.Grpc.Resources = config.MlmdGRPCResourceRequirements.DeepCopy()
-		modified = true
 	}
 	if len(r.Spec.Grpc.Image) == 0 {
 		r.Spec.Grpc.Image = config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
-		modified = true
 	}
 
 	if r.Spec.Rest.Resources == nil {
 		r.Spec.Rest.Resources = config.MlmdRestResourceRequirements.DeepCopy()
-		modified = true
 	}
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
-		modified = true
 	}
 
 	// istio defaults
@@ -243,24 +231,20 @@ func (r *ModelRegistry) RuntimeDefaults() bool {
 		// set default audiences
 		if len(r.Spec.Istio.Audiences) == 0 {
 			r.Spec.Istio.Audiences = config.GetDefaultAudiences()
-			modified = true
 		}
 		// set default authprovider
 		if len(r.Spec.Istio.AuthProvider) == 0 {
 			r.Spec.Istio.AuthProvider = config.GetDefaultAuthProvider()
-			modified = true
 		}
 		// set default authconfig labels
 		if len(r.Spec.Istio.AuthConfigLabels) == 0 {
 			r.Spec.Istio.AuthConfigLabels = config.GetDefaultAuthConfigLabels()
-			modified = true
 		}
 
 		if r.Spec.Istio.Gateway != nil {
 			// set default domain
 			if len(r.Spec.Istio.Gateway.Domain) == 0 {
 				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
-				modified = true
 			}
 
 			// set default cert
@@ -268,18 +252,14 @@ func (r *ModelRegistry) RuntimeDefaults() bool {
 				(r.Spec.Istio.Gateway.Rest.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Rest.TLS.CredentialName) == 0) {
 				cert := config.GetDefaultCert()
 				r.Spec.Istio.Gateway.Rest.TLS.CredentialName = &cert
-				modified = true
 			}
 			if r.Spec.Istio.Gateway.Grpc.TLS != nil && r.Spec.Istio.Gateway.Grpc.TLS.Mode != DefaultTlsMode &&
 				(r.Spec.Istio.Gateway.Grpc.TLS.CredentialName == nil || len(*r.Spec.Istio.Gateway.Grpc.TLS.CredentialName) == 0) {
 				cert := config.GetDefaultCert()
 				r.Spec.Istio.Gateway.Grpc.TLS.CredentialName = &cert
-				modified = true
 			}
 		}
 	}
-
-	return modified
 }
 
 // ValidateRegistry validates registry spec
