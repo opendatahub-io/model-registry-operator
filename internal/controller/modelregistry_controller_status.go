@@ -20,7 +20,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	"github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
@@ -88,6 +88,16 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	if err := r.setRegistryStatusSpecDefaults(modelRegistry, params.Spec); err != nil {
 		// log error but continue updating rest of the status since it's not a blocker
 		log.Error(err, "Failed to set registry status defaults")
+	}
+	// if specDefaults is {}, cleanup runtime properties
+	if modelRegistry.Status.SpecDefaults == "{}" {
+		// this is an exception to the rule to not modify a resource in reconcile,
+		// because mutatingwebhook is not triggered on status update since it's a subresource
+		modelRegistry.CleanupRuntimeDefaults()
+		if err := r.Client.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry runtime defaults")
+			return false, err
+		}
 	}
 
 	status := metav1.ConditionTrue

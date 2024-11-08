@@ -23,11 +23,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"maps"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+	"slices"
+	"strings"
 )
 
 // log is for logging in this package.
@@ -41,6 +44,9 @@ const (
 	DefaultTlsMode      = IstioMutualTlsMode
 	IstioMutualTlsMode  = "ISTIO_MUTUAL"
 	DefaultIstioGateway = "ingressgateway"
+
+	tagSeparator = ":"
+	emptyValue   = ""
 )
 
 func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
@@ -63,7 +69,7 @@ var (
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *ModelRegistry) Default() {
-	modelregistrylog.Info("default", "name", r.Name)
+	modelregistrylog.Info("default", "name", r.Name, "status.specDefaults", r.Status.SpecDefaults)
 
 	// handle annotation mutations
 	r.HandleAnnotations()
@@ -117,9 +123,92 @@ func (r *ModelRegistry) Default() {
 			}
 		}
 	}
+
+	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
+	r.CleanupRuntimeDefaults()
 }
 
-// RuntimeDefaults sets default values from the operator environment, which could change at runtime
+// CleanupRuntimeDefaults removes runtime defaults. Usually on first reconcile, when specDefaults is empty,
+// or for model registries reconciled by older operator versions before adding specDefaults support.
+// It removes images if they are the same as the operator defaults (ignoring version tag),
+// and it removes default runtime values that match default runtime properties set in the operator
+// since they are redundant as custom property values.
+func (r *ModelRegistry) CleanupRuntimeDefaults() {
+	// if specDefaults hasn't been set for new MRs or all properties were set in a previous version
+	if r.Status.SpecDefaults != "" && r.Status.SpecDefaults != "{}" {
+		// model registry has custom values set for runtime properties
+		return
+	}
+
+	// check grpc image against operator default grpc image repo
+	if len(r.Spec.Grpc.Image) != 0 {
+		defaultGrpcImage := config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
+		defaultGrpcImageRepo := strings.Split(defaultGrpcImage, tagSeparator)[0]
+
+		grpcImageRepo := strings.Split(r.Spec.Grpc.Image, tagSeparator)[0]
+		if grpcImageRepo == defaultGrpcImageRepo {
+			modelregistrylog.V(4).Info("reset image", "grpc repo", grpcImageRepo)
+			// remove image altogether as the MR repo matches operator repo,
+			// so that future operator version upgrades don't have to handle a hardcoded default
+			r.Spec.Grpc.Image = emptyValue
+
+			// also reset resource requirements
+			r.Spec.Grpc.Resources = nil
+		}
+	}
+
+	// check rest image against operator default rest image repo
+	if len(r.Spec.Rest.Image) != 0 {
+		defaultRestImage := config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
+		defaultRestImageRepo := strings.Split(defaultRestImage, tagSeparator)[0]
+
+		restImageRepo := strings.Split(r.Spec.Rest.Image, tagSeparator)[0]
+		if restImageRepo == defaultRestImageRepo {
+			modelregistrylog.V(4).Info("reset image", "rest repo", restImageRepo)
+			// remove image altogether as the MR repo matches operator repo,
+			// so that future operator version upgrades don't have to handle a hardcoded default
+			r.Spec.Rest.Image = emptyValue
+
+			// also reset resource requirements
+			r.Spec.Rest.Resources = nil
+		}
+	}
+
+	// reset istio defaults
+	if r.Spec.Istio != nil {
+		// reset default audiences
+		if len(r.Spec.Istio.Audiences) != 0 && slices.Equal(r.Spec.Istio.Audiences, config.GetDefaultAudiences()) {
+			r.Spec.Istio.Audiences = make([]string, 0)
+		}
+		// reset default authprovider
+		if r.Spec.Istio.AuthProvider == config.GetDefaultAuthProvider() {
+			r.Spec.Istio.AuthProvider = emptyValue
+		}
+		// reset default authconfig labels
+		if len(r.Spec.Istio.AuthConfigLabels) != 0 && maps.Equal(r.Spec.Istio.AuthConfigLabels, config.GetDefaultAuthConfigLabels()) {
+			r.Spec.Istio.AuthConfigLabels = make(map[string]string)
+		}
+
+		if r.Spec.Istio.Gateway != nil {
+			// reset default domain
+			if r.Spec.Istio.Gateway.Domain == config.GetDefaultDomain() {
+				r.Spec.Istio.Gateway.Domain = emptyValue
+			}
+
+			// reset default cert
+			if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Rest.TLS.CredentialName != nil && *r.Spec.Istio.Gateway.Rest.TLS.CredentialName == config.GetDefaultCert()) {
+				r.Spec.Istio.Gateway.Rest.TLS.CredentialName = nil
+			}
+			if r.Spec.Istio.Gateway.Grpc.TLS != nil && r.Spec.Istio.Gateway.Grpc.TLS.Mode != DefaultTlsMode &&
+				(r.Spec.Istio.Gateway.Grpc.TLS.CredentialName != nil && *r.Spec.Istio.Gateway.Grpc.TLS.CredentialName == config.GetDefaultCert()) {
+				r.Spec.Istio.Gateway.Grpc.TLS.CredentialName = nil
+			}
+		}
+	}
+}
+
+// RuntimeDefaults sets default values from the operator environment, which could change at runtime.
 func (r *ModelRegistry) RuntimeDefaults() {
 	modelregistrylog.Info("runtime defaults", "name", r.Name)
 
