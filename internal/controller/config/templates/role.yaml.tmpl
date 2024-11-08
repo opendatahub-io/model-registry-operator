@@ -24,3 +24,11 @@ rules:
   - services
   verbs:
   - get
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - endpoints
+  verbs:
+  - get

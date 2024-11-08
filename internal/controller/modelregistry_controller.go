@@ -21,6 +21,7 @@ import (
 	errors2 "errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes"
 	"strings"
 	"text/template"
 
@@ -62,6 +63,7 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
+	ClientSet           *kubernetes.Clientset
 	Scheme              *runtime.Scheme
 	Recorder            record.EventRecorder
 	Log                 logr.Logger
@@ -179,6 +181,9 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// set runtime default properties in memory for reconciliation
+	modelRegistry.RuntimeDefaults()
+
 	// set defaults and validate if not using webhooks
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
@@ -208,7 +213,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	// set custom resource status
 	available := false
-	if available, err = r.setRegistryStatus(ctx, req, result); err != nil {
+	if available, err = r.setRegistryStatus(ctx, req, params, result); err != nil {
 		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
 	}
 	log.Info("status reconciled")
@@ -294,14 +299,13 @@ func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, objec
 // +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/custom-host,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete

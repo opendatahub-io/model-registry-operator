@@ -17,8 +17,10 @@ limitations under the License.
 package controller
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
@@ -30,6 +32,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/json"
+	"regexp"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,13 +59,23 @@ const (
 	ReasonDeploymentUpdating    = "UpdatingDeployment"
 	ReasonDeploymentAvailable   = "DeploymentAvailable"
 	ReasonDeploymentUnavailable = "DeploymentUnavailable"
+	ReasonConfigurationError    = "ConfigurationError"
 
 	ReasonResourcesCreated     = "CreatedResources"
 	ReasonResourcesAvailable   = "ResourcesAvailable"
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
+
+	grpcContainerName       = "grpc-container"
+	containerCreatingReason = "ContainerCreating"
 )
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, operationResult OperationResult) (bool, error) {
+// errRegexp is based on the CHECK_EQ macro output used by mlmd container.
+// For more details on Abseil logging and CHECK_EQ macro see [Abseil documentation].
+//
+// [Abseil documentation]: https://abseil.io/docs/cpp/guides/logging#CHECK
+var errRegexp = regexp.MustCompile("Check failed: absl::OkStatus\\(\\) == status \\(OK vs. ([^)]+)\\) (.*)")
+
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (bool, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
@@ -71,6 +85,20 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	r.setRegistryStatusHosts(req, modelRegistry)
+	if err := r.setRegistryStatusSpecDefaults(modelRegistry, params.Spec); err != nil {
+		// log error but continue updating rest of the status since it's not a blocker
+		log.Error(err, "Failed to set registry status defaults")
+	}
+	// if specDefaults is {}, cleanup runtime properties
+	if modelRegistry.Status.SpecDefaults == "{}" {
+		// this is an exception to the rule to not modify a resource in reconcile,
+		// because mutatingwebhook is not triggered on status update since it's a subresource
+		modelRegistry.CleanupRuntimeDefaults()
+		if err := r.Client.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry runtime defaults")
+			return false, err
+		}
+	}
 
 	status := metav1.ConditionTrue
 	reason := ReasonDeploymentCreated
@@ -182,6 +210,23 @@ func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, regis
 	registry.Status.HostsStr = strings.Join(hosts, ",")
 }
 
+func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *modelregistryv1alpha1.ModelRegistry, spec *modelregistryv1alpha1.ModelRegistrySpec) error {
+	originalJson, err := json.Marshal(registry.Spec)
+	if err != nil {
+		return fmt.Errorf("error marshalling spec for model registry %s: %w", registry.Name, err)
+	}
+	newJson, err := json.Marshal(spec)
+	if err != nil {
+		return fmt.Errorf("error marshalling spec with defaults for model registry %s: %w", registry.Name, err)
+	}
+	mergePatch, err := jsonpatch.CreateMergePatch(originalJson, newJson)
+	if err != nil {
+		return fmt.Errorf("error creating spec defaults: %w", err)
+	}
+	registry.Status.SpecDefaults = string(mergePatch)
+	return nil
+}
+
 func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
 	available bool, reason string, message string, unavailableReplicas int32) (bool, string, string) {
 
@@ -197,6 +242,21 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 		failedContainers := make(map[string]string)
 		for _, s := range p.Status.ContainerStatuses {
 			if !s.Ready {
+				// look for MLMD container errors, make sure it has also been created
+				if s.Name == grpcContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
+					// check container log for MLMD errors
+					dbError, err := r.getGrpcContainerDBerror(ctx, p)
+					if err != nil {
+						// log K8s error
+						r.Log.Error(err, "failed to get grpc container error")
+					}
+					if dbError != nil {
+						// MLMD errors take priority
+						reason = ReasonConfigurationError
+						message = fmt.Sprintf("Metadata database configuration error: %s", dbError)
+						return available, reason, message
+					}
+				}
 				if s.State.Waiting != nil {
 					failedContainers[s.Name] = fmt.Sprintf("{waiting: {reason: %s, message: %s}}", s.State.Waiting.Reason, s.State.Waiting.Message)
 				} else if s.State.Terminated != nil {
@@ -240,6 +300,30 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 	}
 
 	return available, reason, message
+}
+
+// getGrpcContainerDBerror scrapes container log and returns a database connection error if it exists in the logs
+// it also returns a k8s API error if it cannot read the container log
+func (r *ModelRegistryReconciler) getGrpcContainerDBerror(ctx context.Context, pod corev1.Pod) (error, error) {
+	request := r.ClientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: grpcContainerName})
+	podLogs, err := request.Stream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer podLogs.Close()
+
+	scanner := bufio.NewScanner(podLogs)
+	for scanner.Scan() {
+		line := scanner.Text()
+		submatch := errRegexp.FindStringSubmatch(line)
+		if len(submatch) > 0 {
+			return fmt.Errorf("%s: %s", submatch[2], submatch[1]), nil
+		}
+	}
+	if err = scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Context, req ctrl.Request,

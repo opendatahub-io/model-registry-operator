@@ -363,6 +363,9 @@ type ModelRegistryStatus struct {
 	// Formatted Host names separated by comma
 	HostsStr string `json:"hostsStr,omitempty"`
 
+	// SpecDefaults is a JSON string containing default spec values that were used for model registry deployment
+	SpecDefaults string `json:"specDefaults,omitempty"`
+
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
