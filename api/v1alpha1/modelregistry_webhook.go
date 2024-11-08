@@ -134,7 +134,7 @@ func (r *ModelRegistry) Default() {
 // and it removes default runtime values that match default runtime properties set in the operator
 // since they are redundant as custom property values.
 func (r *ModelRegistry) cleanupRuntimeDefaults() {
-	if len(r.Status.SpecDefaults) != 0 {
+	if r.Status.SpecDefaults != "" && r.Status.SpecDefaults != "{}" {
 		// nothing to do as model registries with specDefaults set
 		// will only have custom properties set by users
 		return
