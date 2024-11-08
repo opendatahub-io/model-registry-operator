@@ -20,7 +20,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	jsonpatch "github.com/evanphx/json-patch/v5"
+	"github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
