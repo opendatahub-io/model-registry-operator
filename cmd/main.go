@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
@@ -58,8 +57,6 @@ func init() {
 	// openshift scheme
 	utilruntime.Must(oapi.Install(scheme))
 	utilruntime.Must(oapiconfig.Install(scheme))
-	// authorino scheme
-	utilruntime.Must(authorino.AddToScheme(scheme))
 	// istio security scheme
 	utilruntime.Must(security.AddToScheme(scheme))
 	// istio networking scheme
