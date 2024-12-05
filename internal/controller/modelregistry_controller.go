@@ -21,13 +21,13 @@ import (
 	errors2 "errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"strings"
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
-	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
@@ -259,7 +259,7 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	if r.HasIstio {
 		if r.CreateAuthResources {
-			builder = builder.Owns(&authorino.AuthConfig{}).
+			builder = builder.Owns(CreateAuthConfig()).
 				Owns(&security.AuthorizationPolicy{})
 		}
 		builder = builder.Owns(&networking.DestinationRule{}).
@@ -481,8 +481,10 @@ func (r *ModelRegistryReconciler) deleteIstioConfig(ctx context.Context, params 
 			return ResourceUpdated, err
 		}
 
-		authConfig := authorino.AuthConfig{ObjectMeta: objectMeta}
-		if err = r.Client.Delete(ctx, &authConfig); client.IgnoreNotFound(err) != nil {
+		authConfig := CreateAuthConfig()
+		authConfig.SetName(params.Name)
+		authConfig.SetNamespace(params.Namespace)
+		if err = r.Client.Delete(ctx, authConfig); client.IgnoreNotFound(err) != nil {
 			return ResourceUpdated, err
 		}
 	}
@@ -623,23 +625,28 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, 
 	}
 
 	result = ResourceUnchanged
-	var authConfig authorino.AuthConfig
-	if err = r.Apply(params, templateName, &authConfig); err != nil {
+	authConfig := CreateAuthConfig()
+	if err = r.Apply(params, templateName, authConfig); err != nil {
 		return result, err
 	}
-	if err = ctrl.SetControllerReference(registry, &authConfig, r.Scheme); err != nil {
+	if err = ctrl.SetControllerReference(registry, authConfig, r.Scheme); err != nil {
 		return result, err
 	}
 
 	// NOTE: AuthConfig CRD uses maps, which is not supported in k8s 3-way merge patch
 	// use an Unstructured current object to force it to use a json merge patch instead
-	current := unstructured.Unstructured{}
-	current.SetGroupVersionKind(authConfig.GroupVersionKind())
-	result, err = r.createOrUpdate(ctx, &current, &authConfig)
+	current := CreateAuthConfig()
+	result, err = r.createOrUpdate(ctx, current, authConfig)
 	if err != nil {
 		return result, err
 	}
 	return result, nil
+}
+
+func CreateAuthConfig() *unstructured.Unstructured {
+	authConfig := unstructured.Unstructured{}
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{Group: "authorino.kuadrant.io", Version: "v1beta3", Kind: "AuthConfig"})
+	return &authConfig
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateAuthorizationPolicy(ctx context.Context, params *ModelRegistryParams,

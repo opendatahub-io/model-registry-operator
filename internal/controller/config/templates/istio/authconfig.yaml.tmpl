@@ -1,4 +1,4 @@
-apiVersion: authorino.kuadrant.io/v1beta2
+apiVersion: authorino.kuadrant.io/v1beta3
 kind: AuthConfig
 metadata:
   name: {{.Name}}
@@ -35,9 +35,9 @@ spec:
     k8s-rbac:
       kubernetesSubjectAccessReview:
         user:
-          selector: auth.identity.metadata.annotations.userid
-        groups:
-          - {{.Name}}-users
+          selector: auth.identity.user.username
+        authorizationGroups:
+          selector: auth.identity.user.groups
         resourceAttributes:
           verb:
             value: get
