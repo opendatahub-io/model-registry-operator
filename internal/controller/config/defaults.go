@@ -19,6 +19,10 @@ package config
 import (
 	"context"
 	"embed"
+	"fmt"
+	"strings"
+	"text/template"
+
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
@@ -26,8 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
-	"strings"
-	"text/template"
 )
 
 //go:embed templates/*.yaml.tmpl
@@ -152,7 +154,7 @@ func GetDefaultDomain() string {
 		namespacedName := types.NamespacedName{Name: "cluster"}
 		err := defaultClient.Get(context.Background(), namespacedName, &ingress)
 		if err != nil {
-			klog.Log.Error(err, "error getting OpenShift domain name", ingress.GetObjectKind(), namespacedName)
+			klog.Log.Error(err, "error getting OpenShift domain name", fmt.Sprintf("%+v", ingress.GetObjectKind()), namespacedName)
 			return ""
 		}
 		defaultDomain = ingress.Spec.Domain

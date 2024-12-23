@@ -20,7 +20,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/evanphx/json-patch/v5"
+	"regexp"
+	"strings"
+
+	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -33,11 +36,9 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
-	"regexp"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
-	"strings"
 )
 
 // Definitions to manage status conditions
@@ -366,13 +367,15 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 	available := true
 	// verify that virtualservice, destinationrule, authorizationpolicy are available
 	name := req.NamespacedName
-	message, available = r.CheckIstioResourcesAvailable(ctx, name, log, message, available)
+	message, available, reason = r.CheckIstioResourcesAvailable(ctx, name, log, message, available, reason)
 
-	message, available, reason = r.CheckAuthConfigCondition(ctx, name, log, message, available, reason)
+	if r.CreateAuthResources {
+		message, available, reason = r.CheckAuthConfigCondition(ctx, name, log, message, available, reason)
+	}
 
 	status := metav1.ConditionFalse
 	if available {
-		if reason == ReasonResourcesAvailable {
+		if reason == ReasonResourcesAvailable || (!r.CreateAuthResources && reason == ReasonResourcesCreated) {
 			status = metav1.ConditionTrue
 		}
 		// additionally verify that Deployment pod has 3 containers including the istio-envoy proxy
@@ -390,7 +393,6 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 
 func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name types.NamespacedName,
 	log logr.Logger, message string, reason string, status metav1.ConditionStatus) (string, string, metav1.ConditionStatus) {
-
 	pods := corev1.PodList{}
 	if err := r.Client.List(ctx, &pods,
 		client.MatchingLabels{"app": name.Name, "component": "model-registry"},
@@ -401,15 +403,24 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 		reason = ReasonResourcesUnavailable
 		status = metav1.ConditionFalse
 
-	} else {
-		// check that pods have 3 containers
-		for _, pod := range pods.Items {
-			if len(pod.Spec.Containers) != 3 {
-				message = fmt.Sprintf("Istio proxy unavailable in Pod %s", pod.Name)
-				reason = ReasonResourcesUnavailable
-				status = metav1.ConditionFalse
-				break
-			}
+		return message, reason, status
+	}
+
+	if len(pods.Items) == 0 {
+		message = fmt.Sprintf("No Pods found for Deployment %s", name.Name)
+		reason = ReasonResourcesUnavailable
+		status = metav1.ConditionFalse
+
+		return message, reason, status
+	}
+
+	// check that pods have 3 containers
+	for _, pod := range pods.Items {
+		if len(pod.Spec.Containers) != 3 {
+			message = fmt.Sprintf("Istio proxy unavailable in Pod %s", pod.Name)
+			reason = ReasonResourcesUnavailable
+			status = metav1.ConditionFalse
+			break
 		}
 	}
 
@@ -453,7 +464,7 @@ func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, 
 }
 
 func (r *ModelRegistryReconciler) CheckIstioResourcesAvailable(ctx context.Context, name types.NamespacedName,
-	log logr.Logger, message string, available bool) (string, bool) {
+	log logr.Logger, message string, available bool, reason string) (string, bool, string) {
 
 	var resource client.Object
 	resource = &v1beta1.VirtualService{}
@@ -461,23 +472,28 @@ func (r *ModelRegistryReconciler) CheckIstioResourcesAvailable(ctx context.Conte
 		log.Error(err, "Failed to get model registry Istio VirtualService", "name", name)
 		message = fmt.Sprintf("Failed to find VirtualService: %s", err.Error())
 		available = false
+		reason = ReasonResourcesUnavailable
 	}
 	resource = &v1beta1.DestinationRule{}
 	if err := r.Get(ctx, name, resource); err != nil {
 		log.Error(err, "Failed to get model registry Istio DestinationRule", "name", name)
 		message = fmt.Sprintf("Failed to find DestinationRule: %s", err.Error())
 		available = false
+		reason = ReasonResourcesUnavailable
 	}
-	resource = &v1beta12.AuthorizationPolicy{}
-	policyName := name
-	policyName.Name = policyName.Name + "-authorino"
-	if err := r.Get(ctx, policyName, resource); err != nil {
-		log.Error(err, "Failed to get model registry Istio AuthorizationPolicy", "name", policyName)
-		message = fmt.Sprintf("Failed to find AuthorizationPolicy %s: %s", policyName, err.Error())
-		available = false
+	if r.CreateAuthResources {
+		resource = &v1beta12.AuthorizationPolicy{}
+		policyName := name
+		policyName.Name = policyName.Name + "-authorino"
+		if err := r.Get(ctx, policyName, resource); err != nil {
+			log.Error(err, "Failed to get model registry Istio AuthorizationPolicy", "name", policyName)
+			message = fmt.Sprintf("Failed to find AuthorizationPolicy %s: %s", policyName, err.Error())
+			available = false
+			reason = ReasonResourcesUnavailable
+		}
 	}
 
-	return message, available
+	return message, available, reason
 }
 
 func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req ctrl.Request,
@@ -511,7 +527,7 @@ func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req c
 
 	status := metav1.ConditionFalse
 	if available {
-		if reason == ReasonResourcesAvailable {
+		if reason == ReasonResourcesAvailable || (!r.IsOpenShift && reason == ReasonResourcesCreated) {
 			status = metav1.ConditionTrue
 		}
 	} else {
