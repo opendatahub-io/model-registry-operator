@@ -20,11 +20,12 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	"strings"
+	"text/template"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
-	"strings"
-	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
