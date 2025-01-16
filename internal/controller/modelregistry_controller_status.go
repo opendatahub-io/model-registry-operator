@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
-	authorino "github.com/kuadrant/authorino/api/v1beta2"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	routev1 "github.com/openshift/api/route/v1"
 	"istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -31,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"regexp"
@@ -417,7 +417,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 }
 
 func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, name types.NamespacedName, log logr.Logger, message string, available bool, reason string) (string, bool, string) {
-	authConfig := &authorino.AuthConfig{}
+	authConfig := CreateAuthConfig()
 	if err := r.Get(ctx, name, authConfig); err != nil {
 		log.Error(err, "Failed to get model registry Istio Authorino AuthConfig", "name", name)
 		message = fmt.Sprintf("Failed to find AuthConfig: %s", err.Error())
@@ -426,17 +426,26 @@ func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, 
 
 	// check authconfig Ready condition
 	if available {
-		for _, c := range authConfig.Status.Conditions {
-			if c.Type == authorino.StatusConditionReady {
-				available = c.Status == corev1.ConditionTrue
-				if available {
-					reason = ReasonResourcesAvailable
-					message = "Istio resources are available"
-				} else {
-					reason = ReasonResourcesUnavailable
-					message = fmt.Sprintf("Istio AuthConfig is not ready: {reason: %s, message: %s}", c.Reason, c.Message)
+		conditions, _, _ := unstructured.NestedSlice(authConfig.Object, "status", "conditions")
+		for _, c := range conditions {
+			switch con := c.(type) {
+			case map[string]interface{}:
+
+				condType, _, _ := unstructured.NestedString(con, "type")
+				if condType == "Ready" {
+					status, _, _ := unstructured.NestedString(con, "status")
+					available = status == "True"
+					if available {
+						reason = ReasonResourcesAvailable
+						message = "Istio resources are available"
+					} else {
+						reason = ReasonResourcesUnavailable
+						condReason, _, _ := unstructured.NestedString(con, "reason")
+						condMessage, _, _ := unstructured.NestedString(con, "message")
+						message = fmt.Sprintf("Istio AuthConfig is not ready: {reason: %s, message: %s}", condReason, condMessage)
+					}
+					break
 				}
-				break
 			}
 		}
 	}
