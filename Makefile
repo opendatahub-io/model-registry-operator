@@ -94,7 +94,7 @@ test: manifests generate fmt vet govulncheck envtest ## Run tests.
 ##@ Build
 
 .PHONY: build
-build: sync-images manifests generate fmt vet govulncheck ## Build manager binary.
+build: sync-images manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run
