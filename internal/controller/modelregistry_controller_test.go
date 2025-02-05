@@ -19,23 +19,29 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
-	"github.com/openshift/api"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/client-go/tools/record"
 	"os"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	routev1 "github.com/openshift/api/route/v1"
+	userv1 "github.com/openshift/api/user/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
@@ -127,7 +133,9 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = k8sClient.Create(ctx, modelRegistry)
 				Expect(err).To(Not(HaveOccurred()))
 
-				Eventually(validateRegistry(ctx, typeNamespaceName, template, modelRegistry),
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
@@ -151,7 +159,243 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = k8sClient.Create(ctx, modelRegistry)
 				Expect(err).To(Not(HaveOccurred()))
 
-				Eventually(validateRegistry(ctx, typeNamespaceName, template, modelRegistry),
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using OpenShift - serviceRoute enabled", func() {
+				registryName = "model-registry-openshift-with-serviceroute"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Rest.ServiceRoute = config.RouteEnabled
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryOpenshift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Openshift Route was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &routev1.Route{}
+
+					return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-http", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
+				}, 5*time.Second, time.Second).Should(Succeed())
+			})
+
+			It("When using OpenShift - serviceRoute disabled", func() {
+				registryName = "model-registry-openshift-without-serviceroute"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryOpenshift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Openshift Route was not created in the reconciliation")
+				found := &routev1.Route{}
+
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-http", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("When using Istio", func() {
+				registryName = "model-registry-istio"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+					AuthProvider: "opendatahub-auth-provider",
+					AuthConfigLabels: map[string]string{
+						"auth": "enabled",
+					},
+					Gateway: &v1alpha1.GatewayConfig{
+						Domain: "example.com",
+						Rest: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+						Grpc: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using Istio on Openshift", func() {
+				registryName = "model-registry-istio-openshift"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+					AuthProvider: "opendatahub-auth-provider",
+					AuthConfigLabels: map[string]string{
+						"auth": "enabled",
+					},
+					Gateway: &v1alpha1.GatewayConfig{
+						Domain: "example.com",
+						Rest: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+						Grpc: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				modelRegistryReconciler.IsOpenShift = true
+
+				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using Istio and Authorino", func() {
+				registryName = "model-registry-istio-authorino"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+					AuthProvider: "opendatahub-auth-provider",
+					AuthConfigLabels: map[string]string{
+						"auth": "enabled",
+					},
+					Gateway: &v1alpha1.GatewayConfig{
+						Domain: "example.com",
+						Rest: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+						Grpc: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using Istio and Authorino on openshift", func() {
+				registryName = "model-registry-istio-authorino-openshift"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+					AuthProvider: "opendatahub-auth-provider",
+					AuthConfigLabels: map[string]string{
+						"auth": "enabled",
+					},
+					Gateway: &v1alpha1.GatewayConfig{
+						Domain: "example.com",
+						Rest: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+						Grpc: v1alpha1.ServerConfig{
+							GatewayRoute: "enabled",
+						},
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				modelRegistryReconciler.IsOpenShift = true
+
+				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
@@ -164,6 +408,13 @@ var _ = Describe("ModelRegistry controller", func() {
 				Eventually(func() error {
 					return k8sClient.Delete(context.TODO(), found)
 				}, 2*time.Minute, time.Second).Should(Succeed())
+
+				By("Cleaning up istio services")
+				svc := corev1.Service{}
+				svc.Name = "istio"
+				svc.Namespace = typeNamespaceName.Namespace
+
+				_ = k8sClient.Delete(ctx, &svc)
 
 				// TODO(user): Attention if you improve this code by adding other context test you MUST
 				// be aware of the current delete namespace limitations.
@@ -180,7 +431,21 @@ var _ = Describe("ModelRegistry controller", func() {
 	})
 })
 
-func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedName, template *template.Template, modelRegistry *v1alpha1.ModelRegistry) func() error {
+func initModelRegistryReconciler(template *template.Template) *ModelRegistryReconciler {
+	scheme := k8sClient.Scheme()
+
+	modelRegistryReconciler := &ModelRegistryReconciler{
+		Client:   k8sClient,
+		Scheme:   scheme,
+		Recorder: &record.FakeRecorder{},
+		Log:      ctrl.Log.WithName("controller"),
+		Template: template,
+	}
+
+	return modelRegistryReconciler
+}
+
+func validateRegistryBase(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
 		By("Checking if the custom resource was successfully created")
 		Eventually(func() error {
@@ -188,15 +453,31 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
-		scheme := k8sClient.Scheme()
-		_ = api.Install(scheme)
-		modelRegistryReconciler := &ModelRegistryReconciler{
-			Client:   k8sClient,
-			Scheme:   scheme,
-			Recorder: &record.FakeRecorder{},
-			Log:      ctrl.Log.WithName("controller"),
-			Template: template,
+		By("Mocking the Pod creation to perform the tests")
+		mrPod := &corev1.Pod{}
+		mrPod.Name = typeNamespaceName.Name
+		mrPod.Namespace = typeNamespaceName.Namespace
+		mrPod.Labels = map[string]string{"app": typeNamespaceName.Name, "component": "model-registry"}
+		mrPod.Spec.Containers = []corev1.Container{
+			{
+				Name:  "model-registry-rest",
+				Image: config.DefaultRestImage,
+			},
+			{
+				Name:  "model-registry-grpc",
+				Image: config.DefaultGrpcImage,
+			},
 		}
+
+		if modelRegistryReconciler.HasIstio {
+			mrPod.Spec.Containers = append(mrPod.Spec.Containers, corev1.Container{
+				Name:  "istio-proxy",
+				Image: "istio-proxy",
+			})
+		}
+
+		err := k8sClient.Create(ctx, mrPod)
+		Expect(err).To(Not(HaveOccurred()))
 
 		By("Reconciling the custom resource created")
 		Eventually(func() error {
@@ -228,7 +509,6 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 			// reconcile done!
 			return nil
 		}, time.Minute, time.Second).Should(Succeed())
-		//Expect(err).To(Not(HaveOccurred()))
 
 		By("Checking if Deployment was successfully created in the reconciliation")
 		Eventually(func() error {
@@ -236,29 +516,131 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
+		if modelRegistry.Spec.Istio != nil && modelRegistry.Spec.Istio.Gateway != nil && modelRegistryReconciler.IsOpenShift {
+			By("Checking if the Route was successfully created in the reconciliation")
+			routes := &routev1.RouteList{}
+			err = k8sClient.List(ctx, routes, client.MatchingLabels{
+				"app":                     typeNamespaceName.Name,
+				"component":               "model-registry",
+				"maistra.io/gateway-name": typeNamespaceName.Name,
+			})
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Mocking the conditions in the Route to perform the tests")
+			if len(routes.Items) > 0 {
+				for _, route := range routes.Items {
+					ingresses := []routev1.RouteIngress{
+						{
+							Conditions: []routev1.RouteIngressCondition{
+								{
+									Type:   routev1.RouteAdmitted,
+									Status: corev1.ConditionTrue,
+								},
+							},
+						},
+					}
+
+					route.Status.Ingress = ingresses
+
+					err = k8sClient.Status().Update(ctx, &route)
+					Expect(err).To(Not(HaveOccurred()))
+				}
+
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+			}
+		}
+
+		if modelRegistryReconciler.CreateAuthResources {
+			By("Checking if the Auth resources were successfully created in the reconciliation")
+			authConfig := CreateAuthConfig()
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespaceName, authConfig)
+			}, time.Minute, time.Second).Should(Succeed())
+
+			By("Mocking conditions in the AuthConfig to perform the tests")
+			err := unstructured.SetNestedMap(authConfig.Object, map[string]interface{}{
+				"conditions": []interface{}{
+					map[string]interface{}{
+						"type":   "Ready",
+						"status": "True",
+					},
+				}}, "status")
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Updating the AuthConfig to set the Ready condition to True")
+			err = k8sClient.Status().Update(ctx, authConfig)
+			Expect(err).To(Not(HaveOccurred()))
+
+			authConfigTwo := CreateAuthConfig()
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespaceName, authConfigTwo)
+			}, time.Minute, time.Second).Should(Succeed())
+
+			Eventually(func() error {
+				if authConfig.Object["status"] == nil {
+					return fmt.Errorf("status not set")
+				}
+
+				return nil
+			}, time.Minute, time.Second).Should(Succeed())
+
+			Eventually(func() error {
+				_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespaceName,
+				})
+
+				return err
+			}, time.Minute, time.Second).Should(Succeed())
+		}
+
 		By("Checking the latest Status Condition added to the ModelRegistry instance")
 		Eventually(func() error {
 			err := k8sClient.Get(ctx, typeNamespaceName, modelRegistry)
 			Expect(err).To(Not(HaveOccurred()))
 
-			// also check hosts in status
-			hosts := modelRegistry.Status.Hosts
-			Expect(len(hosts)).To(Equal(3))
-			name := modelRegistry.Name
-			namespace := modelRegistry.Namespace
-			Expect(hosts[0]).
-				To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
-			Expect(hosts[1]).
-				To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
-			Expect(hosts[2]).
-				To(Equal(name))
-			Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
+			if modelRegistry.Spec.Istio != nil && modelRegistry.Spec.Istio.Gateway != nil {
+				hosts := modelRegistry.Status.Hosts
+				Expect(len(hosts)).To(Equal(5))
+				name := modelRegistry.Name
+				namespace := modelRegistry.Namespace
+				domain := modelRegistry.Spec.Istio.Gateway.Domain
+				Expect(hosts[0]).
+					To(Equal(fmt.Sprintf("%s-rest.%s", name, domain)))
+				Expect(hosts[1]).
+					To(Equal(fmt.Sprintf("%s-grpc.%s", name, domain)))
+				Expect(hosts[2]).
+					To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
+				Expect(hosts[3]).
+					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
+				Expect(hosts[4]).
+					To(Equal(name))
+				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
+			} else {
+				// also check hosts in status
+				hosts := modelRegistry.Status.Hosts
+				Expect(len(hosts)).To(Equal(3))
+				name := modelRegistry.Name
+				namespace := modelRegistry.Namespace
+				Expect(hosts[0]).
+					To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
+				Expect(hosts[1]).
+					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
+				Expect(hosts[2]).
+					To(Equal(name))
+				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
+			}
 
 			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeProgressing) {
 				return fmt.Errorf("Condition %s is not true", ConditionTypeProgressing)
 			}
 			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeAvailable) {
-				return fmt.Errorf("Condition %s is not true", ConditionTypeAvailable)
+				return fmt.Errorf("Condition %s is not true: %+v", ConditionTypeAvailable, modelRegistry.Status)
 			}
 			return nil
 		}, time.Minute, time.Second).Should(Succeed())
@@ -278,6 +660,70 @@ func validateRegistry(ctx context.Context, typeNamespaceName types.NamespacedNam
 
 			return nil
 		}, time.Minute, time.Second).Should(Succeed())
+
+		return nil
+	}
+}
+
+func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+	return func() error {
+		modelRegistryReconciler.IsOpenShift = true
+
+		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
+
+		By("Checking if the Openshift Group was successfully created in the reconciliation")
+		Eventually(func() error {
+			found := &userv1.Group{}
+
+			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-users", modelRegistry.Name)}, found)
+		}, 5*time.Second, time.Second).Should(Succeed())
+
+		By("Checking if the Openshift RoleBinding was successfully created in the reconciliation")
+		Eventually(func() error {
+			found := &rbacv1.RoleBinding{}
+
+			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-users", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
+		}, 5*time.Second, time.Second).Should(Succeed())
+
+		return nil
+	}
+}
+
+func validateRegistryIstio(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+	return func() error {
+		modelRegistryReconciler.HasIstio = true
+
+		svc := corev1.Service{}
+		svc.Name = "istio"
+		svc.Namespace = typeNamespaceName.Namespace
+		svc.Labels = map[string]string{"istio": v1alpha1.DefaultIstioGateway}
+		svc.Spec.Ports = []corev1.ServicePort{
+			{
+				Name:       "http2",
+				Port:       80,
+				TargetPort: intstr.FromInt(80),
+			},
+			{
+				Name:       "https",
+				Port:       443,
+				TargetPort: intstr.FromInt(443),
+			},
+		}
+
+		err := k8sClient.Create(ctx, &svc)
+		Expect(err).To(Not(HaveOccurred()))
+
+		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
+
+		return nil
+	}
+}
+
+func validateRegistryAuth(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+	return func() error {
+		modelRegistryReconciler.CreateAuthResources = true
+
+		Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
 
 		return nil
 	}

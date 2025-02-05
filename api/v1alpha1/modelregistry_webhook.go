@@ -19,18 +19,19 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"maps"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	"slices"
-	"strings"
 )
 
 // log is for logging in this package.
