@@ -62,11 +62,15 @@ help: ## Display this help.
 
 ##@ Development
 
+IMAGES_REST_VERSION=$(lastword $(subst :, ,${IMAGES_REST_SERVICE}))
 .PHONY: sync-images
 sync-images:
 	# sync model-registry image
 	sed "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" -i ./config/manager/manager.yaml
 	sed "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+	# sync component_metadata.yaml model registry versions on line 6 and 9
+	sed -i "6s|: .*|: $(IMAGES_REST_VERSION)|" -i ./config/component_metadata.yaml
+	sed -i "9s|: .*|: $(IMAGES_REST_VERSION)|" -i ./config/component_metadata.yaml
 	# sync mlmd image
 	sed "s|quay.io/opendatahub/mlmd-grpc-server:.*|${IMAGES_GRPC_SERVICE}|" -i ./config/manager/manager.yaml
 	sed "s|\"quay.io/opendatahub/mlmd-grpc-server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" -i ./internal/controller/config/defaults.go
@@ -94,7 +98,7 @@ test: manifests generate fmt vet govulncheck envtest ## Run tests.
 ##@ Build
 
 .PHONY: build
-build: sync-images manifests generate fmt vet govulncheck ## Build manager binary.
+build: sync-images manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
 .PHONY: run

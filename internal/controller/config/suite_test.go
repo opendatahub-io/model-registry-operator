@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package config_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,25 +26,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 
-	routev1 "github.com/openshift/api/route/v1"
-	userv1 "github.com/openshift/api/user/v1"
-	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
+	configv1 "github.com/openshift/api/config/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
-
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -62,16 +54,8 @@ var (
 	testCRDLocalPath = "./testdata/crd"
 	remoteCRDs       = []remoteCRD{
 		{
-			url:      "https://raw.githubusercontent.com/Kuadrant/authorino/refs/heads/main/install/crd/authorino.kuadrant.io_authconfigs.yaml",
-			fileName: "authorino.kuadrant.io_authconfigs.yaml",
-		},
-		{
-			url:      "https://raw.githubusercontent.com/istio/istio/refs/heads/master/manifests/charts/base/files/crd-all.gen.yaml",
-			fileName: "istio.yaml",
-		},
-		{
-			url:      "https://raw.githubusercontent.com/openshift/api/refs/heads/master/route/v1/zz_generated.crd-manifests/routes-Default.crd.yaml",
-			fileName: "route.openshift.io_routes.yaml",
+			url:      "https://raw.githubusercontent.com/openshift/api/refs/heads/master/config/v1/zz_generated.crd-manifests/0000_10_config-operator_01_ingresses.crd.yaml",
+			fileName: "ingress.openshift.io_ingresses.yaml",
 		},
 	}
 )
@@ -89,33 +73,7 @@ var _ = BeforeSuite(func() {
 
 	schm := apiruntime.NewScheme()
 
-	err = corev1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = appsv1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = rbacv1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = userv1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = routev1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = istiosecurityv1beta1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = istioclientv1beta1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	authorinoScheme := &scheme.Builder{GroupVersion: schema.GroupVersion{Group: "authorino.kuadrant.io", Version: "v1beta3"}}
-
-	err = authorinoScheme.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = modelregistryv1alpha1.AddToScheme(schm)
+	err = configv1.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
@@ -137,7 +95,6 @@ var _ = BeforeSuite(func() {
 	testEnv = &envtest.Environment{
 		Scheme: schm,
 		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "crd", "bases"),
 			filepath.Join("testdata", "crd"),
 		},
 		ErrorIfCRDPathMissing: true,
@@ -159,6 +116,18 @@ var _ = BeforeSuite(func() {
 	k8sClient, err = client.New(cfg, client.Options{Scheme: schm})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(k8sClient).NotTo(BeNil())
+
+	clusterIngress := &configv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cluster",
+		},
+		Spec: configv1.IngressSpec{
+			Domain: "domain3",
+		},
+	}
+
+	err = k8sClient.Create(context.Background(), clusterIngress)
+	Expect(err).NotTo(HaveOccurred())
 })
 
 var _ = AfterSuite(func() {

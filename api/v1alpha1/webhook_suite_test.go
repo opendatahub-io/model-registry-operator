@@ -14,22 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha1_test
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	//+kubebuilder:scaffold:imports
@@ -94,7 +96,7 @@ var _ = BeforeSuite(func() {
 	Expect(cfg).NotTo(BeNil())
 
 	scheme := apimachineryruntime.NewScheme()
-	err = AddToScheme(scheme)
+	err = v1alpha1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = admissionv1.AddToScheme(scheme)
@@ -123,7 +125,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&ModelRegistry{}).SetupWebhookWithManager(mgr)
+	err = (&v1alpha1.ModelRegistry{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:webhook
@@ -171,27 +173,45 @@ var _ = Describe("Model Registry validating webhook", func() {
 		mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
 		Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
 	})
+
+	It("Should not allow creation of MR instance with invalid database config", func(ctx context.Context) {
+		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
+		mr.Spec = v1alpha1.ModelRegistrySpec{}
+
+		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+	})
+
+	It("Should not allow update of MR instance with invalid database config", func(ctx context.Context) {
+		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
+		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+
+		mr.Spec = v1alpha1.ModelRegistrySpec{
+			MySQL: &v1alpha1.MySQLConfig{},
+		}
+
+		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+	})
 })
 
-func newModelRegistry(ctx context.Context, name string, namespace string) *ModelRegistry {
+func newModelRegistry(ctx context.Context, name string, namespace string) *v1alpha1.ModelRegistry {
 	// create test namespace
 	Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: namespace},
 	}))).Should(Succeed())
 
 	// return
-	return &ModelRegistry{
+	return &v1alpha1.ModelRegistry{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: ModelRegistrySpec{
-			Rest: RestSpec{},
-			Grpc: GrpcSpec{},
-			MySQL: &MySQLConfig{
+		Spec: v1alpha1.ModelRegistrySpec{
+			Rest: v1alpha1.RestSpec{},
+			Grpc: v1alpha1.GrpcSpec{},
+			MySQL: &v1alpha1.MySQLConfig{
 				Host:     "test-db",
 				Username: "test-user",
-				PasswordSecret: &SecretKeyValue{
+				PasswordSecret: &v1alpha1.SecretKeyValue{
 					Name: "test-secret",
 					Key:  "test-key",
 				},
