@@ -198,11 +198,6 @@ spec:
     workbenches:
       managementState: Managed
     dashboard:
-      devFlags:
-        manifests:
-          - contextDir: manifests
-            sourcePath: ''
-            uri: 'https://github.com/mturley/odh-dashboard/tarball/custom-manifest-quay-main'
       managementState: Managed
     modelmeshserving:
       managementState: Managed
