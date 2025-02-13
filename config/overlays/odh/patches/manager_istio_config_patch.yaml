@@ -1,4 +1,4 @@
-# This patch injects auth config properties from auth-refs configmap in the controller manager
+# This patch injects istio config properties from service-mesh-refs configmap in the controller manager
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,16 +11,17 @@ spec:
       - name: manager
         # name must match the volume name below
         env:
-          - name: DEFAULT_AUTH_PROVIDER
+          - name: DEFAULT_CONTROL_PLANE
             valueFrom:
               configMapKeyRef:
-                # AUTH_NAMESPACE has the external authorization provider name
-                # used in the istio servicemeshcontrolplane (smcp) config
-                key: AUTH_NAMESPACE
-                name: auth-refs
-          - name: DEFAULT_AUTH_CONFIG_LABELS
+                # CONTROL_PLANE_NAME has the name of the istio smcp
+                key: CONTROL_PLANE_NAME
+                name: service-mesh-refs
+          - name: DEFAULT_ISTIO_INGRESS
             valueFrom:
               configMapKeyRef:
-                # AUTHORINO_LABEL has the label selector for authorino
-                key: AUTHORINO_LABEL
-                name: auth-refs
+                # ISTIO_INGRESS_NAME has the name of the istio ingress gateway
+                key: ISTIO_INGRESS_NAME
+                name: service-mesh-refs
+                # optional to allow odh operator to add if available, defaults to `ingressgateway` otherwise
+                optional: true
