@@ -251,8 +251,6 @@ type GatewayConfig struct {
 	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
 	Domain string `json:"domain,omitempty"`
 
-	//+kubebuilder:default=ingressgateway
-
 	// Value of label `istio` used to identify the Ingress Gateway
 	IstioIngress *string `json:"istioIngress,omitempty"`
 
