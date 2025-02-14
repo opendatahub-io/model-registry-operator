@@ -18,6 +18,8 @@ var (
 	authLabelValue = "true"
 	authLabel      = fmt.Sprintf("%s=%s", authLabelKey, authLabelValue)
 	domain         = "example.com"
+	controlPlane   = "test-smcp"
+	istioIngress   = config.DefaultIstioIngressName
 )
 
 func TestValidateDatabase(t *testing.T) {
@@ -63,6 +65,7 @@ func TestValidateDatabase(t *testing.T) {
 }
 
 func TestValidateIstioConfig(t *testing.T) {
+	defaultIstioIngress := config.DefaultIstioIngressName
 	tests := []struct {
 		name    string
 		mrSpec  *v1alpha1.ModelRegistry
@@ -88,6 +91,19 @@ func TestValidateIstioConfig(t *testing.T) {
 				Istio: &v1alpha1.IstioConfig{
 					AuthProvider:     "istio",
 					AuthConfigLabels: map[string]string{"auth": "enabled"},
+					Gateway: &v1alpha1.GatewayConfig{
+						IstioIngress: &defaultIstioIngress,
+					},
+				},
+			}},
+			wantErr: true,
+		},
+		{
+			name: "invalid - istio gateway missing istioIngress",
+			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
+				Istio: &v1alpha1.IstioConfig{
+					AuthProvider:     "istio",
+					AuthConfigLabels: map[string]string{"auth": "enabled"},
 					Gateway:          &v1alpha1.GatewayConfig{},
 				},
 			}},
@@ -100,7 +116,8 @@ func TestValidateIstioConfig(t *testing.T) {
 					AuthProvider:     "istio",
 					AuthConfigLabels: map[string]string{"auth": "enabled"},
 					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "test.com",
+						Domain:       "test.com",
+						IstioIngress: &defaultIstioIngress,
 						Rest: v1alpha1.ServerConfig{
 							TLS: &v1alpha1.TLSServerSettings{
 								Mode: "SIMPLE",
@@ -118,7 +135,8 @@ func TestValidateIstioConfig(t *testing.T) {
 					AuthProvider:     "istio",
 					AuthConfigLabels: map[string]string{"auth": "enabled"},
 					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "test.com",
+						Domain:       "test.com",
+						IstioIngress: &defaultIstioIngress,
 						Grpc: v1alpha1.ServerConfig{
 							TLS: &v1alpha1.TLSServerSettings{
 								Mode: "SIMPLE",
@@ -136,7 +154,8 @@ func TestValidateIstioConfig(t *testing.T) {
 					AuthProvider:     "istio",
 					AuthConfigLabels: map[string]string{"auth": "enabled"},
 					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "test.com",
+						Domain:       "test.com",
+						IstioIngress: &defaultIstioIngress,
 					},
 				},
 			}},
@@ -161,7 +180,6 @@ func TestValidateIstioConfig(t *testing.T) {
 
 func TestDefault(t *testing.T) {
 	var httpPort int32 = v1alpha1.DefaultHttpPort
-	defaultIstioGateway := v1alpha1.DefaultIstioGateway
 
 	tests := []struct {
 		name       string
@@ -190,7 +208,6 @@ func TestDefault(t *testing.T) {
 					Istio: &v1alpha1.IstioConfig{
 						TlsMode: v1alpha1.DefaultTlsMode,
 						Gateway: &v1alpha1.GatewayConfig{
-							IstioIngress: &defaultIstioGateway,
 							Rest: v1alpha1.ServerConfig{
 								Port:         &httpPort,
 								GatewayRoute: config.RouteEnabled,
@@ -346,7 +363,9 @@ func TestRuntimeDefaults(t *testing.T) {
 						AuthProvider:     authProvider,
 						AuthConfigLabels: map[string]string{authLabelKey: authLabelValue},
 						Gateway: &v1alpha1.GatewayConfig{
-							Domain: domain,
+							Domain:       domain,
+							ControlPlane: &controlPlane,
+							IstioIngress: &istioIngress,
 							Rest: v1alpha1.ServerConfig{
 								TLS: &v1alpha1.TLSServerSettings{
 									Mode:           tlsMode,
@@ -381,6 +400,7 @@ func setupDefaults(t testing.TB) {
 
 	config.SetDefaultAudiences([]string{audience})
 	config.SetDefaultDomain(domain, k8sClient, false)
+	config.SetDefaultControlPlane(controlPlane)
 	config.SetDefaultCert(certName)
 	config.SetDefaultAuthProvider(authProvider)
 	config.SetDefaultAuthConfigLabels(authLabel)

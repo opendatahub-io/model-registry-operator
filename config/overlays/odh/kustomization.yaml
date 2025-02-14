@@ -17,6 +17,9 @@ patches:
 # patch to add auth config properties
 - path: patches/manager_auth_config_patch.yaml
 
+# patch to add istio config properties
+- path: patches/manager_istio_config_patch.yaml
+
 # patch to add webhooks and CA bundles to CRD
 - path: patches/webhook_in_modelregistries.yaml
 #+kubebuilder:scaffold:crdkustomizewebhookpatch

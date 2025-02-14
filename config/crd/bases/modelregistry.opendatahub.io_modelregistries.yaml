@@ -250,7 +250,6 @@ spec:
                             type: object
                         type: object
                       istioIngress:
-                        default: ingressgateway
                         description: Value of label `istio` used to identify the Ingress
                           Gateway
                         type: string

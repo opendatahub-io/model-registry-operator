@@ -153,6 +153,43 @@ func TestSetGetDefaultCert(t *testing.T) {
 	}
 }
 
+func TestSetGetDefaultControlPlane(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"empty-control-plane", ""},
+		{"control-plane", "my-smcp"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config.SetDefaultControlPlane(tt.want)
+			if got := config.GetDefaultControlPlane(); got != tt.want {
+				t.Errorf("GetDefaultControlPlane() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetGetDefaultIstioIngress(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want string
+	}{
+		{"empty-istio-ingress", "", config.DefaultIstioIngressName},
+		{"istio-ingress", "my-istio-ingress", "my-istio-ingress"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config.SetDefaultIstioIngress(tt.arg)
+			if got := config.GetDefaultIstioIngress(); got != tt.want {
+				t.Errorf("GetDefaultIstioIngress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 var _ = Describe("Defaults integration tests", func() {
 	Describe("TestSetGetDefaultDomain", func() {
 		It("Should return the set domain on openshift", func() {

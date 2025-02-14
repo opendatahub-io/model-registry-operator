@@ -42,9 +42,8 @@ const (
 	DefaultHttpPort  = 80
 	DefaultHttpsPort = 443
 
-	DefaultTlsMode      = IstioMutualTlsMode
-	IstioMutualTlsMode  = "ISTIO_MUTUAL"
-	DefaultIstioGateway = "ingressgateway"
+	DefaultTlsMode     = IstioMutualTlsMode
+	IstioMutualTlsMode = "ISTIO_MUTUAL"
 
 	tagSeparator = ":"
 	emptyValue   = ""
@@ -62,10 +61,9 @@ func (r *ModelRegistry) SetupWebhookWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:webhook:path=/mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry,mutating=true,failurePolicy=fail,sideEffects=None,groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=create;update,versions=v1alpha1,name=mmodelregistry.opendatahub.io,admissionReviewVersions=v1
 
 var (
-	_                   webhook.Defaulter = &ModelRegistry{}
-	defaultIstioGateway                   = DefaultIstioGateway
-	httpsPort           int32             = DefaultHttpsPort
-	httpPort            int32             = DefaultHttpPort
+	_         webhook.Defaulter = &ModelRegistry{}
+	httpsPort int32             = DefaultHttpsPort
+	httpPort  int32             = DefaultHttpPort
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -95,10 +93,6 @@ func (r *ModelRegistry) Default() {
 		}
 
 		if r.Spec.Istio.Gateway != nil {
-			// set ingress gateway if not set
-			if r.Spec.Istio.Gateway.IstioIngress == nil {
-				r.Spec.Istio.Gateway.IstioIngress = &defaultIstioGateway
-			}
 			// set default gateway ports if needed
 			if r.Spec.Istio.Gateway.Rest.Port == nil {
 				if r.Spec.Istio.Gateway.Rest.TLS != nil {
@@ -195,6 +189,14 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 			if r.Spec.Istio.Gateway.Domain == config.GetDefaultDomain() {
 				r.Spec.Istio.Gateway.Domain = emptyValue
 			}
+			// reset default control plane
+			if r.Spec.Istio.Gateway.ControlPlane != nil && *r.Spec.Istio.Gateway.ControlPlane == config.GetDefaultControlPlane() {
+				r.Spec.Istio.Gateway.ControlPlane = nil
+			}
+			// reset default istio ingress
+			if r.Spec.Istio.Gateway.IstioIngress != nil && *r.Spec.Istio.Gateway.IstioIngress == config.GetDefaultIstioIngress() {
+				r.Spec.Istio.Gateway.IstioIngress = nil
+			}
 
 			// reset default cert
 			if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.TLS.Mode != DefaultTlsMode &&
@@ -243,9 +245,20 @@ func (r *ModelRegistry) RuntimeDefaults() {
 		}
 
 		if r.Spec.Istio.Gateway != nil {
+			defaultControlPlane := config.GetDefaultControlPlane()
+			defaultIstioIngress := config.GetDefaultIstioIngress()
+
 			// set default domain
 			if len(r.Spec.Istio.Gateway.Domain) == 0 {
 				r.Spec.Istio.Gateway.Domain = config.GetDefaultDomain()
+			}
+			// set default control plane if provided
+			if r.Spec.Istio.Gateway.ControlPlane == nil && len(defaultControlPlane) != 0 {
+				r.Spec.Istio.Gateway.ControlPlane = &defaultControlPlane
+			}
+			// set default istio ingress
+			if r.Spec.Istio.Gateway.IstioIngress == nil {
+				r.Spec.Istio.Gateway.IstioIngress = &defaultIstioIngress
 			}
 
 			// set default cert
@@ -312,6 +325,10 @@ func (r *ModelRegistry) ValidateIstioConfig() (warnings admission.Warnings, err 
 			if len(gateway.Domain) == 0 {
 				err = append(err, field.Required(gatewayPath.Child("domain"),
 					fmt.Sprintf("missing domain and operator environment variable %s", config.DefaultDomain)))
+			}
+			if gateway.IstioIngress == nil {
+				err = append(err, field.Required(gatewayPath.Child("istioIngress"),
+					fmt.Sprintf("missing istioIngress and operator environment variable %s", config.DefaultIstioIngress)))
 			}
 			if gateway.Rest.TLS != nil && gateway.Rest.TLS.Mode != DefaultTlsMode &&
 				(gateway.Rest.TLS.CredentialName == nil || len(*gateway.Rest.TLS.CredentialName) == 0) {
