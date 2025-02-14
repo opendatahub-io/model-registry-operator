@@ -48,6 +48,7 @@ import (
 )
 
 const DescriptionPrefix = "Test Registry "
+const TestSmcp = "test-smcp"
 
 var _ = Describe("ModelRegistry controller", func() {
 
@@ -71,6 +72,12 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = os.Setenv(config.GrpcImage, config.DefaultGrpcImage)
 				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.RestImage, config.DefaultRestImage)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Setting the Istio ENV VARs which store istio config")
+				err = os.Setenv(config.DefaultControlPlane, TestSmcp)
+				Expect(err).To(Not(HaveOccurred()))
+				err = os.Setenv(config.DefaultIstioIngress, config.DefaultIstioIngressName)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 
@@ -696,7 +703,7 @@ func validateRegistryIstio(ctx context.Context, typeNamespaceName types.Namespac
 		svc := corev1.Service{}
 		svc.Name = "istio"
 		svc.Namespace = typeNamespaceName.Namespace
-		svc.Labels = map[string]string{"istio": v1alpha1.DefaultIstioGateway}
+		svc.Labels = map[string]string{"istio": config.DefaultIstioIngressName, "maistra.io/owner-name": TestSmcp}
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Name:       "http2",

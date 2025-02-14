@@ -37,12 +37,13 @@ import (
 var templateFS embed.FS
 
 const (
-	GrpcImage        = "GRPC_IMAGE"
-	RestImage        = "REST_IMAGE"
-	DefaultGrpcImage = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage = "quay.io/opendatahub/model-registry:latest"
-	RouteDisabled    = "disabled"
-	RouteEnabled     = "enabled"
+	GrpcImage               = "GRPC_IMAGE"
+	RestImage               = "REST_IMAGE"
+	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
+	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	RouteDisabled           = "disabled"
+	RouteEnabled            = "enabled"
+	DefaultIstioIngressName = "ingressgateway"
 
 	// config env variables
 	EnableWebhooks          = "ENABLE_WEBHOOKS"
@@ -51,6 +52,8 @@ const (
 	DefaultCert             = "DEFAULT_CERT"
 	DefaultAuthProvider     = "DEFAULT_AUTH_PROVIDER"
 	DefaultAuthConfigLabels = "DEFAULT_AUTH_CONFIG_LABELS"
+	DefaultControlPlane     = "DEFAULT_CONTROL_PLANE"
+	DefaultIstioIngress     = "DEFAULT_ISTIO_INGRESS"
 )
 
 var (
@@ -59,6 +62,8 @@ var (
 	defaultCert             = ""
 	defaultDomain           = ""
 	defaultAudiences        []string
+	defaultIstioIngress     = ""
+	defaultControlPlane     = ""
 
 	// Default ResourceRequirements
 	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
@@ -135,6 +140,25 @@ func SetDefaultCert(cert string) {
 
 func GetDefaultCert() string {
 	return defaultCert
+}
+
+func SetDefaultControlPlane(controlPlane string) {
+	defaultControlPlane = controlPlane
+}
+
+func GetDefaultControlPlane() string {
+	return defaultControlPlane
+}
+
+func SetDefaultIstioIngress(istioIngress string) {
+	defaultIstioIngress = istioIngress
+}
+
+func GetDefaultIstioIngress() string {
+	if len(defaultIstioIngress) == 0 {
+		return DefaultIstioIngressName
+	}
+	return defaultIstioIngress
 }
 
 var (

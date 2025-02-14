@@ -193,12 +193,19 @@ func main() {
 	defaultAuthConfigLabelsString := os.Getenv(config.DefaultAuthConfigLabels)
 	setupLog.Info("default registry authorino config", config.DefaultAuthProvider, defaultAuthProvider, config.DefaultAuthConfigLabels, defaultAuthConfigLabelsString)
 
+	// default smcp env variables
+	defaultControlPlane := os.Getenv(config.DefaultControlPlane)
+	defaultIstioIngress := os.Getenv(config.DefaultIstioIngress)
+	setupLog.Info("default registry istio config", config.DefaultControlPlane, defaultControlPlane, config.DefaultIstioIngress, defaultIstioIngress)
+
 	// set default values for defaulting webhook
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
 	config.SetDefaultAudiences(tokenReview.Status.Audiences)
 	config.SetDefaultCert(defaultCert)
 	config.SetDefaultAuthProvider(defaultAuthProvider)
 	config.SetDefaultAuthConfigLabels(defaultAuthConfigLabelsString)
+	config.SetDefaultControlPlane(defaultControlPlane)
+	config.SetDefaultIstioIngress(defaultIstioIngress)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
