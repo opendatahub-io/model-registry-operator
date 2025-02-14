@@ -61,4 +61,4 @@ jobs:
           ##debug
           #kubectl describe pods
           #kubectl logs -l name=model-registry-db || true
-          kubectl wait --for=condition=Available=true modelregistries/modelregistry-sample --timeout=5m
+          kubectl wait --for=condition=Available=true modelregistries/modelregistry-sample --timeout=5m || (kubectl describe mr; exit 1)
