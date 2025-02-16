@@ -40,7 +40,7 @@ const (
 	GrpcImage               = "GRPC_IMAGE"
 	RestImage               = "REST_IMAGE"
 	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage        = "quay.io/opendatahub/model-registry:v0.2.14"
 	RouteDisabled           = "disabled"
 	RouteEnabled            = "enabled"
 	DefaultIstioIngressName = "ingressgateway"
