@@ -48,7 +48,8 @@ import (
 )
 
 const DescriptionPrefix = "Test Registry "
-const TestSmcp = "test-smcp"
+
+var TestSmcp = "test-smcp"
 
 var _ = Describe("ModelRegistry controller", func() {
 
@@ -308,6 +309,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						Grpc: v1alpha1.ServerConfig{
 							GatewayRoute: "enabled",
 						},
+						ControlPlane: &TestSmcp,
 					},
 				}
 
