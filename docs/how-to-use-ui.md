@@ -40,7 +40,13 @@ Give the name to Model Registry accordingly representing the business function i
 
 ![Model Registry](./images/dashboard-modelregistry-create2.png)
 
-Provide all the database configuration and click "create", once the status shown as "Ready", you can click on kebab menu and select "manage access" where you can manage the user-group that is mentioned above. Please note that to add users to user group, you need to log into OpenShift console and use User Management screens. Otherwise you can add individual users to "add-user" section to grant access to individual access to the registry created. Please note currently all the access control is based on Kubernetes Authn/AuthZ, there is no options to include third party authentication or authorization systems. Once the access is defined, installation of Model Registry is complete.
+Provide all the database configuration and click "create".
+
+> [!IMPORTANT]  
+> The `mysql_native_password` authentication plugin is required for the ML Metadata component to successfully connect to your database. `mysql_native_password` is disabled by default in MySQL 8.4 and later. If your database uses MySQL 8.4 or later, you must update your MySQL deployment to enable the `mysql_native_password` plugin. 
+> For more information about enabling the `mysql_native_password` plugin, see [Native Pluggable Authentication](https://dev.mysql.com/doc/refman/8.4/en/native-pluggable-authentication.html) in the MySQL documentation.
+
+Once the status shown as "Ready", you can click on kebab menu and select "manage access" where you can manage the user-group that is mentioned above. Please note that to add users to user group, you need to log into OpenShift console and use User Management screens. Otherwise you can add individual users to "add-user" section to grant access to individual access to the registry created. Please note currently all the access control is based on Kubernetes Authn/AuthZ, there is no options to include third party authentication or authorization systems. Once the access is defined, installation of Model Registry is complete.
 
 ### Catalog of Models in Model Registry
 

@@ -2,7 +2,7 @@
 
 This document outlines the instructions to install the Model Registry using "Open Data Hub" Operator on OpenShift. You can find this operator in the OpenShift Opererator market place. Please note that "Model Registry Operator" is sub-component of this operator and can not be used independently.
 
-## Prerequisites 
+## Prerequisites
 The following prerequisites are needed for the Operator to work correctly.
 <ol>
 <li> Access to OpenShift Cluster 4.17 + (recommend)
@@ -13,7 +13,7 @@ The following prerequisites are needed for the Operator to work correctly.
 
 
 ## Installing needed Operators
-Once you have the OpenShift cluster available, 
+Once you have the OpenShift cluster available,
 <ol>
 <li> Log in "Openshift Console", you can go to your name on top right use "Copy Login Command" to find the below command and use the terminal to login.
 
@@ -21,7 +21,7 @@ Once you have the OpenShift cluster available,
 oc login --token=xxxx --server=xxx
 ```
 
-<li> Search and install "Authorino" operator, use the one with name `Red Hat - Authorino (Technical Preview)` 
+<li> Search and install "Authorino" operator, use the one with name `Authorino Operator`
 
 ```
 oc apply -f - <<EOF
@@ -31,18 +31,18 @@ metadata:
   name: authorino-operator
   namespace: openshift-operators
 spec:
-  channel: tech-preview-v1
+  channel: stable
   installPlanApproval: Automatic
   name: authorino-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: authorino-operator.v1.0.2
+  startingCSV: authorino-operator.v0.16.0
 EOF
-
 ```
+
 verify subscription "Succeeded" in install
 ```
-oc get csv authorino-operator.v1.0.2 -n openshift-operators -o json | jq '.status.phase' 
+oc get csv authorino-operator.v0.16.0 -n openshift-operators -o json | jq '.status.phase'
 ```
 
 <li> Search and install "Service Mesh" operator
@@ -60,18 +60,20 @@ spec:
   name: servicemeshoperator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: servicemeshoperator.v2.6.1
+  startingCSV: servicemeshoperator.v2.6.5
 EOF
 ```
+
 verify subscription "Succeeded" in install
 
 ```
-oc get csv servicemeshoperator.v2.6.1 -n openshift-operators -o json | jq '.status.phase' 
+oc get csv servicemeshoperator.v2.6.5 -n openshift-operators -o json | jq '.status.phase'
 ```
 
-<li> Search and install Serverless Operator (this did not work from command line last time, I used OpenShift console instead.)
+<li> Search and install Serverless Operator
 
 ```
+oc create namespace openshift-serverless ;
 oc apply -f - <<EOF
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -84,16 +86,16 @@ spec:
   name: serverless-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: serverless-operator.v1.33.2
+  startingCSV: serverless-operator.v1.35.0
 EOF
 ```
 verify subscription "Succeeded" in install
 
 ```
-oc get csv serverless-operator.v1.33.2 -n openshift-operators -o json | jq '.status.phase' 
+oc get csv serverless-operator.v1.35.0 -n openshift-serverless -o json | jq '.status.phase'
 ```
 
-<li> Search and install "Open Data Hub" operator 2.18.2+ (latest is recommended, edit the odh-subscription.yaml file to update the version)
+<li> Search and install "Open Data Hub" operator 2.23.0+ (latest is recommended, edit the odh-subscription.yaml file to update the version)
 
 ```
 oc apply -f - <<EOF
@@ -108,27 +110,28 @@ spec:
   name: opendatahub-operator
   source: community-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: opendatahub-operator.v2.18.2
+  startingCSV: opendatahub-operator.v2.23.0
 EOF
-
 ```
+
 verify subscription "Succeeded" in install
 ```
-oc get csv opendatahub-operator.v2.18.2 -n openshift-operators -o json | jq '.status.phase'
+oc get csv opendatahub-operator.v2.23.0 -n openshift-operators -o json | jq '.status.phase'
 ```
 
 <li> If you are using local storage mechanisms for S3 bucket, try installing "minio" operator and configure its access (TDB..)
 </ol>
 
-## Install "Data Science Cluster" 
-Once all the operators all installed and no errors reported, then proceed to installing a "Data Science Cluster". You can navigate "Open data Hub" operator install from left navigation under "Operators --> Installed Operators" and click on "Open Data Hub Operator" and switch to the tab "DSC" and create DSC and make sure edit the YAML set the `modelregistry` to `managed` state like shown below
+## Install "Data Science Cluster"
+Once all the operators all installed and no errors reported, then proceed to installing a "Data Science Cluster". You can navigate "Open data Hub" operator install from left navigation under "Operators --> Installed Operators" and click on "Open Data Hub Operator" and switch to the tab "Data Science Cluster" and create DSC and make sure edit the YAML set the `modelregistry` to `managed` state like shown below
 
 ```
 modelregistry:
     managementState: Managed
 ```
 
-Or You can also use following script 
+Or you can also use following commands to create a `DSCInitialization` and a `DataScienceCluster`.
+
 ```
 oc apply -f - <<EOF
 apiVersion: dscinitialization.opendatahub.io/v1
@@ -156,9 +159,10 @@ spec:
     managementState: Managed
 EOF
 ```
+
 make sure it is ready before proceeding to next step
 ```
-oc get dsci default-dsci 
+oc get dsci default-dsci
 ```
 
 create data science cluster
@@ -213,9 +217,15 @@ check to make sure cluster is in `Ready` state
 oc get dsc default-dsc -o json | jq '.status.phase'
 ```
 
-## Install Database (skip if you using existing database)
+## Install Database (skip if using existing database)
 
-Model Registry currently requires MySQL database 8.0.3 or above to function correctly. If you have a database already available you can skip this section all together. For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
+Model Registry currently requires MySQL database 8.0.3 or above to function correctly. If you have a database already available you can skip this section all together.
+
+> [!IMPORTANT]  
+> The `mysql_native_password` authentication plugin is required for the ML Metadata component to successfully connect to your database. `mysql_native_password` is disabled by default in MySQL 8.4 and later. If your database uses MySQL 8.4 or later, you must update your MySQL deployment to enable the `mysql_native_password` plugin. 
+> For more information about enabling the `mysql_native_password` plugin, see [Native Pluggable Authentication](https://dev.mysql.com/doc/refman/8.4/en/native-pluggable-authentication.html) in the MySQL documentation.
+
+For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
 
 Create `namespace` where you want to host the database
 ```
@@ -374,23 +384,24 @@ EOF
 ```
 make sure the database in `available` state
 ```
-oc wait --for=condition=available deployment/model-registry-db --timeout=5m    
+oc wait --for=condition=available deployment/model-registry-db --timeout=5m
 ```
 
 If you encounter image pull limits, you could replace the sample db image with analogous one from (upstream [example](https://github.com/kubeflow/model-registry?tab=readme-ov-file#pull-image-rate-limiting)).
 
-## install Model Registry
+## Install Model Registry
 
 To install Model Registry use the following script. Create a namespace where you going to be installing the model registry
 
 ```
 oc project odh-model-registries
 ```
+
 Create Model Registry
 ```
 oc apply -f - <<EOF
 apiVersion: v1
-items:   
+items:
   - apiVersion: v1
     kind: Secret
     metadata:
@@ -431,13 +442,13 @@ items:
             tls: {}
       mysql:
         host: model-registry-db.test-database.svc.cluster.local
-        database: model_registry       
+        database: model_registry
         passwordSecret:
           key: database-password
           name: model-registry-db
         port: 3306
         skipDBCreation: false
-        username: mlmduser       
+        username: mlmduser
 kind: List
 metadata: {}
 EOF
@@ -445,7 +456,7 @@ EOF
 
 Check to make sure Model Registry available and is running
 ```
-oc wait --for=condition=available modelregistry/modelregistry-public --timeout=5m  
+oc wait --for=condition=available modelregistries.modelregistry.opendatahub.io/modelregistry-public --timeout=5m
 ```
 
 ## Dashboard Install
@@ -463,20 +474,20 @@ URL=`echo "https://$(oc get routes -n istio-system -l app.kubernetes.io/name=mod
 ```
 
 ## Validation of the overall Install
-Now we can validate if everyhing working correctly by executing the following 
+Now we can validate if everyhing working correctly by executing the following
 
 ```
 export TOKEN=`oc whoami -t`
 curl -k -H "Authorization: Bearer $TOKEN" $URL/api/model_registry/v1alpha3/registered_models
 ```
 
-and you should see an output like 
+and you should see an output like
 
 ```
 {"items":[],"nextPageToken":"","pageSize":0,"size":0}
 ```
 
-Model Registry is fully installed and ready to go. 
+Model Registry is fully installed and ready to go.
 
 ## Log into Open Data Hub Dashboard
 
@@ -490,4 +501,3 @@ echo "https://$(oc get routes -n opendatahub -l app=odh-dashboard -o json | jq '
 Copy the above URL to your web-browser and login using credentials used above or user credentials you may have received from your ODH administrator. Once you are logged into the Dashboard find "Model Registry" on left navigation to see the available models, please note initially this list may be empty.
 
 Now, there are a couple different ways you can "register" model using Python code or directly using the Dashboard UI into Model Registry. For these instructions please follow to [python library usage](./getting-started.md)
-
