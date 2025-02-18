@@ -537,7 +537,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Contex
 	var serviceList corev1.ServiceList
 	labels := client.MatchingLabels{"istio": *params.Spec.Istio.Gateway.IstioIngress}
 	if params.Spec.Istio.Gateway.ControlPlane != nil {
-		labels["maistra.io/owner-name"] = *params.Spec.Istio.Gateway.ControlPlane
+		labels["istio.io/rev"] = *params.Spec.Istio.Gateway.ControlPlane
 	}
 	if err = r.Client.List(ctx, &serviceList, labels); err != nil {
 		return result, err
