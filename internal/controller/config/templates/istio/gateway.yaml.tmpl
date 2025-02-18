@@ -21,7 +21,7 @@ spec:
   selector:
     istio: {{.Spec.Istio.Gateway.IstioIngress}}
     {{- with .Spec.Istio.Gateway.ControlPlane}}
-    maistra.io/owner-name: {{.}}
+    istio.io/rev: {{.}}
     {{- end}}
   servers:
   - port:
