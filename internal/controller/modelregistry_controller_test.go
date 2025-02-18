@@ -48,7 +48,8 @@ import (
 )
 
 const DescriptionPrefix = "Test Registry "
-const TestSmcp = "test-smcp"
+
+var TestSmcp = "test-smcp"
 
 var _ = Describe("ModelRegistry controller", func() {
 
@@ -308,6 +309,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						Grpc: v1alpha1.ServerConfig{
 							GatewayRoute: "enabled",
 						},
+						ControlPlane: &TestSmcp,
 					},
 				}
 
@@ -703,7 +705,7 @@ func validateRegistryIstio(ctx context.Context, typeNamespaceName types.Namespac
 		svc := corev1.Service{}
 		svc.Name = "istio"
 		svc.Namespace = typeNamespaceName.Namespace
-		svc.Labels = map[string]string{"istio": config.DefaultIstioIngressName, "maistra.io/owner-name": TestSmcp}
+		svc.Labels = map[string]string{"istio": config.DefaultIstioIngressName, "istio.io/rev": TestSmcp}
 		svc.Spec.Ports = []corev1.ServicePort{
 			{
 				Name:       "http2",
