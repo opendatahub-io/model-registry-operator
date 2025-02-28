@@ -228,11 +228,17 @@ Model Registry currently requires MySQL database 8.0.3 or above to function corr
 For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
 
 Create `namespace` where you want to host the database
-```
+
+```sh
 oc new-project test-database
 ```
+
 Create the MySQL database.
-```
+
+> [!WARNING]  
+> If copy-pasting the yaml below, pay attention to the `\$` sequence needed for escaping `$` on the command line; if you are copying the content in an editor/console, make sure to remove the escape or use [this](../config/samples/mysql/mysql-db.yaml) sample instead.
+
+```sh
 oc apply -f - <<EOF
 apiVersion: v1
 items:
@@ -383,7 +389,8 @@ metadata: {}
 EOF
 ```
 make sure the database in `available` state
-```
+
+```sh
 oc wait --for=condition=available deployment/model-registry-db --timeout=5m
 ```
 
