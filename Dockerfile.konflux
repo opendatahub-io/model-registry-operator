@@ -2,7 +2,7 @@
 ARG SOURCE_CODE=.
  
 # Build the manager binary
-FROM registry.access.redhat.com/ubi8/go-toolset:1.22@sha256:25f2884bcf8ba92eca7613c8dbcbdfb3e4951db2875732b01486628d57623745 as builder
+FROM registry.access.redhat.com/ubi8/go-toolset:1.22@sha256:f9189d8c8d01601c79855e946929380becd6733db71e3fb78b79fcee78c7081a as builder
  
 ## Build args to be used at this step
 ARG SOURCE_CODE
@@ -21,7 +21,7 @@ COPY . .
 USER root
 RUN CGO_ENABLED=1 GOOS=linux go build -tags strictfipsruntime -a -o manager cmd/main.go
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:c38cc770631788157f8ea989df65ff30359c9f8af3246fef244b32caed9d5862
+FROM registry.access.redhat.com/ubi8/ubi-minimal@sha256:3544399c893a7f32d16220d22d493ae32e61379668e32bc54a74d8eb6ece80fc
  
 WORKDIR /
 COPY --from=builder /workspace/manager .
