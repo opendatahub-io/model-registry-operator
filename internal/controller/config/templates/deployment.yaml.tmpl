@@ -26,7 +26,7 @@ spec:
         component: model-registry
         sidecar.istio.io/inject: {{with .Spec.Istio}}"true"{{else}}"false"{{end}}
       annotations:
-        openshift.io/required-scc: restricted
+        openshift.io/required-scc: restricted-v2
         {{- if .Spec.Istio}}
         {{- if .Spec.Postgres}}
         traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.Postgres.Port}}
@@ -203,8 +203,7 @@ spec:
               memory: {{.Spec.Grpc.Resources.Limits.Memory}}
             {{- end }}
           securityContext:
-            runAsUser: 65534
-            runAsGroup: 65534
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
@@ -246,6 +245,7 @@ spec:
               memory: {{.Spec.Rest.Resources.Limits.Memory}}
             {{- end }}
           securityContext:
+            runAsNonRoot: true
             allowPrivilegeEscalation: false
             capabilities:
               drop:
