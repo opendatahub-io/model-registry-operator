@@ -199,6 +199,7 @@ func TestSetRegistriesNamespace(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
+		{"empty namespace", args{""}, false},
 		{"valid namespace", args{"valid-namespace"}, false},
 		{"invalid namespace", args{"invalid//namespace"}, true},
 	}
