@@ -187,7 +187,7 @@ func main() {
 	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
 	defaultCert := os.Getenv(config.DefaultCert)
-	setupLog.Info("default registry config", config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
 
 	// default auth env variables
 	defaultAuthProvider := os.Getenv(config.DefaultAuthProvider)
