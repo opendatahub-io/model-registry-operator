@@ -210,6 +210,7 @@ func TestSetRegistriesNamespace(t *testing.T) {
 			if res := config.GetRegistriesNamespace(); !tt.wantErr && res != tt.args.namespace {
 				t.Errorf("GetRegistriesNamespace() expected %s, received %s", tt.args.namespace, res)
 			}
+			config.SetRegistriesNamespace("")
 		})
 	}
 }

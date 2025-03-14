@@ -171,9 +171,11 @@ var (
 
 func SetRegistriesNamespace(namespace string) error {
 	namespace = strings.TrimSpace(namespace)
-	errs := validation.ValidateNamespaceName(namespace, false)
-	if len(errs) > 0 {
-		return fmt.Errorf("invalid registries namespace %s: %v", namespace, errs)
+	if len(namespace) != 0 {
+		errs := validation.ValidateNamespaceName(namespace, false)
+		if len(errs) > 0 {
+			return fmt.Errorf("invalid registries namespace %s: %v", namespace, errs)
+		}
 	}
 	defaultRegistriesNamespace = namespace
 	return nil

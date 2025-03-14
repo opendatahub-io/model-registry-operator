@@ -56,6 +56,7 @@ func TestValidateNamespace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			config.SetRegistriesNamespace(tt.registriesNamespace)
 			errList := tt.registry.ValidateNamespace()
+			config.SetRegistriesNamespace("")
 			if tt.wantErr {
 				if len(errList) == 0 {
 					t.Errorf("ValidateNamespace() error = %v, wantErr %v", errList, tt.wantErr)
@@ -65,7 +66,6 @@ func TestValidateNamespace(t *testing.T) {
 					t.Errorf("ValidateNamespace() error = %v, wantErr %v", errList, tt.wantErr)
 				}
 			}
-			config.SetRegistriesNamespace("")
 		})
 	}
 }
