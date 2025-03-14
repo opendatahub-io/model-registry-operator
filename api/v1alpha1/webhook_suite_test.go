@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"net"
 	"path/filepath"
 	"runtime"
@@ -190,6 +191,17 @@ var _ = Describe("Model Registry validating webhook", func() {
 		}
 
 		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+	})
+
+	It("Should not allow creating MR instance in a different namespace when registries namespace is set", func(ctx context.Context) {
+		config.SetRegistriesNamespace(namespaceBase)
+		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+
+		// use a different namespace
+		mr.Namespace = namespaceBase + "-invalid"
+		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
 	})
 })
 

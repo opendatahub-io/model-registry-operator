@@ -190,6 +190,32 @@ func TestSetGetDefaultIstioIngress(t *testing.T) {
 	}
 }
 
+func TestSetRegistriesNamespace(t *testing.T) {
+	type args struct {
+		namespace string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{"empty namespace", args{""}, false},
+		{"valid namespace", args{"valid-namespace"}, false},
+		{"invalid namespace", args{"invalid//namespace"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := config.SetRegistriesNamespace(tt.args.namespace); (err != nil) != tt.wantErr {
+				t.Errorf("SetRegistriesNamespace() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if res := config.GetRegistriesNamespace(); !tt.wantErr && res != tt.args.namespace {
+				t.Errorf("GetRegistriesNamespace() expected %s, received %s", tt.args.namespace, res)
+			}
+			config.SetRegistriesNamespace("")
+		})
+	}
+}
+
 var _ = Describe("Defaults integration tests", func() {
 	Describe("TestSetGetDefaultDomain", func() {
 		It("Should return the set domain on openshift", func() {

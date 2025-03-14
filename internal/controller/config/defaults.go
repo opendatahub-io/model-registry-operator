@@ -20,6 +20,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"k8s.io/apimachinery/pkg/api/validation"
 	"strings"
 	"text/template"
 
@@ -46,6 +47,7 @@ const (
 	DefaultIstioIngressName = "ingressgateway"
 
 	// config env variables
+	RegistriesNamespace     = "REGISTRIES_NAMESPACE"
 	EnableWebhooks          = "ENABLE_WEBHOOKS"
 	CreateAuthResources     = "CREATE_AUTH_RESOURCES"
 	DefaultDomain           = "DEFAULT_DOMAIN"
@@ -57,13 +59,14 @@ const (
 )
 
 var (
-	defaultAuthConfigLabels map[string]string
-	defaultAuthProvider     = ""
-	defaultCert             = ""
-	defaultDomain           = ""
-	defaultAudiences        []string
-	defaultIstioIngress     = ""
-	defaultControlPlane     = ""
+	defaultAuthConfigLabels    map[string]string
+	defaultAuthProvider        = ""
+	defaultCert                = ""
+	defaultDomain              = ""
+	defaultAudiences           []string
+	defaultIstioIngress        = ""
+	defaultControlPlane        = ""
+	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
 	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
@@ -165,6 +168,22 @@ var (
 	defaultClient      client.Client
 	defaultIsOpenShift = false
 )
+
+func SetRegistriesNamespace(namespace string) error {
+	namespace = strings.TrimSpace(namespace)
+	if len(namespace) != 0 {
+		errs := validation.ValidateNamespaceName(namespace, false)
+		if len(errs) > 0 {
+			return fmt.Errorf("invalid registries namespace %s: %v", namespace, errs)
+		}
+	}
+	defaultRegistriesNamespace = namespace
+	return nil
+}
+
+func GetRegistriesNamespace() string {
+	return defaultRegistriesNamespace
+}
 
 func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) {
 	defaultDomain = domain

@@ -81,6 +81,8 @@ spec:
             value: "false"
           - name: CREATE_AUTH_RESOURCES
             value: "true"
+          - name: REGISTRIES_NAMESPACE
+            value: ""
           - name: DEFAULT_DOMAIN
             value: ""
           - name: DEFAULT_CERT

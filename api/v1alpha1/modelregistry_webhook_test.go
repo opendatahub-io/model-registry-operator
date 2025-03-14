@@ -2,6 +2,7 @@ package v1alpha1_test
 
 import (
 	"fmt"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"testing"
 
@@ -21,6 +22,53 @@ var (
 	controlPlane   = "test-smcp"
 	istioIngress   = config.DefaultIstioIngressName
 )
+
+func TestValidateNamespace(t *testing.T) {
+	tests := []struct {
+		name                string
+		registriesNamespace string
+		registry            *v1alpha1.ModelRegistry
+		wantErr             bool
+	}{
+		{"empty registries namespace", "",
+			&v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec: v1alpha1.ModelRegistrySpec{
+					MySQL: &v1alpha1.MySQLConfig{},
+				}},
+			false},
+		{"valid registries namespace", "test-ns",
+			&v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec: v1alpha1.ModelRegistrySpec{
+					MySQL: &v1alpha1.MySQLConfig{},
+				}},
+			false},
+		{"invalid registries namespace", "test-ns",
+			&v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "not-test-ns"},
+				Spec: v1alpha1.ModelRegistrySpec{
+					MySQL: &v1alpha1.MySQLConfig{},
+				}},
+			true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config.SetRegistriesNamespace(tt.registriesNamespace)
+			errList := tt.registry.ValidateNamespace()
+			config.SetRegistriesNamespace("")
+			if tt.wantErr {
+				if len(errList) == 0 {
+					t.Errorf("ValidateNamespace() error = %v, wantErr %v", errList, tt.wantErr)
+				}
+			} else {
+				if len(errList) > 0 {
+					t.Errorf("ValidateNamespace() error = %v, wantErr %v", errList, tt.wantErr)
+				}
+			}
+		})
+	}
+}
 
 func TestValidateDatabase(t *testing.T) {
 	tests := []struct {
