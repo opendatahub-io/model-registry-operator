@@ -20,9 +20,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/validation"
 	"strings"
 	"text/template"
+
+	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
@@ -41,7 +42,7 @@ const (
 	GrpcImage               = "GRPC_IMAGE"
 	RestImage               = "REST_IMAGE"
 	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage        = "quay.io/opendatahub/model-registry:v0.2.15"
 	RouteDisabled           = "disabled"
 	RouteEnabled            = "enabled"
 	DefaultIstioIngressName = "ingressgateway"
