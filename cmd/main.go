@@ -182,11 +182,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	registriesNamespace := os.Getenv(config.RegistriesNamespace)
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
 	defaultCert := os.Getenv(config.DefaultCert)
-	setupLog.Info("default registry config", config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
 
 	// default auth env variables
 	defaultAuthProvider := os.Getenv(config.DefaultAuthProvider)
@@ -199,6 +200,7 @@ func main() {
 	setupLog.Info("default registry istio config", config.DefaultControlPlane, defaultControlPlane, config.DefaultIstioIngress, defaultIstioIngress)
 
 	// set default values for defaulting webhook
+	config.SetRegistriesNamespace(registriesNamespace)
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
 	config.SetDefaultAudiences(tokenReview.Status.Audiences)
 	config.SetDefaultCert(defaultCert)

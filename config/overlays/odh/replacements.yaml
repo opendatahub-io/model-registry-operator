@@ -49,6 +49,16 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=DEFAULT_CERT].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.REGISTRIES_NAMESPACE
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=REGISTRIES_NAMESPACE].value
 # Metrics service name replacements for auth proxy serving cert
 - source:
     kind: Service

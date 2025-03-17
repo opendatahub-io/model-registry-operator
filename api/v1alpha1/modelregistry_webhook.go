@@ -281,16 +281,29 @@ func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err err
 	// set runtime defaults before validation, just like the reconcile loop
 	r.RuntimeDefaults()
 
-	warnings, errList := r.ValidateDatabase()
-	warn, errList2 := r.ValidateIstioConfig()
+	errList := r.ValidateNamespace()
+	warnings, errList2 := r.ValidateDatabase()
+	warn, errList3 := r.ValidateIstioConfig()
 
 	// combine warnings and errors
 	warnings = append(warnings, warn...)
-	errList = append(errList, errList2...)
+	errList = slices.Concat(errList, errList2, errList3)
 	if len(errList) != 0 {
 		err = errors.NewInvalid(r.GroupVersionKind().GroupKind(), r.Name, errList)
 	}
 	return
+}
+
+func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
+	// make sure this instance's namespace matches registries namespace, if set
+	registriesNamespace := config.GetRegistriesNamespace()
+	namespace := r.Namespace
+	if len(registriesNamespace) != 0 && namespace != registriesNamespace {
+		return field.ErrorList{
+			field.Invalid(field.NewPath("metadata").Child("namespace"), namespace, "namespace must be "+registriesNamespace),
+		}
+	}
+	return nil
 }
 
 // ValidateDatabase validates that at least one database config is present
