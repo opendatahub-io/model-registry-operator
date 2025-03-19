@@ -61,8 +61,11 @@ jobs:
           kubectl wait --for=condition=Progressing=True deployment/modelregistry-sample --timeout=5m
           # patch mlmd container for Kind
           kubectl patch deployment/modelregistry-sample --type='json' \
-            -p='[{"op":"add","path":"/spec/template/spec/containers/0/securityContext", \
-            "value":{"runAsUser":65534,"runAsGroup":65534}}]' || (kubectl describe mr; exit 1)
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/securityContext/runAsUser","value":65534}]' \
+            || (kubectl describe deployment/modelregistry-sample; exit 1)
+          kubectl patch deployment/modelregistry-sample --type='json' \
+            -p='[{"op":"add","path":"/spec/template/spec/containers/0/securityContext/runAsGroup","value":65534}]' \
+            || (kubectl describe deployment/modelregistry-sample; exit 1)
       - name: Wait for Test Registry Deployment
         run: |
           ##debug
