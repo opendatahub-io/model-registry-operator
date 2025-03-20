@@ -203,8 +203,6 @@ spec:
               memory: {{.Spec.Grpc.Resources.Limits.Memory}}
             {{- end }}
           securityContext:
-            runAsUser: 1000860000
-            runAsGroup: 1000860000
             allowPrivilegeEscalation: false
             capabilities:
               drop:
