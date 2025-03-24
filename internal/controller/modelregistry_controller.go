@@ -646,7 +646,7 @@ func (r *ModelRegistryReconciler) createOrUpdateAuthConfig(ctx context.Context, 
 
 func CreateAuthConfig() *unstructured.Unstructured {
 	authConfig := unstructured.Unstructured{}
-	authConfig.SetGroupVersionKind(schema.GroupVersionKind{Group: "authorino.kuadrant.io", Version: "v1beta2", Kind: "AuthConfig"})
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{Group: "authorino.kuadrant.io", Version: "v1beta3", Kind: "AuthConfig"})
 	return &authConfig
 }
 
