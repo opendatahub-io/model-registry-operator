@@ -56,16 +56,6 @@ jobs:
         run: |
           kubectl apply -k config/samples/postgres/
           kubectl describe mr
-      - name: Patch Test Registry Deployment for Kind SecurityContext missing userid in mlmd
-        run: |
-          kubectl wait --for=condition=Progressing=True deployment/modelregistry-sample --timeout=5m
-          # patch mlmd container for Kind
-          kubectl patch deployment/modelregistry-sample --type='json' \
-            -p='[{"op":"add","path":"/spec/template/spec/containers/0/securityContext/runAsUser","value":1000860000}]' \
-            || (kubectl describe deployment/modelregistry-sample; exit 1)
-          kubectl patch deployment/modelregistry-sample --type='json' \
-            -p='[{"op":"add","path":"/spec/template/spec/containers/0/securityContext/runAsGroup","value":1000860000}]' \
-            || (kubectl describe deployment/modelregistry-sample; exit 1)
       - name: Wait for Test Registry Deployment
         run: |
           ##debug
