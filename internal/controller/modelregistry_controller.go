@@ -758,11 +758,7 @@ func (r *ModelRegistryReconciler) createOrUpdateClusterRoleBinding(ctx context.C
 		return result, err
 	}
 
-	result, err = r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
-	if err != nil {
-		return result, err
-	}
-	return result, nil
+	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
