@@ -203,6 +203,30 @@ var _ = Describe("Model Registry validating webhook", func() {
 		mr.Namespace = namespaceBase + "-invalid"
 		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
 	})
+
+	It("Should support creating MR instance with Istio configured", func(ctx context.Context) {
+		config.SetRegistriesNamespace(namespaceBase)
+		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+		mr.Spec.Istio = &v1alpha1.IstioConfig{}
+		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+	})
+
+	It("Should support creating MR instance with OAuth Proxy configured", func(ctx context.Context) {
+		config.SetRegistriesNamespace(namespaceBase)
+		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+		mr.Spec.OAuthProxy = &v1alpha1.OAuthProxyConfig{}
+		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+	})
+
+	It("Should not allow creating MR instance with both Istio and OAuth Proxy set", func(ctx context.Context) {
+		config.SetRegistriesNamespace(namespaceBase)
+		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+		mr.Spec.Istio = &v1alpha1.IstioConfig{}
+		mr.Spec.OAuthProxy = &v1alpha1.OAuthProxyConfig{}
+		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+	})
 })
 
 func newModelRegistry(ctx context.Context, name string, namespace string) *v1alpha1.ModelRegistry {

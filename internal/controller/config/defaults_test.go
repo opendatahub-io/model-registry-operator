@@ -24,6 +24,7 @@ func TestGetStringConfigWithDefault(t *testing.T) {
 	}{
 		{name: "test " + config.GrpcImage, configName: config.GrpcImage, want: "success1"},
 		{name: "test " + config.RestImage, configName: config.RestImage, want: "success2"},
+		{name: "test " + config.OAuthProxyImage, configName: config.OAuthProxyImage, want: "success3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

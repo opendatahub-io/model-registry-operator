@@ -274,6 +274,25 @@ func (r *ModelRegistry) RuntimeDefaults() {
 			}
 		}
 	}
+
+	// oauth proxy defaults
+	if r.Spec.OAuthProxy != nil {
+		// set default cert and key if not provided
+		if r.Spec.OAuthProxy.TLSCertificateSecret == nil {
+			secretName := r.Name + "-oauth-proxy"
+			r.Spec.OAuthProxy.TLSCertificateSecret = &SecretKeyValue{
+				Name: secretName,
+				Key:  "tls.crt",
+			}
+			r.Spec.OAuthProxy.TLSKeySecret = &SecretKeyValue{
+				Name: secretName,
+				Key:  "tls.key",
+			}
+		}
+		if len(r.Spec.OAuthProxy.Image) == 0 {
+			r.Spec.OAuthProxy.Image = config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
+		}
+	}
 }
 
 // ValidateRegistry validates registry spec
