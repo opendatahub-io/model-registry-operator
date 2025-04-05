@@ -17,11 +17,4 @@ spec:
     kind: Service
     name: {{.Name}}
   port:
-    {{- if not .Spec.OAuthProxy}}
     targetPort: http-api
-    {{- else}}
-    targetPort: https-api
-  tls:
-    termination: reencrypt
-  wildcardPolicy: None
-    {{- end}}
