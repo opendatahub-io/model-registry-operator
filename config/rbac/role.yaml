@@ -148,7 +148,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - networking.k8s.io/v1
+  - networking.k8s.io
   resources:
   - networkpolicies
   verbs:
@@ -163,18 +163,6 @@ rules:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
-  - roles
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - rolebindings
   - roles
   verbs:
