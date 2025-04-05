@@ -119,6 +119,11 @@ func (r *ModelRegistry) Default() {
 		}
 	}
 
+	// enable oauth proxy route by default
+	if r.Spec.OAuthProxy != nil && len(r.Spec.OAuthProxy.ServiceRoute) == 0 {
+		r.Spec.OAuthProxy.ServiceRoute = config.RouteEnabled
+	}
+
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
 	r.CleanupRuntimeDefaults()
 }
@@ -272,6 +277,25 @@ func (r *ModelRegistry) RuntimeDefaults() {
 				cert := config.GetDefaultCert()
 				r.Spec.Istio.Gateway.Grpc.TLS.CredentialName = &cert
 			}
+		}
+	}
+
+	// oauth proxy defaults
+	if r.Spec.OAuthProxy != nil {
+		// set default cert and key if not provided
+		if r.Spec.OAuthProxy.TLSCertificateSecret == nil {
+			secretName := r.Name + "-oauth-proxy"
+			r.Spec.OAuthProxy.TLSCertificateSecret = &SecretKeyValue{
+				Name: secretName,
+				Key:  "tls.crt",
+			}
+			r.Spec.OAuthProxy.TLSKeySecret = &SecretKeyValue{
+				Name: secretName,
+				Key:  "tls.key",
+			}
+		}
+		if len(r.Spec.OAuthProxy.Image) == 0 {
+			r.Spec.OAuthProxy.Image = config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
 		}
 	}
 }

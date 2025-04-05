@@ -35,13 +35,16 @@ import (
 
 //go:embed templates/*.yaml.tmpl
 //go:embed templates/istio/*.yaml.tmpl
+//go:embed templates/oauth-proxy/*.yaml.tmpl
 var templateFS embed.FS
 
 const (
 	GrpcImage               = "GRPC_IMAGE"
 	RestImage               = "REST_IMAGE"
+	OAuthProxyImage         = "OAUTH_PROXY_IMAGE"
 	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
 	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	DefaultOAuthProxyImage  = "quay.io/openshift/origin-oauth-proxy:latest"
 	RouteDisabled           = "disabled"
 	RouteEnabled            = "enabled"
 	DefaultIstioIngressName = "ingressgateway"
@@ -99,7 +102,8 @@ func GetStringConfigWithDefault(configName, value string) string {
 }
 
 func ParseTemplates() (*template.Template, error) {
-	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl", "templates/istio/*.yaml.tmpl")
+	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl",
+		"templates/istio/*.yaml.tmpl", "templates/oauth-proxy/*.yaml.tmpl")
 	if err != nil {
 		return nil, err
 	}

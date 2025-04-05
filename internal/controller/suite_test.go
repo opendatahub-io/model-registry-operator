@@ -18,6 +18,7 @@ package controller
 
 import (
 	"fmt"
+	networkingscheme "k8s.io/api/networking/v1"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,6 +117,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = modelregistryv1alpha1.AddToScheme(schm)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = networkingscheme.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

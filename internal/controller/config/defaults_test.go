@@ -18,15 +18,23 @@ import (
 
 func TestGetStringConfigWithDefault(t *testing.T) {
 	tests := []struct {
-		name       string
-		configName string
-		want       string
+		name         string
+		configName   string
+		defaultValue string
+		want         string
 	}{
-		{name: "test " + config.GrpcImage, configName: config.GrpcImage, want: "success1"},
-		{name: "test " + config.RestImage, configName: config.RestImage, want: "success2"},
+		{name: "test " + config.GrpcImage, configName: config.GrpcImage, defaultValue: config.DefaultGrpcImage, want: "success1"},
+		{name: "test " + config.RestImage, configName: config.RestImage, defaultValue: config.DefaultRestImage, want: "success2"},
+		{name: "test " + config.OAuthProxyImage, configName: config.OAuthProxyImage, defaultValue: config.DefaultOAuthProxyImage, want: "success3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// test env variable not set or blank
+			os.Setenv(tt.configName, "")
+			if got := config.GetStringConfigWithDefault(tt.configName, tt.defaultValue); got != tt.defaultValue {
+				t.Errorf("GetStringConfigWithDefault() = %v, want %v", got, tt.want)
+			}
+			// test env variable set
 			os.Setenv(tt.configName, tt.want)
 			if got := config.GetStringConfigWithDefault(tt.configName, "fail"); got != tt.want {
 				t.Errorf("GetStringConfigWithDefault() = %v, want %v", got, tt.want)

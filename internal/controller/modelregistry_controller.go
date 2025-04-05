@@ -20,6 +20,7 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	networkingv1 "k8s.io/api/networking/v1"
 	"strings"
 	"text/template"
 
@@ -182,6 +183,8 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// remember original spec
+	originalSpec := modelRegistry.Spec.DeepCopy()
 	// set runtime default properties in memory for reconciliation
 	modelRegistry.RuntimeDefaults()
 
@@ -198,9 +201,10 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	params := &ModelRegistryParams{
-		Name:      req.Name,
-		Namespace: req.Namespace,
-		Spec:      &modelRegistry.Spec,
+		Name:         req.Name,
+		Namespace:    req.Namespace,
+		Spec:         &modelRegistry.Spec,
+		OriginalSpec: originalSpec,
 	}
 
 	// update registry service
@@ -240,7 +244,8 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&appsv1.Deployment{}).
-		Owns(&rbac.Role{})
+		Owns(&rbac.Role{}).
+		Owns(&networkingv1.NetworkPolicy{})
 	if r.IsOpenShift {
 		builder = builder.Owns(&rbac.RoleBinding{})
 
@@ -256,6 +261,10 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Watches(
 			&routev1.Route{},
 			handler.EnqueueRequestsFromMapFunc(r.GetRegistryForRoute),
+			pkgbuilder.WithPredicates(labelsPredicate))
+		builder = builder.Watches(
+			&rbac.ClusterRoleBinding{},
+			handler.EnqueueRequestsFromMapFunc(r.GetRegistryForClusterRoleBinding),
 			pkgbuilder.WithPredicates(labelsPredicate))
 	}
 	if r.HasIstio {
@@ -284,8 +293,33 @@ func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, objec
 
 	namespace := labels["maistra.io/gateway-namespace"]
 	if len(namespace) == 0 {
-		logger := klog.FromContext(ctx)
-		logger.Error(nil, "missing 'maistra.io/gateway-namespace' label in model registry route", "route", route.Name)
+		// if label is not set, registry is in the same namespace as the route
+		namespace = object.GetNamespace()
+	}
+
+	return []reconcile.Request{
+		{NamespacedName: types.NamespacedName{Name: name, Namespace: namespace}},
+	}
+}
+
+// GetRegistryForClusterRoleBinding maps role binding to model registry reconcile request
+func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.Context, object client.Object) []reconcile.Request {
+	clusterRoleBinding := object.(*rbac.ClusterRoleBinding)
+
+	logger := klog.FromContext(ctx)
+	labels := clusterRoleBinding.GetObjectMeta().GetLabels()
+	name := labels["app"]
+	if len(name) == 0 {
+		logger.Error(nil, "missing 'app' label in model registry clusterRoleBinding",
+			"clusterRoleBinding", clusterRoleBinding.Name)
+		return nil
+	}
+
+	namespace := labels["modelregistry.opendatahub.io/namespace"]
+	if len(namespace) == 0 {
+		logger.V(5).Info("missing 'modelregistry.opendatahub.io/namespace' label in model registry clusterRoleBinding",
+			"clusterRoleBinding", clusterRoleBinding.Name)
+		// ignore this cluster role binding
 		return nil
 	}
 
@@ -306,12 +340,15 @@ func (r *ModelRegistryReconciler) GetRegistryForRoute(ctx context.Context, objec
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
 	var result, result2 OperationResult
@@ -365,7 +402,8 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 
 		// create simple openshift service route, if configured
-		result2, err = r.createOrUpdateRoute(ctx, params, registry, "http-route.yaml.tmpl")
+		result2, err = r.createOrUpdateRoute(ctx, params, registry,
+			"http-route.yaml.tmpl", registry.Spec.Rest.ServiceRoute)
 		if err != nil {
 			return result2, err
 		}
@@ -392,6 +430,15 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 				result = result2
 			}
 		}
+	}
+
+	// create or update oauth proxy config if enabled, delete if disabled
+	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	return result, nil
@@ -497,6 +544,61 @@ func (r *ModelRegistryReconciler) deleteIstioConfig(ctx context.Context, params 
 	return ResourceUnchanged, nil
 }
 
+func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry) (result OperationResult, err error) {
+
+	result = ResourceUnchanged
+	result2 := result
+
+	// create oauth proxy resources
+	if registry.Spec.OAuthProxy != nil {
+
+		// create oauth proxy rolebinding
+		result, err = r.createOrUpdateClusterRoleBinding(ctx, params, registry, "proxy-role-binding.yaml.tmpl")
+		if err != nil {
+			return result, err
+		}
+
+		// create oauth proxy service route if enabled, delete if disabled
+		result2, err = r.createOrUpdateRoute(ctx, params, registry,
+			"https-route.yaml.tmpl", registry.Spec.OAuthProxy.ServiceRoute)
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		if registry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
+			// create oauth proxy networkpolicy to ensure route is exposed
+			result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "proxy-network-policy.yaml.tmpl")
+			if err != nil {
+				return result2, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		} else {
+			// remove oauth proxy networkpolicy if it exists
+			if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
+				return result, err
+			}
+		}
+
+	} else {
+		// remove oauth proxy rolebinding if it exists
+		if err = r.deleteOAuthClusterRoleBinding(ctx, params); err != nil {
+			return result, err
+		}
+		// remove oauth proxy networkpolicy if it exists
+		if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
+			return result, err
+		}
+	}
+
+	return result, nil
+}
+
 func (r *ModelRegistryReconciler) deleteGatewayConfig(ctx context.Context, params *ModelRegistryParams) error {
 	gateway := networking.Gateway{ObjectMeta: metav1.ObjectMeta{Name: params.Name, Namespace: params.Namespace}}
 	if err := r.Client.Delete(ctx, &gateway); client.IgnoreNotFound(err) != nil {
@@ -529,6 +631,16 @@ func getRouteLabels(name string) client.MatchingLabels {
 	return labels
 }
 
+func (r *ModelRegistryReconciler) deleteOAuthClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
+	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator", Namespace: params.Namespace}}
+	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
+}
+
+func (r *ModelRegistryReconciler) deleteOAuthNetworkPolicy(ctx context.Context, params *ModelRegistryParams) error {
+	networkPolicy := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https-route", Namespace: params.Namespace}}
+	return client.IgnoreNotFound(r.Client.Delete(ctx, &networkPolicy))
+}
+
 func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
@@ -549,13 +661,15 @@ func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Contex
 	params.IngressService = &serviceList.Items[0]
 
 	// create/update REST route
-	result, err = r.handleGatewayRoute(ctx, params, registry, templateName, "-rest", params.Spec.Istio.Gateway.Rest.TLS)
+	result, err = r.handleGatewayRoute(ctx, params, templateName, "-rest",
+		params.Spec.Istio.Gateway.Rest.GatewayRoute, params.Spec.Istio.Gateway.Rest.TLS)
 	if err != nil {
 		return result, err
 	}
 
 	// create/update gRPC route
-	result2, err := r.handleGatewayRoute(ctx, params, registry, templateName, "-grpc", params.Spec.Istio.Gateway.Grpc.TLS)
+	result2, err := r.handleGatewayRoute(ctx, params, templateName, "-grpc",
+		params.Spec.Istio.Gateway.Grpc.GatewayRoute, params.Spec.Istio.Gateway.Grpc.TLS)
 	if err != nil {
 		return result2, err
 	}
@@ -566,9 +680,8 @@ func (r *ModelRegistryReconciler) createOrUpdateGatewayRoutes(ctx context.Contex
 	return result, nil
 }
 
-func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string, suffix string,
-	tls *modelregistryv1alpha1.TLSServerSettings) (result OperationResult, err error) {
+func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params *ModelRegistryParams, templateName string,
+	suffix string, gatewayRoute string, tls *modelregistryv1alpha1.TLSServerSettings) (result OperationResult, err error) {
 
 	// route specific params
 	params.Host = params.Name + suffix
@@ -579,7 +692,7 @@ func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params
 		return result, err
 	}
 
-	if registry.Spec.Istio.Gateway.Rest.GatewayRoute == config.RouteEnabled {
+	if gatewayRoute == config.RouteEnabled {
 		result, err = r.createOrUpdate(ctx, &routev1.Route{}, &route)
 		if err != nil {
 			return result, err
@@ -722,6 +835,31 @@ func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context,
 	return result, nil
 }
 
+func (r *ModelRegistryReconciler) createOrUpdateClusterRoleBinding(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var roleBinding rbac.ClusterRoleBinding
+	if err = r.Apply(params, templateName, &roleBinding); err != nil {
+		return result, err
+	}
+
+	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
+}
+
+func (r *ModelRegistryReconciler) createOrUpdateNetworkPolicy(ctx context.Context, params *ModelRegistryParams,
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var networkPolicy networkingv1.NetworkPolicy
+	if err = r.Apply(params, templateName, &networkPolicy); err != nil {
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &networkPolicy, r.Scheme); err != nil {
+		return result, err
+	}
+
+	return r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &networkPolicy)
+}
+
 func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
@@ -774,7 +912,7 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *modelregistryv1alpha1.ModelRegistry, templateName string, serviceRoute string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var route routev1.Route
 	if err = r.Apply(params, templateName, &route); err != nil {
@@ -784,7 +922,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, param
 		return result, err
 	}
 
-	if registry.Spec.Rest.ServiceRoute == config.RouteEnabled {
+	if serviceRoute == config.RouteEnabled {
 		if result, err = r.createOrUpdate(ctx, &routev1.Route{}, &route); err != nil {
 			return result, err
 		}
@@ -939,9 +1077,10 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 
 // ModelRegistryParams is a wrapper for template parameters
 type ModelRegistryParams struct {
-	Name      string
-	Namespace string
-	Spec      *modelregistryv1alpha1.ModelRegistrySpec
+	Name         string
+	Namespace    string
+	Spec         *modelregistryv1alpha1.ModelRegistrySpec
+	OriginalSpec *modelregistryv1alpha1.ModelRegistrySpec
 
 	// gateway route parameters
 	Host           string

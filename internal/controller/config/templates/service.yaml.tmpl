@@ -17,8 +17,12 @@ metadata:
     routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Rest.Port}}
     routing.opendatahub.io/external-address-grpc: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Grpc.Port}}
     {{- end}}
+    {{- if and .Spec.OAuthProxy (not .OriginalSpec.OAuthProxy.TLSCertificateSecret)}}
+    service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-oauth-proxy
+    {{- end}}
 spec:
   ports:
+    {{- if not .Spec.OAuthProxy}}
     - name: grpc-api
       port: {{.Spec.Grpc.Port}}
       protocol: TCP
@@ -27,6 +31,12 @@ spec:
       port: {{.Spec.Rest.Port}}
       protocol: TCP
       appProtocol: http
+    {{- else}}
+    - name: https-api
+      port: {{.Spec.OAuthProxy.Port}}
+      protocol: TCP
+      appProtocol: https
+    {{- end}}
   selector:
     app: {{.Name}}
     component: model-registry
