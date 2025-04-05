@@ -119,6 +119,11 @@ func (r *ModelRegistry) Default() {
 		}
 	}
 
+	// enable oauth proxy route by default
+	if r.Spec.OAuthProxy != nil && len(r.Spec.OAuthProxy.ServiceRoute) == 0 {
+		r.Spec.OAuthProxy.ServiceRoute = config.RouteEnabled
+	}
+
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
 	r.CleanupRuntimeDefaults()
 }

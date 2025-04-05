@@ -329,6 +329,12 @@ type OAuthProxyConfig struct {
 	//+optional
 	TLSKeySecret *SecretKeyValue `json:"tlsKeySecret,omitempty"`
 
+	//+kubebuilder:validation:Enum=disabled;enabled
+	//+kubebuilder:default=enabled
+
+	// Create an OpenShift Route for REST proxy Service, enabled by default
+	ServiceRoute string `json:"serviceRoute,omitempty"`
+
 	// Optional image to support overriding the image deployed by the operator.
 	//+optional
 	Image string `json:"image,omitempty"`
