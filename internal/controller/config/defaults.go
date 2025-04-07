@@ -20,9 +20,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/validation"
 	"strings"
 	"text/template"
+
+	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
@@ -43,7 +44,7 @@ const (
 	RestImage               = "REST_IMAGE"
 	OAuthProxyImage         = "OAUTH_PROXY_IMAGE"
 	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage        = "quay.io/opendatahub/model-registry:v0.2.16"
 	DefaultOAuthProxyImage  = "quay.io/openshift/origin-oauth-proxy:latest"
 	RouteDisabled           = "disabled"
 	RouteEnabled            = "enabled"
