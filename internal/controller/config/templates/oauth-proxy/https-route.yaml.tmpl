@@ -1,0 +1,23 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{.Name}}-https
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-https
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  to:
+    kind: Service
+    name: {{.Name}}
+  port:
+    targetPort: https-api
+  tls:
+    termination: reencrypt
+  wildcardPolicy: None

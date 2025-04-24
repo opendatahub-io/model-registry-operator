@@ -309,6 +309,38 @@ type IstioConfig struct {
 	Audiences []string `json:"audiences,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.tlsCertificateSecret) == has(self.tlsKeySecret)",message="tlsCertificateSecret and tlsKeySecret MUST be set together"
+type OAuthProxyConfig struct {
+	//+kubebuilder:default=8443
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for OAuth Proxy connections, defaults to 8443
+	Port *int32 `json:"port,omitempty"`
+
+	// This parameter specifies the Kubernetes Secret name and key of the proxy public key certificate.
+	// If this option is not set, the operator uses OpenShift Serving Certificate by default in OpenShift clusters.
+	// In non-OpenShift clusters, a secret named `<modelregistry-name>-oauth-proxy` MUST be provided with data keys
+	// `tls.crt` and `tls.key` for the certificate and secret key respectively.
+	//+optional
+	TLSCertificateSecret *SecretKeyValue `json:"tlsCertificateSecret,omitempty"`
+	// This parameter specifies the optional Kubernetes Secret name and key used for the
+	// proxy private key if `SSLCertificateSecret` is set.
+	//+optional
+	TLSKeySecret *SecretKeyValue `json:"tlsKeySecret,omitempty"`
+
+	//+kubebuilder:validation:Enum=disabled;enabled
+	//+kubebuilder:default=enabled
+
+	// Create an OpenShift Route for REST proxy Service, enabled by default
+	ServiceRoute string `json:"serviceRoute,omitempty"`
+
+	// Optional image to support overriding the image deployed by the operator.
+	//+optional
+	Image string `json:"image,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!(has(self.istio) && has(self.oauthProxy))",message="Cannot use both istio and oauthProxy"
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -347,6 +379,10 @@ type ModelRegistrySpec struct {
 	// Istio servicemesh configuration options
 	//+optional
 	Istio *IstioConfig `json:"istio,omitempty"`
+
+	// OpenShift OAuth proxy configuration options
+	//+optional
+	OAuthProxy *OAuthProxyConfig `json:"oauthProxy,omitempty"`
 }
 
 // ModelRegistryStatus defines the observed state of ModelRegistry
@@ -373,6 +409,7 @@ type ModelRegistryStatus struct {
 //+kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
 //+kubebuilder:printcolumn:name="Istio",type=string,JSONPath=`.status.conditions[?(@.type=="IstioAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.status.conditions[?(@.type=="GatewayAvailable")].status`,priority=2
+//+kubebuilder:printcolumn:name="OAuthProxy",type=string,JSONPath=`.status.conditions[?(@.type=="OAuthProxyAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 //+kubebuilder:printcolumn:name="Hosts",type=string,JSONPath=`.status.hostsStr`,priority=2
 //+kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].message`,priority=2

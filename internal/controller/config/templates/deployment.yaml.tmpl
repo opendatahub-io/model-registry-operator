@@ -248,6 +248,56 @@ spec:
             capabilities:
               drop:
                 - ALL
+        {{ if .Spec.OAuthProxy }}
+        - name: oauth-proxy
+          args:
+            - --https-address=:{{.Spec.OAuthProxy.Port}}
+            - --provider=openshift
+            - --openshift-service-account={{.Name}}
+            - --upstream=http://localhost:{{.Spec.Rest.Port}}
+            - --tls-cert=/etc/tls/private-cert/{{.Spec.OAuthProxy.TLSCertificateSecret.Key}}
+            - --tls-key=/etc/tls/private-key/{{.Spec.OAuthProxy.TLSKeySecret.Key}}
+            - --cookie-secret=MODEL_REGISTRY_OAUTH_SECRET
+            - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
+            - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
+          image: {{.Spec.OAuthProxy.Image}}
+          ports:
+            - containerPort: 8443
+              name: oauth2-proxy
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth2-proxy
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth2-proxy
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /etc/tls/private-cert
+              name: oauth-proxy-cert
+            - mountPath: /etc/tls/private-key
+              name: oauth-proxy-key
+        {{ end }}
       serviceAccountName: {{.Name}}
       volumes:
         {{- if .Spec.Postgres}}
@@ -309,4 +359,14 @@ spec:
             secretName: {{.Spec.MySQL.SSLRootCertificatesSecretName}}
             defaultMode: 0600
             {{- end}}
+        {{- end}}
+        {{- if .Spec.OAuthProxy }}
+        - name: oauth-proxy-cert
+          secret:
+            secretName: {{.Spec.OAuthProxy.TLSCertificateSecret.Name}}
+            defaultMode: 0600
+        - name: oauth-proxy-key
+          secret:
+            secretName: {{.Spec.OAuthProxy.TLSKeySecret.Name}}
+            defaultMode: 0600
         {{- end}}

@@ -54,6 +54,8 @@ const (
 	ConditionTypeIstio = "IstioAvailable"
 	// ConditionTypeGateway represents the status of Istio Gateway configuration.
 	ConditionTypeGateway = "GatewayAvailable"
+	// ConditionTypeOauthProxy represents the status of OAuth Proxy configuration.
+	ConditionTypeOAuthProxy = "OAuthProxyAvailable"
 
 	ReasonDeploymentCreated     = "CreatedDeployment"
 	ReasonDeploymentCreating    = "CreatingDeployment"
@@ -176,8 +178,13 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		status = metav1.ConditionFalse
 	}
 
-	if available && r.HasIstio {
-		status, reason, message = r.SetIstioAndGatewayConditions(ctx, req, modelRegistry, status, reason, message)
+	if available {
+		if r.HasIstio {
+			status, reason, message = r.SetIstioAndGatewayConditions(ctx, req, modelRegistry, status, reason, message)
+		}
+		if modelRegistry.Spec.OAuthProxy != nil {
+			status, reason, message = r.SetOauthProxyCondition(ctx, req, modelRegistry, status, reason, message)
+		}
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
@@ -379,7 +386,7 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 			status = metav1.ConditionTrue
 		}
 		// additionally verify that Deployment pod has 3 containers including the istio-envoy proxy
-		message, reason, status = r.CheckDeploymentPods(ctx, name, log, message, reason, status)
+		message, reason, status = r.CheckDeploymentPods(ctx, name, "Istio", log, message, reason, status)
 	} else {
 		status = metav1.ConditionFalse
 		reason = ReasonResourcesUnavailable
@@ -391,7 +398,37 @@ func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctr
 	return status == metav1.ConditionTrue
 }
 
-func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name types.NamespacedName,
+func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, req ctrl.Request,
+	modelRegistry *modelregistryv1alpha1.ModelRegistry,
+	status metav1.ConditionStatus, reason string, message string) (metav1.ConditionStatus, string, string) {
+
+	log := klog.FromContext(ctx)
+
+	if modelRegistry.Spec.OAuthProxy != nil {
+
+		// verify that Deployment pod has 3 containers including the oauth proxy
+		name := req.NamespacedName
+		reason2 := ReasonResourcesCreated
+		message2 := "OAuth Proxy was successfully created"
+		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "OAuth", log, message2, reason2, status)
+		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
+			Status: status2, Reason: reason2,
+			Message: message2})
+
+		// set OAuth proxy available condition
+		if status2 == metav1.ConditionFalse {
+			status = status2
+			reason = reason2
+			message = "OAuth Proxy resources are unavailable"
+		}
+	} else {
+		meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeOAuthProxy)
+	}
+
+	return status, reason, message
+}
+
+func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name types.NamespacedName, proxyType string,
 	log logr.Logger, message string, reason string, status metav1.ConditionStatus) (string, string, metav1.ConditionStatus) {
 	pods := corev1.PodList{}
 	if err := r.Client.List(ctx, &pods,
@@ -417,7 +454,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 	// check that pods have 3 containers
 	for _, pod := range pods.Items {
 		if len(pod.Spec.Containers) != 3 {
-			message = fmt.Sprintf("Istio proxy unavailable in Pod %s", pod.Name)
+			message = fmt.Sprintf("%s proxy unavailable in Pod %s", proxyType, pod.Name)
 			reason = ReasonResourcesUnavailable
 			status = metav1.ConditionFalse
 			break
