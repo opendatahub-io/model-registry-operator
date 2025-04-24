@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -13,6 +14,10 @@ func DownloadFile(url string, path string) error {
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("unable to fetch %q: %s", url, resp.Status)
+	}
 
 	file, err := os.Create(path)
 	if err != nil {
