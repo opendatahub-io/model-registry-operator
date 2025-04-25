@@ -20,9 +20,10 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"k8s.io/apimachinery/pkg/api/validation"
 	"strings"
 	"text/template"
+
+	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
 	"github.com/spf13/viper"
@@ -72,8 +73,8 @@ var (
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
-	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
-	MlmdGRPCResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("100m"), resource.MustParse("256Mi"))
+	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	MlmdGRPCResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
 )
 
 func init() {
