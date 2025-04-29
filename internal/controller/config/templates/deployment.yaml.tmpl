@@ -191,17 +191,19 @@ spec:
             tcpSocket:
               port: grpc-api
             timeoutSeconds: 2
+          {{- with .Spec.Grpc.Resources }}
           resources:
-            {{- if .Spec.Grpc.Resources.Requests }}
+            {{- with .Requests }}
             requests:
-              cpu: {{.Spec.Grpc.Resources.Requests.Cpu}}
-              memory: {{.Spec.Grpc.Resources.Requests.Memory}}
+              cpu: {{.Cpu}}
+              memory: {{.Memory}}
             {{- end }}
-            {{- if .Spec.Grpc.Resources.Limits }}
+            {{- with .Limits }}
             limits:
-              cpu: {{.Spec.Grpc.Resources.Limits.Cpu}}
-              memory: {{.Spec.Grpc.Resources.Limits.Memory}}
+              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
+              memory: {{.Memory}}
             {{- end }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -232,17 +234,19 @@ spec:
             tcpSocket:
               port: http-api
             timeoutSeconds: 2
+          {{- with .Spec.Rest.Resources }}
           resources:
-            {{- if .Spec.Rest.Resources.Requests }}
+            {{- with .Requests }}
             requests:
-              cpu: {{.Spec.Rest.Resources.Requests.Cpu}}
-              memory: {{.Spec.Rest.Resources.Requests.Memory}}
+              cpu: {{.Cpu}}
+              memory: {{.Memory}}
             {{- end }}
-            {{- if .Spec.Rest.Resources.Limits }}
+            {{- with .Limits }}
             limits:
-              cpu: {{.Spec.Rest.Resources.Limits.Cpu}}
-              memory: {{.Spec.Rest.Resources.Limits.Memory}}
+              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
+              memory: {{.Memory}}
             {{- end }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -287,7 +291,6 @@ spec:
             failureThreshold: 3
           resources:
             limits:
-              cpu: 100m
               memory: 256Mi
             requests:
               cpu: 100m
