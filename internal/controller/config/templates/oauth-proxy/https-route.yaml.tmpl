@@ -13,6 +13,7 @@ metadata:
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
 spec:
+  host: {{.Name}}-rest.{{.Spec.OAuthProxy.Domain}}
   to:
     kind: Service
     name: {{.Name}}
