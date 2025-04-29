@@ -590,6 +590,10 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 		if err = r.deleteOAuthClusterRoleBinding(ctx, params); err != nil {
 			return result, err
 		}
+		// remove oauth proxy route if it exists
+		if err = r.deleteOAuthRoute(ctx, params); err != nil {
+			return result, err
+		}
 		// remove oauth proxy networkpolicy if it exists
 		if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
 			return result, err
@@ -634,6 +638,11 @@ func getRouteLabels(name string) client.MatchingLabels {
 func (r *ModelRegistryReconciler) deleteOAuthClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
 	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator", Namespace: params.Namespace}}
 	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
+}
+
+func (r *ModelRegistryReconciler) deleteOAuthRoute(ctx context.Context, params *ModelRegistryParams) error {
+	route := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https", Namespace: params.Namespace}}
+	return client.IgnoreNotFound(r.Client.Delete(ctx, &route))
 }
 
 func (r *ModelRegistryReconciler) deleteOAuthNetworkPolicy(ctx context.Context, params *ModelRegistryParams) error {
