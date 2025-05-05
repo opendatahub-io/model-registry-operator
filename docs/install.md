@@ -481,7 +481,7 @@ URL=`echo "https://$(oc get routes -n istio-system -l app.kubernetes.io/name=mod
 ```
 
 ## Validation of the overall Install
-Now we can validate if everyhing working correctly by executing the following
+Now we can validate if everything is working correctly by executing the following
 
 ```
 export TOKEN=`oc whoami -t`
