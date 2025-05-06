@@ -190,8 +190,11 @@ spec:
                       domain:
                         description: |-
                           Domain name for Gateway configuration.
+                          Must follow DNS952 subdomain conventions.
                           If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
                           If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
+                        maxLength: 253
+                        pattern: ^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$
                         type: string
                       grpc:
                         description: gRPC  gateway server config
@@ -483,8 +486,11 @@ spec:
                   domain:
                     description: |-
                       Domain name for Route configuration.
+                      Must follow DNS952 subdomain conventions.
                       If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
                       If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
+                    maxLength: 253
+                    pattern: ^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$
                     type: string
                   image:
                     description: Optional image to support overriding the image deployed

@@ -244,9 +244,13 @@ type ServerConfig struct {
 }
 
 type GatewayConfig struct {
+
 	//+optional
+	//+kubebuilder:validation:MaxLength=253
+	//+kubebuilder:validation:Pattern=`^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$`
 
 	// Domain name for Gateway configuration.
+	// Must follow DNS952 subdomain conventions.
 	// If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
 	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
 	Domain string `json:"domain,omitempty"`
@@ -335,7 +339,12 @@ type OAuthProxyConfig struct {
 	// Create an OpenShift Route for REST proxy Service, enabled by default
 	ServiceRoute string `json:"serviceRoute,omitempty"`
 
+	//+optional
+	//+kubebuilder:validation:MaxLength=253
+	//+kubebuilder:validation:Pattern=`^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$`
+
 	// Domain name for Route configuration.
+	// Must follow DNS952 subdomain conventions.
 	// If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
 	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
 	Domain string `json:"domain,omitempty"`
