@@ -294,6 +294,9 @@ func (r *ModelRegistry) RuntimeDefaults() {
 				Key:  "tls.key",
 			}
 		}
+		if len(r.Spec.OAuthProxy.Domain) == 0 {
+			r.Spec.OAuthProxy.Domain = config.GetDefaultDomain()
+		}
 		if len(r.Spec.OAuthProxy.Image) == 0 {
 			r.Spec.OAuthProxy.Image = config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
 		}
