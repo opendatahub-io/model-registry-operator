@@ -1,5 +1,5 @@
 # Include images as env variables
-include ./config/overlays/odh/params.env
+include ./config/base/params.env
 
 # Include istio config as env variables
 include ./config/samples/istio/components/istio.env
