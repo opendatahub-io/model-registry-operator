@@ -433,6 +433,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = k8sClient.Create(ctx, modelRegistry)
 				Expect(err).To(Not(HaveOccurred()))
 
+				config.SetDefaultDomain("example.com", k8sClient, true)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.IsOpenShift = true
 

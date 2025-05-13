@@ -559,29 +559,32 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 			return result, err
 		}
 
-		// create oauth proxy service route if enabled, delete if disabled
-		result2, err = r.createOrUpdateRoute(ctx, params, registry,
-			"https-route.yaml.tmpl", registry.Spec.OAuthProxy.ServiceRoute)
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		if registry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
-			// create oauth proxy networkpolicy to ensure route is exposed
-			result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "proxy-network-policy.yaml.tmpl")
+		// check if cluster is OpenShift for Route support
+		if r.IsOpenShift {
+			// create oauth proxy service route if enabled, delete if disabled
+			result2, err = r.createOrUpdateRoute(ctx, params, registry,
+				"https-route.yaml.tmpl", registry.Spec.OAuthProxy.ServiceRoute)
 			if err != nil {
 				return result2, err
 			}
 			if result2 != ResourceUnchanged {
 				result = result2
 			}
-		} else {
-			// remove oauth proxy networkpolicy if it exists
-			if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
-				return result, err
+
+			if registry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
+				// create oauth proxy networkpolicy to ensure route is exposed
+				result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "proxy-network-policy.yaml.tmpl")
+				if err != nil {
+					return result2, err
+				}
+				if result2 != ResourceUnchanged {
+					result = result2
+				}
+			} else {
+				// remove oauth proxy networkpolicy if it exists
+				if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
+					return result, err
+				}
 			}
 		}
 
@@ -590,9 +593,15 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 		if err = r.deleteOAuthClusterRoleBinding(ctx, params); err != nil {
 			return result, err
 		}
-		// remove oauth proxy networkpolicy if it exists
-		if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
-			return result, err
+		if r.IsOpenShift {
+			// remove oauth proxy route if it exists
+			if err = r.deleteOAuthRoute(ctx, params); err != nil {
+				return result, err
+			}
+			// remove oauth proxy networkpolicy if it exists
+			if err = r.deleteOAuthNetworkPolicy(ctx, params); err != nil {
+				return result, err
+			}
 		}
 	}
 
@@ -634,6 +643,11 @@ func getRouteLabels(name string) client.MatchingLabels {
 func (r *ModelRegistryReconciler) deleteOAuthClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
 	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator", Namespace: params.Namespace}}
 	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
+}
+
+func (r *ModelRegistryReconciler) deleteOAuthRoute(ctx context.Context, params *ModelRegistryParams) error {
+	route := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https", Namespace: params.Namespace}}
+	return client.IgnoreNotFound(r.Client.Delete(ctx, &route))
 }
 
 func (r *ModelRegistryReconciler) deleteOAuthNetworkPolicy(ctx context.Context, params *ModelRegistryParams) error {

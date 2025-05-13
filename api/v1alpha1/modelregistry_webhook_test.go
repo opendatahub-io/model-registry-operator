@@ -377,7 +377,7 @@ func TestRuntimeDefaults(t *testing.T) {
 		wantMrSpec *v1alpha1.ModelRegistry
 	}{
 		{
-			name: "set runtime default values",
+			name: "set runtime default values for istio config",
 			mrSpec: &v1alpha1.ModelRegistry{
 				Spec: v1alpha1.ModelRegistrySpec{
 					Istio: &v1alpha1.IstioConfig{
@@ -427,6 +427,40 @@ func TestRuntimeDefaults(t *testing.T) {
 								},
 							},
 						},
+					},
+				},
+			},
+		},
+		{
+			name: "set runtime default values for oauth proxy config",
+			mrSpec: &v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: v1alpha1.ModelRegistrySpec{
+					OAuthProxy: &v1alpha1.OAuthProxyConfig{},
+				},
+			},
+			wantMrSpec: &v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Spec: v1alpha1.ModelRegistrySpec{
+					Grpc: v1alpha1.GrpcSpec{
+						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
+						Image:     config.DefaultGrpcImage,
+					},
+					Rest: v1alpha1.RestSpec{
+						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:     config.DefaultRestImage,
+					},
+					OAuthProxy: &v1alpha1.OAuthProxyConfig{
+						TLSCertificateSecret: &v1alpha1.SecretKeyValue{
+							Name: "default-oauth-proxy",
+							Key:  "tls.crt",
+						},
+						TLSKeySecret: &v1alpha1.SecretKeyValue{
+							Name: "default-oauth-proxy",
+							Key:  "tls.key",
+						},
+						Domain: domain,
+						Image:  config.DefaultOAuthProxyImage,
 					},
 				},
 			},
