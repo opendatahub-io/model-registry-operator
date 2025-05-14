@@ -2,10 +2,10 @@
 
 ![build checks status](https://github.com/opendatahub-io/model-registry-operator/actions/workflows/build.yml/badge.svg?branch=main)
 
-Model Registry operator is a controller for deploying [OpenShift AI Model Registry](https://github.com/opendatahub-io/model-registry) in a Kubernetes namespace. 
+The Model Registry Operator is a controller for deploying [OpenShift AI Model Registry](https://github.com/opendatahub-io/model-registry) in a Kubernetes namespace. 
 
 ## Description
-The controller reconciles `ModelRegistry` Custom Resources to deploy a Model Registry instance and create a service for its API. 
+The controller reconciles `ModelRegistry` Custom Resources to deploy a Model Registry instance and creates a service for its API. 
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
