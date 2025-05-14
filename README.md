@@ -18,15 +18,15 @@ To use another PostgreSQL instance, comment the line that includes the sample DB
 your own mysql instance comment the line that includes the sample DB in [kustomization.yaml](config/samples/mysql/kustomization.yaml).
 
 ### Secure Model Registry
-The operator supports creating secure model registries using [OpenShift OAuth Proxy](#openshift-oauth-proxy-configuratio).
+The operator supports creating secure model registries using [OpenShift OAuth Proxy](#openshift-oauth-proxy-configuration).
 The operator also supports securing model registries using [Istio and Authorino](#istio-configuration).
 OpenShift OAuth Proxy is recommended for its simplicity and ease of use.
 
 ## OpenShift OAuth Proxy Configuration
 _Skip this section if you are not using OpenShift OAuth._
 
-The operator supports creating secure model registries using [OpenShift OAuth Proxy](https://github.com/openshift/oauth-proxy) using  
-[OpenShift Service Certificates](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/security_and_compliance/configuring-certificates#add-service-certificate_service-serving-certificate)
+The operator supports creating secure model registries using [OpenShift OAuth Proxy](https://github.com/openshift/oauth-proxy).
+It leverages [OpenShift Service Certificates](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/security_and_compliance/configuring-certificates#add-service-certificate_service-serving-certificate)
 for generating service certificates and
 [OpenShift Routes](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/networking/configuring-routes)
 for exposing service to external clients outside the OpenShift Cluster.
@@ -77,16 +77,16 @@ make deploy
 2. The operator includes multiple samples that use [kustomize](https://kustomize.io/) to create a sample model registry `modelregistry-sample`.
 
 * [MySQL](config/samples/mysql) plain Kubernetes model registry services with a sample MySQL database
-* [PostgreSQL](config/samples/postgres) plain Kubernetes model registry services with a sample PostgreSQL database
-* [Secure MySQL](config/samples/secure-db/mysql) plain Kubernetes model registry services with a sample SSL secured MySQL database
 * [MySQL with OAuth Proxy](config/samples/oauth/mysql) MySQL database, and OAuth Proxy secured model registry service
-* [PostgreSQL with OAuth Proxy](config/samples/oauth/postgres-tls) PostgreSQL database, and OAuth Proxy secured model registry service
+* [Secure MySQL](config/samples/secure-db/mysql) plain Kubernetes model registry services with a sample SSL secured MySQL database
 * [Secure MySQL with OAuth Proxy](config/samples/secure-db/mysql-oauth) SSL secured MySQL database, and OAuth Proxy secured model registry service
 * [MySQL with Istio](config/samples/istio/mysql) MySQL database, Istio, and plaintext Gateway
-* [PostgreSQL with Istio](config/samples/istio/postgres) PostgreSQL database, Istio, and plaintext Gateway
 * [MySQL with Istio and TLS](config/samples/istio/mysql-tls) MySQL database, Istio, and TLS Gateway endpoints
-* [PostgreSQL with Istio and TLS](config/samples/istio/postgres-tls) PostgreSQL database, Istio, and TLS Gateway endpoints
 * [Secure MySQL with Istio](config/samples/secure-db/mysql-tls) SSL secured MySQL database, Istio, and TLS Gateway
+* [PostgreSQL](config/samples/postgres) plain Kubernetes model registry services with a sample PostgreSQL database
+* [PostgreSQL with OAuth Proxy](config/samples/oauth/postgres) PostgreSQL database, and OAuth Proxy secured model registry service
+* [PostgreSQL with Istio](config/samples/istio/postgres) PostgreSQL database, Istio, and plaintext Gateway
+* [PostgreSQL with Istio and TLS](config/samples/istio/postgres-tls) PostgreSQL database, Istio, and TLS Gateway endpoints
 
 #### Authorization
 For all OAuth Proxy and Istio samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
@@ -172,9 +172,9 @@ kubectl apply -k config/samples/mysql
 kubectl apply -k config/samples/oauth/mysql
 kubectl apply -k config/samples/secure-db/mysql
 kubectl apply -k config/samples/secure-db/mysql-oauth
-kubectl apply -k config/samples/secure-db/mysql-tls
 kubectl apply -k config/samples/istio/mysql
 kubectl apply -k config/samples/istio/mysql-tls
+kubectl apply -k config/samples/secure-db/mysql-tls
 kubectl apply -k config/samples/postgres
 kubectl apply -k config/samples/oauth/postgres
 kubectl apply -k config/samples/istio/postgres
@@ -200,8 +200,7 @@ kubectl get route -n istio-system
 #### Verifying the Model Registry REST Service
 
 ##### Verifying OAuth Proxy Sample
-If using an OAuth Proxy sample in non-OpenShift clusters or for using a custom service certificate,
-create a tls secret using the commands:
+For non-OpenShift clusters or when using a custom service certificate, create a TLS secret using the command:
 
 ```shell
 kubectl create secret tls modelregistry-sample-oauth-proxy --cert=path/to/cert/file --key=path/to/key/file
@@ -294,9 +293,9 @@ kubectl delete -k config/samples/mysql
 kubectl delete -k config/samples/oauth/mysql
 kubectl delete -k config/samples/secure-db/mysql
 kubectl delete -k config/samples/secure-db/mysql-oauth
-kubectl delete -k config/samples/secure-db/mysql-tls
 kubectl delete -k config/samples/istio/mysql
 kubectl delete -k config/samples/istio/mysql-tls
+kubectl delete -k config/samples/secure-db/mysql-tls
 kubectl delete -k config/samples/postgres
 kubectl delete -k config/samples/oauth/postgres
 kubectl delete -k config/samples/istio/postgres
