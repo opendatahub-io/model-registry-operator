@@ -18,9 +18,9 @@ To use another PostgreSQL instance, comment the line that includes the sample DB
 your own mysql instance comment the line that includes the sample DB in [kustomization.yaml](config/samples/mysql/kustomization.yaml).
 
 ### Secure Model Registry
-The operator supports creating secure model registries using [OpenShift OAuth Proxy](#OpenShift OAuth Proxy Configuration). 
-The operator also supports securing model registries using [Istio and Authorino](#Istio Configuration).
-OpenShift OAuth proxy is recommended for its simplicity and ease of use. 
+The operator supports creating secure model registries using [OpenShift OAuth Proxy](#openshift-oauth-proxy-configuratio).
+The operator also supports securing model registries using [Istio and Authorino](#istio-configuration).
+OpenShift OAuth Proxy is recommended for its simplicity and ease of use.
 
 ## OpenShift OAuth Proxy Configuration
 _Skip this section if you are not using OpenShift OAuth._
@@ -31,7 +31,7 @@ for generating service certificates and
 [OpenShift Routes](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/networking/configuring-routes)
 for exposing service to external clients outside the OpenShift Cluster.
 
-OpenShift OAuth proxy samples work best in an OpenShift cluster. It can leverage serving certificates and OpenShift Routes with practically zero extra configuration for security.
+OpenShift OAuth Proxy samples work best in an OpenShift cluster. It can leverage serving certificates and OpenShift Routes with practically zero extra configuration for security.
 For non-OpenShift clusters or for custom service certificates, a secret needs to be created with the name `<registry-name>-oauth-proxy` in the registry namespace. 
 This secret can then be configured in the `spec.oauthProxy.tlsCertificateSecret`, and `spec.oauthProxy.tlsKeySecret` properties of the model registry resource. 
 To disable external access to the service from outside the cluster, set the property `spec.oauthProxy.serviceRoute` to `disabled`. 
