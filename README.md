@@ -218,8 +218,17 @@ export ROUTE_HOST=`kubectl get routes.route.openshift.io modelregistry-sample-ht
 Then verify the REST service using the command:
 
 ```shell
-curl http://$ROUTE_HOST/api/model_registry/v1alpha3/registered_models
+curl -H "Authorization: Bearer $TOKEN" https://$ROUTE_HOST/api/model_registry/v1alpha3/registered_models
 ```
+
+Where, `$TOKEN` environment variable is set to the client token. If using OpenShift, the token can be set using the command:
+
+```shell
+export TOKEN=`oc whoami -t`
+```
+
+Note: If the Openshift cluster uses a non-public CA, it needs be provided using `--cacert` curl option,
+or use the `-k` option to skip certificate verification in development and testing environments.
 
 ##### Verifying Istio TLS Gateway Sample
 If using the Istio TLS Gateway sample, to verify the REST gateway service use the following command:
