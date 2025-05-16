@@ -167,6 +167,9 @@ This automatic route creation can be disabled by setting the properties `spec.is
 3. For Istio samples, first configure properties in [istio.env](config/samples/istio/components/istio.env). 
 Install a model registry instance using **ONE** of the following commands:
 
+NOTE: For Open Data Hub, or OpenShift AI, use the correct registries namespace i.e. `odh-model-registries` or `rhoai-model-registries` respectively.
+Which can be provided using either the `-n` option, or setting it as the current namespace first.
+
 ```shell
 kubectl apply -k config/samples/mysql
 kubectl apply -k config/samples/oauth/mysql
@@ -287,6 +290,9 @@ The output should be a list of all registered models in the registry, e.g. for a
 ```
 
 5. To delete the sample model registry, use **ONE** of the following commands based on the sample type deployed earlier:
+
+NOTE: For Open Data Hub, or OpenShift AI, use the correct registries namespace i.e. `odh-model-registries` or `rhoai-model-registries` respectively.
+Which can be provided using either the `-n` option, or setting it as the current namespace first.
 
 ```shell
 kubectl delete -k config/samples/mysql
