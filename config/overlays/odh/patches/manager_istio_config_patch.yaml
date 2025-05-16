@@ -17,6 +17,7 @@ spec:
                 # CONTROL_PLANE_NAME has the name of the istio smcp
                 key: CONTROL_PLANE_NAME
                 name: service-mesh-refs
+                optional: true
           - name: DEFAULT_ISTIO_INGRESS
             valueFrom:
               configMapKeyRef:
