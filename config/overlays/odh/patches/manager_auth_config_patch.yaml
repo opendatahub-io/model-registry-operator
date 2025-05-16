@@ -18,9 +18,11 @@ spec:
                 # used in the istio servicemeshcontrolplane (smcp) config
                 key: AUTH_NAMESPACE
                 name: auth-refs
+                optional: true
           - name: DEFAULT_AUTH_CONFIG_LABELS
             valueFrom:
               configMapKeyRef:
                 # AUTHORINO_LABEL has the label selector for authorino
                 key: AUTHORINO_LABEL
                 name: auth-refs
+                optional: true
