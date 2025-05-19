@@ -17,8 +17,13 @@ metadata:
     routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Rest.Port}}
     routing.opendatahub.io/external-address-grpc: {{.Name}}-grpc.{{.Spec.Istio.Gateway.Domain}}:{{.Spec.Istio.Gateway.Grpc.Port}}
     {{- end}}
-    {{- if and .Spec.OAuthProxy (not .OriginalSpec.OAuthProxy.TLSCertificateSecret)}}
+    {{- if .Spec.OAuthProxy}}
+      {{- if not .OriginalSpec.OAuthProxy.TLSCertificateSecret}}
     service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-oauth-proxy
+      {{- end}}
+      {{- if eq .Spec.OAuthProxy.ServiceRoute "enabled"}}
+    routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.OAuthProxy.Domain}}:{{.Spec.OAuthProxy.RoutePort}}
+      {{- end}}
     {{- end}}
 spec:
   ports:

@@ -57,6 +57,7 @@ func TestParseTemplates(t *testing.T) {
 	templates, err := config.ParseTemplates()
 	if err != nil {
 		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow() // exit this test, otherwise a panic error in Apply is not reported as a failure
 	}
 	reconciler := controller.ModelRegistryReconciler{
 		Log:         logr.Logger{},
