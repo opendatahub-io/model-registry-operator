@@ -32,7 +32,6 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 	registry *modelregistryv1alpha1.ModelRegistry) (result OperationResult, err error) {
 
 	result = ResourceUnchanged
-	result2 := result
 
 	// create oauth proxy resources
 	if registry.Spec.OAuthProxy != nil {
@@ -46,7 +45,7 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 		// check if cluster is OpenShift for Route support
 		if r.IsOpenShift {
 			// create oauth proxy service route if enabled, delete if disabled
-			result2, err = r.createOrUpdateRoute(ctx, params, registry,
+			result2, err := r.createOrUpdateRoute(ctx, params, registry,
 				"https-route.yaml.tmpl", registry.Spec.OAuthProxy.ServiceRoute)
 			if err != nil {
 				return result2, err
