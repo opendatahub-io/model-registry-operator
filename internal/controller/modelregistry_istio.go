@@ -329,3 +329,12 @@ func (r *ModelRegistryReconciler) handleGatewayRoute(ctx context.Context, params
 
 	return result, nil
 }
+
+func getRouteLabels(name string) client.MatchingLabels {
+	labels := client.MatchingLabels{
+		"app":                     name,
+		"component":               "model-registry",
+		"maistra.io/gateway-name": name,
+	}
+	return labels
+}

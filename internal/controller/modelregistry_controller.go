@@ -443,15 +443,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	return result, nil
 }
 
-func getRouteLabels(name string) client.MatchingLabels {
-	labels := client.MatchingLabels{
-		"app":                     name,
-		"component":               "model-registry",
-		"maistra.io/gateway-name": name,
-	}
-	return labels
-}
-
 func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelRegistryParams,
 	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
