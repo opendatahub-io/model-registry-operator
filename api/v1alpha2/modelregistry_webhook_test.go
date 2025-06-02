@@ -1,28 +1,22 @@
-package v1alpha1_test
+package v1alpha2_test
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/opendatahub-io/model-registry-operator/api/common"
 	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha2"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 )
 
 var (
-	certName       = "test-cert"
-	tlsMode        = "SIMPLE"
-	audience       = "test-audience"
-	authProvider   = "test-auth-provider"
-	authLabelKey   = "test-auth-labels"
-	authLabelValue = "true"
-	authLabel      = fmt.Sprintf("%s=%s", authLabelKey, authLabelValue)
-	domain         = "example.com"
-	controlPlane   = "test-smcp"
-	istioIngress   = config.DefaultIstioIngressName
+	certName = "test-cert"
+	domain   = "example.com"
 )
 
 func TestValidateNamespace(t *testing.T) {
@@ -115,8 +109,6 @@ func TestValidateDatabase(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
-	var httpsPort int32 = v1alpha1.DefaultHttpsPort
-
 	tests := []struct {
 		name       string
 		mrSpec     *v1alpha1.ModelRegistry
@@ -129,9 +121,6 @@ func TestDefault(t *testing.T) {
 					Rest:     common.RestSpec{},
 					Postgres: &common.PostgresConfig{},
 					MySQL:    &common.MySQLConfig{},
-					Istio: &common.IstioConfig{
-						Gateway: &common.GatewayConfig{},
-					},
 				},
 			},
 			wantMrSpec: &v1alpha1.ModelRegistry{
@@ -141,10 +130,6 @@ func TestDefault(t *testing.T) {
 					},
 					Postgres: nil,
 					MySQL:    nil,
-					OAuthProxy: &common.OAuthProxyConfig{
-						Port:         &httpsPort,
-						ServiceRoute: config.RouteEnabled,
-					},
 				},
 			},
 		},
@@ -180,26 +165,6 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
 						Image:     config.DefaultGrpcImage,
 					},
-					Istio: &common.IstioConfig{
-						Audiences:        []string{audience},
-						AuthProvider:     authProvider,
-						AuthConfigLabels: map[string]string{authLabelKey: authLabelValue},
-						Gateway: &common.GatewayConfig{
-							Domain: domain,
-							Rest: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
-							Grpc: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
-						},
-					},
 				},
 			},
 			wantMrSpec: &v1alpha1.ModelRegistry{
@@ -211,26 +176,6 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 					Grpc: common.GrpcSpec{
 						Resources: nil,
 						Image:     "",
-					},
-					Istio: &common.IstioConfig{
-						Audiences:        []string{},
-						AuthProvider:     "",
-						AuthConfigLabels: map[string]string{},
-						Gateway: &common.GatewayConfig{
-							Domain: "",
-							Rest: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: nil,
-								},
-							},
-							Grpc: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: nil,
-								},
-							},
-						},
 					},
 				},
 			},
@@ -255,61 +200,6 @@ func TestRuntimeDefaults(t *testing.T) {
 		mrSpec     *v1alpha1.ModelRegistry
 		wantMrSpec *v1alpha1.ModelRegistry
 	}{
-		{
-			name: "set runtime default values for istio config",
-			mrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Istio: &common.IstioConfig{
-						Gateway: &common.GatewayConfig{
-							Rest: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode: tlsMode,
-								},
-							},
-							Grpc: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode: tlsMode,
-								},
-							},
-						},
-					},
-				},
-			},
-			wantMrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Grpc: common.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
-					},
-					Rest: common.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
-					},
-					Istio: &common.IstioConfig{
-						Audiences:        []string{audience},
-						AuthProvider:     authProvider,
-						AuthConfigLabels: map[string]string{authLabelKey: authLabelValue},
-						Gateway: &common.GatewayConfig{
-							Domain:       domain,
-							ControlPlane: &controlPlane,
-							IstioIngress: &istioIngress,
-							Rest: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
-							Grpc: common.ServerConfig{
-								TLS: &common.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
 		{
 			name: "set runtime default values for oauth proxy config",
 			mrSpec: &v1alpha1.ModelRegistry{
@@ -360,9 +250,34 @@ func setupDefaults(t testing.TB) {
 	t.Helper()
 
 	config.SetDefaultDomain(domain, k8sClient, false)
-	// config.SetDefaultAudiences([]string{audience})
-	// config.SetDefaultControlPlane(controlPlane)
-	// config.SetDefaultCert(certName)
-	// config.SetDefaultAuthProvider(authProvider)
-	// config.SetDefaultAuthConfigLabels(authLabel)
+	config.SetDefaultCert(certName)
 }
+
+var _ = Describe("ModelRegistry Webhook", func() {
+	var (
+		obj    *v1alpha2.ModelRegistry
+		oldObj *v1alpha1.ModelRegistry
+	)
+
+	BeforeEach(func() {
+		obj = &v1alpha2.ModelRegistry{}
+		oldObj = &v1alpha1.ModelRegistry{}
+		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
+		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
+		// TODO (user): Add any setup logic common to all tests
+	})
+
+	AfterEach(func() {
+		// TODO (user): Add any teardown logic common to all tests
+	})
+
+	Context("When creating ModelRegistry under Conversion Webhook", func() {
+		// TODO (user): Add logic to convert the object to the desired version and verify the conversion
+		It("Should convert model registry v1alpha1 to v1alpha2 correctly", func() {
+			convertedObj := &v1alpha2.ModelRegistry{}
+			Expect(oldObj.ConvertTo(convertedObj)).To(Succeed())
+			Expect(convertedObj).ToNot(BeNil())
+		})
+	})
+
+})

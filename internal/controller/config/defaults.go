@@ -35,7 +35,6 @@ import (
 )
 
 //go:embed templates/*.yaml.tmpl
-//go:embed templates/istio/*.yaml.tmpl
 //go:embed templates/oauth-proxy/*.yaml.tmpl
 var templateFS embed.FS
 
@@ -104,7 +103,7 @@ func GetStringConfigWithDefault(configName, value string) string {
 
 func ParseTemplates() (*template.Template, error) {
 	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl",
-		"templates/istio/*.yaml.tmpl", "templates/oauth-proxy/*.yaml.tmpl")
+		"templates/oauth-proxy/*.yaml.tmpl")
 	if err != nil {
 		return nil, err
 	}

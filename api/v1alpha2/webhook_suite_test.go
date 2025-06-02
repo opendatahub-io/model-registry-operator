@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1_test
+package v1alpha2_test
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	webhook2 "github.com/opendatahub-io/model-registry-operator/internal/webhook"
+	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"net"
 	"path/filepath"
 	"runtime"
@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/api/common"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	corev1 "k8s.io/api/core/v1"
@@ -36,8 +35,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	admissionv1 "k8s.io/api/admission/v1"
-
 	//+kubebuilder:scaffold:imports
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -129,7 +128,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = webhook2.SetupWebhookWithManager(mgr)
+	err = mrwebhook.SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:webhook
@@ -180,7 +179,9 @@ var _ = Describe("Model Registry validating webhook", func() {
 
 	It("Should not allow creation of MR instance with invalid database config", func(ctx context.Context) {
 		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
-		mr.Spec = v1alpha1.ModelRegistrySpec{}
+		mr.Spec = v1alpha1.ModelRegistrySpec{
+			MySQL: &common.MySQLConfig{},
+		}
 
 		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
 	})

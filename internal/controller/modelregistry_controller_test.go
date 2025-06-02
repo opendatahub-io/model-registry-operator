@@ -19,12 +19,14 @@ package controller
 import (
 	"context"
 	"fmt"
-	v1 "k8s.io/api/networking/v1"
 	"os"
 	"strings"
 	"text/template"
 	"time"
 
+	v1 "k8s.io/api/networking/v1"
+
+	"github.com/opendatahub-io/model-registry-operator/api/common"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
@@ -32,7 +34,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -114,10 +115,10 @@ var _ = Describe("ModelRegistry controller", func() {
 						Annotations: map[string]string{DisplayNameAnnotation: registryName, DescriptionAnnotation: DescriptionPrefix + registryName},
 					},
 					Spec: v1alpha1.ModelRegistrySpec{
-						Grpc: v1alpha1.GrpcSpec{
+						Grpc: common.GrpcSpec{
 							Port: &gRPCPort,
 						},
-						Rest: v1alpha1.RestSpec{
+						Rest: common.RestSpec{
 							Port: &restPort,
 						},
 					},
@@ -130,12 +131,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var postgresPort int32 = 5432
 				modelRegistry.Spec.MySQL = nil
-				modelRegistry.Spec.Postgres = &v1alpha1.PostgresConfig{
+				modelRegistry.Spec.Postgres = &common.PostgresConfig{
 					Host:     "model-registry-db",
 					Port:     &postgresPort,
 					Database: "model-registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -156,12 +157,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -182,12 +183,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -216,12 +217,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -248,27 +249,27 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
 				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+				modelRegistry.Spec.Istio = &common.IstioConfig{
 					AuthProvider: "opendatahub-auth-provider",
 					AuthConfigLabels: map[string]string{
 						"auth": "enabled",
 					},
-					Gateway: &v1alpha1.GatewayConfig{
+					Gateway: &common.GatewayConfig{
 						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
+						Rest: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
-						Grpc: v1alpha1.ServerConfig{
+						Grpc: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
 					},
@@ -279,7 +280,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 
-				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+				Eventually(validateRegistryOauthProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
@@ -289,27 +290,27 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
 				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+				modelRegistry.Spec.Istio = &common.IstioConfig{
 					AuthProvider: "opendatahub-auth-provider",
 					AuthConfigLabels: map[string]string{
 						"auth": "enabled",
 					},
-					Gateway: &v1alpha1.GatewayConfig{
+					Gateway: &common.GatewayConfig{
 						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
+						Rest: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
-						Grpc: v1alpha1.ServerConfig{
+						Grpc: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
 						ControlPlane: &TestSmcp,
@@ -323,7 +324,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				modelRegistryReconciler.IsOpenShift = true
 
-				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+				Eventually(validateRegistryOauthProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
@@ -333,27 +334,27 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
 				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+				modelRegistry.Spec.Istio = &common.IstioConfig{
 					AuthProvider: "opendatahub-auth-provider",
 					AuthConfigLabels: map[string]string{
 						"auth": "enabled",
 					},
-					Gateway: &v1alpha1.GatewayConfig{
+					Gateway: &common.GatewayConfig{
 						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
+						Rest: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
-						Grpc: v1alpha1.ServerConfig{
+						Grpc: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
 					},
@@ -364,7 +365,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 
-				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+				Eventually(validateRegistryOauthProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
@@ -374,27 +375,27 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
 				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
+				modelRegistry.Spec.Istio = &common.IstioConfig{
 					AuthProvider: "opendatahub-auth-provider",
 					AuthConfigLabels: map[string]string{
 						"auth": "enabled",
 					},
-					Gateway: &v1alpha1.GatewayConfig{
+					Gateway: &common.GatewayConfig{
 						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
+						Rest: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
-						Grpc: v1alpha1.ServerConfig{
+						Grpc: common.ServerConfig{
 							GatewayRoute: "enabled",
 						},
 					},
@@ -407,23 +408,23 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				modelRegistryReconciler.IsOpenShift = true
 
-				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+				Eventually(validateRegistryOauthProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			})
 
 			// Oauth Proxy config tests
-			var oauthProxyConfig *v1alpha1.OAuthProxyConfig
+			var oauthProxyConfig *common.OAuthProxyConfig
 			oauthValidate := func() {
 				specInit()
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &common.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &common.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -443,18 +444,18 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using default Oauth Proxy config on openshift", func() {
 				registryName = "model-registry-oauth-proxy"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{}
+				oauthProxyConfig = &common.OAuthProxyConfig{}
 				oauthValidate()
 			})
 
 			It("When using Oauth Proxy with custom certs on openshift", func() {
 				registryName = "model-registry-oauth-certs"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
-					TLSCertificateSecret: &v1alpha1.SecretKeyValue{
+				oauthProxyConfig = &common.OAuthProxyConfig{
+					TLSCertificateSecret: &common.SecretKeyValue{
 						Name: "test-cert-secret",
 						Key:  "test-cert-key",
 					},
-					TLSKeySecret: &v1alpha1.SecretKeyValue{
+					TLSKeySecret: &common.SecretKeyValue{
 						Name: "test-key-secret",
 						Key:  "test-key-key",
 					},
@@ -464,7 +465,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using Oauth Proxy without route config on openshift", func() {
 				registryName = "model-registry-oauth-noroute"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
+				oauthProxyConfig = &common.OAuthProxyConfig{
 					ServiceRoute: config.RouteDisabled,
 				}
 				oauthValidate()
@@ -472,7 +473,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using Oauth Proxy with custom image on openshift", func() {
 				registryName = "model-registry-oauth-image"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
+				oauthProxyConfig = &common.OAuthProxyConfig{
 					Image: "test-proxy-image",
 				}
 				oauthValidate()
@@ -776,46 +777,6 @@ func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.Name
 
 			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-users", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 		}, 5*time.Second, time.Second).Should(Succeed())
-
-		return nil
-	}
-}
-
-func validateRegistryIstio(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
-	return func() error {
-		modelRegistryReconciler.HasIstio = true
-
-		svc := corev1.Service{}
-		svc.Name = "istio"
-		svc.Namespace = typeNamespaceName.Namespace
-		svc.Labels = map[string]string{"istio": config.DefaultIstioIngressName, "istio.io/rev": TestSmcp}
-		svc.Spec.Ports = []corev1.ServicePort{
-			{
-				Name:       "http2",
-				Port:       80,
-				TargetPort: intstr.FromInt(80),
-			},
-			{
-				Name:       "https",
-				Port:       443,
-				TargetPort: intstr.FromInt(443),
-			},
-		}
-
-		err := k8sClient.Create(ctx, &svc)
-		Expect(err).To(Not(HaveOccurred()))
-
-		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
-
-		return nil
-	}
-}
-
-func validateRegistryAuth(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
-	return func() error {
-		modelRegistryReconciler.CreateAuthResources = true
-
-		Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
 
 		return nil
 	}

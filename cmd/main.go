@@ -19,14 +19,17 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
+	"os"
+
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -43,6 +46,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	modelregistryv1alpha2 "github.com/opendatahub-io/model-registry-operator/api/v1alpha2"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
@@ -63,6 +67,7 @@ func init() {
 	utilruntime.Must(networking.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(modelregistryv1alpha2.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -225,7 +230,7 @@ func main() {
 		os.Exit(1)
 	}
 	if enableWebhooks {
-		if err = (&modelregistryv1alpha1.ModelRegistry{}).SetupWebhookWithManager(mgr); err != nil {
+		if err = webhook.SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")
 			os.Exit(1)
 		}

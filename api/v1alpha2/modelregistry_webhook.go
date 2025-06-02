@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	"context"
@@ -37,20 +37,15 @@ var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
 const (
 	// default ports
-	DefaultHttpsPort = 8443
-
-	DefaultTlsMode     = IstioMutualTlsMode
-	IstioMutualTlsMode = "ISTIO_MUTUAL"
+	DefaultHttpPort  = 80
+	DefaultHttpsPort = 443
 
 	tagSeparator = ":"
 	emptyValue   = ""
 )
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 var (
-	_         webhook.Defaulter = &ModelRegistry{}
-	httpsPort int32             = DefaultHttpsPort
+	_ webhook.Defaulter = &ModelRegistry{}
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -67,16 +62,6 @@ func (r *ModelRegistry) Default() {
 	}
 	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
 		r.Spec.MySQL = nil
-	}
-
-	// istio defaults
-	if r.Spec.Istio != nil {
-		modelregistrylog.Info("replacing Istio with Oauth Proxy defaults", "name", r.Name)
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
 	}
 
 	// enable oauth proxy route by default
@@ -133,16 +118,6 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 			r.Spec.Rest.Resources = nil
 		}
 	}
-
-	// reset istio defaults
-	if r.Spec.Istio != nil {
-		// replace istio with oauth proxy defaults
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
-	}
 }
 
 // RuntimeDefaults sets default values from the operator environment, which could change at runtime.
@@ -161,16 +136,6 @@ func (r *ModelRegistry) RuntimeDefaults() {
 	}
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
-	}
-
-	// istio defaults
-	if r.Spec.Istio != nil {
-		// replace istio with oauth proxy defaults
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
 	}
 
 	// oauth proxy defaults

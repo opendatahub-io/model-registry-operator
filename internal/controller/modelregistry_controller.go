@@ -29,6 +29,7 @@ import (
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
+	"github.com/opendatahub-io/model-registry-operator/api/common"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
@@ -350,6 +351,8 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
+
+	log := klog.FromContext(ctx)
 	var result, result2 OperationResult
 
 	var err error
@@ -413,13 +416,7 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 
 	if r.HasIstio {
 		if registry.Spec.Istio != nil {
-			result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
-			if err != nil {
-				return result2, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
+			log.V(1).Info("Istio config is deprecated, use OAuth Proxy instead")
 		} else {
 			result2, err = r.deleteIstioConfig(ctx, params)
 			if err != nil {
@@ -711,7 +708,7 @@ type ModelRegistryParams struct {
 	// gateway route parameters
 	Host           string
 	IngressService *corev1.Service
-	TLS            *modelregistryv1alpha1.TLSServerSettings
+	TLS            *common.TLSServerSettings
 }
 
 // Apply executes given template name with params

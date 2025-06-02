@@ -14,17 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	"github.com/opendatahub-io/model-registry-operator/api/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/conversion"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// +kubebuilder:validation:XValidation:rule="!(has(self.istio) && has(self.oauthProxy))",message="Cannot use both istio and oauthProxy"
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -60,10 +60,6 @@ type ModelRegistrySpec struct {
 	//+optional
 	DowngradeDbSchemaVersion *int64 `json:"downgrade_db_schema_version,omitempty"`
 
-	// Istio servicemesh configuration options
-	//+optional
-	Istio *common.IstioConfig `json:"istio,omitempty"`
-
 	// OpenShift OAuth proxy configuration options
 	//+optional
 	OAuthProxy *common.OAuthProxyConfig `json:"oauthProxy,omitempty"`
@@ -72,10 +68,8 @@ type ModelRegistrySpec struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=mr
 //+kubebuilder:subresource:status
-//+kubebuilder:deprecatedversion:warning="v1alpha1 of the ModelRegistry API is deprecated and will be removed in a future release. Please use v1alpha2 instead."
+//+kubebuilder:storageversion
 //+kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
-//+kubebuilder:printcolumn:name="Istio",type=string,JSONPath=`.status.conditions[?(@.type=="IstioAvailable")].status`,priority=2
-//+kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.status.conditions[?(@.type=="GatewayAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="OAuthProxy",type=string,JSONPath=`.status.conditions[?(@.type=="OAuthProxyAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 //+kubebuilder:printcolumn:name="Hosts",type=string,JSONPath=`.status.hostsStr`,priority=2
@@ -98,3 +92,8 @@ type ModelRegistryList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ModelRegistry `json:"items"`
 }
+
+var _ conversion.Hub = (*ModelRegistry)(nil)
+
+// Hub marks this type as a conversion hub.
+func (*ModelRegistry) Hub() {}
