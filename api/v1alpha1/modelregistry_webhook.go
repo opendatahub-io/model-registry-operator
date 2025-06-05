@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/opendatahub-io/model-registry-operator/api/common"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,11 +35,9 @@ import (
 var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
 const (
-	// default ports
+	// DefaultHttpsPort is the default port number for https
 	DefaultHttpsPort = 8443
-
-	DefaultTlsMode     = IstioMutualTlsMode
-	IstioMutualTlsMode = "ISTIO_MUTUAL"
+	DefaultRoutePort = 443
 
 	tagSeparator = ":"
 	emptyValue   = ""
@@ -49,8 +46,9 @@ const (
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
 var (
-	_         webhook.Defaulter = &ModelRegistry{}
-	httpsPort int32             = DefaultHttpsPort
+	_              webhook.Defaulter = &ModelRegistry{}
+	httpsPort      int32             = DefaultHttpsPort
+	httpsRoutePort int32             = DefaultRoutePort
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -71,12 +69,7 @@ func (r *ModelRegistry) Default() {
 
 	// istio defaults
 	if r.Spec.Istio != nil {
-		modelregistrylog.Info("replacing Istio with Oauth Proxy defaults", "name", r.Name)
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
+		r.ReplaceIstioWithOAuthProxy()
 	}
 
 	// enable oauth proxy route by default
@@ -86,6 +79,32 @@ func (r *ModelRegistry) Default() {
 
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
 	r.CleanupRuntimeDefaults()
+}
+
+func (r *ModelRegistry) ReplaceIstioWithOAuthProxy() {
+	modelregistrylog.Info("replacing Istio with Oauth Proxy defaults", "name", r.Name)
+	r.Spec.OAuthProxy = &OAuthProxyConfig{
+		Port:         &httpsPort,
+		ServiceRoute: config.RouteEnabled,
+		RoutePort:    &httpsRoutePort,
+	}
+	// copy custom domain and route port if set
+	if r.Spec.Istio.Gateway != nil {
+		if r.Spec.Istio.Gateway.Rest.GatewayRoute == config.RouteDisabled {
+			r.Spec.OAuthProxy.ServiceRoute = config.RouteDisabled
+		}
+		if len(r.Spec.Istio.Gateway.Domain) != 0 {
+			r.Spec.OAuthProxy.Domain = r.Spec.Istio.Gateway.Domain
+		}
+		if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.Port != nil {
+			r.Spec.OAuthProxy.RoutePort = r.Spec.Istio.Gateway.Rest.Port
+		}
+	} else {
+		// disable oauth proxy route if istio gateway was disabled
+		r.Spec.OAuthProxy.ServiceRoute = config.RouteDisabled
+	}
+	// MUST remove old istio config
+	r.Spec.Istio = nil
 }
 
 // CleanupRuntimeDefaults removes runtime defaults. Usually on first reconcile, when specDefaults is empty,
@@ -137,11 +156,7 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 	// reset istio defaults
 	if r.Spec.Istio != nil {
 		// replace istio with oauth proxy defaults
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
+		r.ReplaceIstioWithOAuthProxy()
 	}
 }
 
@@ -165,12 +180,8 @@ func (r *ModelRegistry) RuntimeDefaults() {
 
 	// istio defaults
 	if r.Spec.Istio != nil {
-		// replace istio with oauth proxy defaults
-		r.Spec.Istio = nil
-		r.Spec.OAuthProxy = &common.OAuthProxyConfig{
-			Port:         &httpsPort,
-			ServiceRoute: config.RouteEnabled,
-		}
+		// replace deprecated istio config with oauth proxy defaults
+		r.ReplaceIstioWithOAuthProxy()
 	}
 
 	// oauth proxy defaults
@@ -178,11 +189,11 @@ func (r *ModelRegistry) RuntimeDefaults() {
 		// set default cert and key if not provided
 		if r.Spec.OAuthProxy.TLSCertificateSecret == nil {
 			secretName := r.Name + "-oauth-proxy"
-			r.Spec.OAuthProxy.TLSCertificateSecret = &common.SecretKeyValue{
+			r.Spec.OAuthProxy.TLSCertificateSecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.crt",
 			}
-			r.Spec.OAuthProxy.TLSKeySecret = &common.SecretKeyValue{
+			r.Spec.OAuthProxy.TLSKeySecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.key",
 			}

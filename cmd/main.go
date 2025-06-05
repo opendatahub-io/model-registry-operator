@@ -46,7 +46,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	modelregistryv1alpha2 "github.com/opendatahub-io/model-registry-operator/api/v1alpha2"
+	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
@@ -67,7 +67,7 @@ func init() {
 	utilruntime.Must(networking.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(modelregistryv1alpha2.AddToScheme(scheme))
+	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -207,12 +207,6 @@ func main() {
 	// set default values for defaulting webhook
 	config.SetRegistriesNamespace(registriesNamespace)
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
-	config.SetDefaultAudiences(tokenReview.Status.Audiences)
-	config.SetDefaultCert(defaultCert)
-	config.SetDefaultAuthProvider(defaultAuthProvider)
-	config.SetDefaultAuthConfigLabels(defaultAuthConfigLabelsString)
-	config.SetDefaultControlPlane(defaultControlPlane)
-	config.SetDefaultIstioIngress(defaultIstioIngress)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,

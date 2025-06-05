@@ -45,7 +45,7 @@ spec:
       type: string
     deprecated: true
     deprecationWarning: v1alpha1 of the ModelRegistry API is deprecated and will be
-      removed in a future release. Please use v1alpha2 instead.
+      removed in a future release. Please use v1beta1 instead.
     name: v1alpha1
     schema:
       openAPIV3Schema:
@@ -861,7 +861,7 @@ spec:
       name: Status
       priority: 2
       type: string
-    name: v1alpha2
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: ModelRegistry is the Schema for the modelregistries API

@@ -62,13 +62,7 @@ const (
 )
 
 var (
-	defaultAuthConfigLabels    map[string]string
-	defaultAuthProvider        = ""
-	defaultCert                = ""
 	defaultDomain              = ""
-	defaultAudiences           []string
-	defaultIstioIngress        = ""
-	defaultControlPlane        = ""
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
@@ -110,64 +104,6 @@ func ParseTemplates() (*template.Template, error) {
 	return template, err
 }
 
-func SetDefaultAudiences(audiences []string) {
-	defaultAudiences = make([]string, len(audiences))
-	copy(defaultAudiences, audiences)
-}
-
-func GetDefaultAudiences() []string {
-	result := make([]string, len(defaultAudiences))
-	copy(result, defaultAudiences)
-	return result
-}
-
-func SetDefaultAuthProvider(provider string) {
-	defaultAuthProvider = provider
-}
-
-func GetDefaultAuthProvider() string {
-	return defaultAuthProvider
-}
-
-func SetDefaultAuthConfigLabels(labelsStr string) {
-	defaultAuthConfigLabels = getAuthConfigLabels(labelsStr)
-}
-
-func GetDefaultAuthConfigLabels() map[string]string {
-	configLabels := make(map[string]string, len(defaultAuthConfigLabels))
-	for k, v := range defaultAuthConfigLabels {
-		configLabels[k] = v
-	}
-	return configLabels
-}
-
-func SetDefaultCert(cert string) {
-	defaultCert = cert
-}
-
-func GetDefaultCert() string {
-	return defaultCert
-}
-
-func SetDefaultControlPlane(controlPlane string) {
-	defaultControlPlane = controlPlane
-}
-
-func GetDefaultControlPlane() string {
-	return defaultControlPlane
-}
-
-func SetDefaultIstioIngress(istioIngress string) {
-	defaultIstioIngress = istioIngress
-}
-
-func GetDefaultIstioIngress() string {
-	if len(defaultIstioIngress) == 0 {
-		return DefaultIstioIngressName
-	}
-	return defaultIstioIngress
-}
-
 var (
 	defaultClient      client.Client
 	defaultIsOpenShift = false
@@ -207,25 +143,4 @@ func GetDefaultDomain() string {
 		defaultDomain = ingress.Spec.Domain
 	}
 	return defaultDomain
-}
-
-func getAuthConfigLabels(defaultAuthConfigLabelsString string) map[string]string {
-	authConfigLabels := make(map[string]string)
-	if len(defaultAuthConfigLabelsString) != 0 {
-		// split key=value pairs separated by commas
-		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
-		for _, pair := range pairs {
-			// split key value pair
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) > 0 {
-				key := parts[0]
-				var value string
-				if len(parts) > 1 {
-					value = parts[1]
-				}
-				authConfigLabels[key] = value
-			}
-		}
-	}
-	return authConfigLabels
 }

@@ -14,6 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +k8s:deepcopy-gen=package
+// +k8s:conversion-gen=github.com/opendatahub-io/model-registry-operator/api/v1beta1
 
-package common
+package v1alpha1

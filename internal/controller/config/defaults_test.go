@@ -2,11 +2,11 @@ package config_test
 
 import (
 	"fmt"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
 	"testing"
 
 	"github.com/go-logr/logr"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -46,7 +46,7 @@ func TestGetStringConfigWithDefault(t *testing.T) {
 func TestParseTemplates(t *testing.T) {
 	tests := []struct {
 		name    string
-		spec    v1alpha1.ModelRegistrySpec
+		spec    v1beta1.ModelRegistrySpec
 		want    string
 		wantErr bool
 	}{
@@ -85,115 +85,6 @@ func TestParseTemplates(t *testing.T) {
 
 			if result.Namespace != params.Namespace {
 				t.Errorf("ParseTemplates() got = %v, want %v", result.Namespace, params.Namespace)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultAudiences(t *testing.T) {
-	tests := []struct {
-		name      string
-		audiences []string
-	}{
-		{name: "test1", audiences: []string{"audience1", "audience2"}},
-		{name: "test2", audiences: []string{"audience3", "audience4"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultAudiences(tt.audiences)
-			if got := config.GetDefaultAudiences(); len(got) != len(tt.audiences) {
-				t.Errorf("GetDefaultAudiences() = %v, want %v", got, tt.audiences)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultAuthProvider(t *testing.T) {
-	tests := []struct {
-		name     string
-		provider string
-	}{
-		{name: "test1", provider: "provider1"},
-		{name: "test2", provider: "provider2"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultAuthProvider(tt.provider)
-			if got := config.GetDefaultAuthProvider(); got != tt.provider {
-				t.Errorf("GetDefaultAuthProvider() = %v, want %v", got, tt.provider)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultAuthConfigLabels(t *testing.T) {
-	tests := []struct {
-		name   string
-		labels string
-	}{
-		{name: "test1", labels: "label1"},
-		{name: "test2", labels: "label2"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultAuthConfigLabels(tt.labels)
-			if got := config.GetDefaultAuthConfigLabels(); len(got) != 1 {
-				t.Errorf("GetDefaultAuthConfigLabels() = %v, want %v", got, tt.labels)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultCert(t *testing.T) {
-	tests := []struct {
-		name string
-		cert string
-	}{
-		{name: "test1", cert: "cert1"},
-		{name: "test2", cert: "cert2"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultCert(tt.cert)
-			if got := config.GetDefaultCert(); got != tt.cert {
-				t.Errorf("GetDefaultCert() = %v, want %v", got, tt.cert)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultControlPlane(t *testing.T) {
-	tests := []struct {
-		name string
-		want string
-	}{
-		{"empty-control-plane", ""},
-		{"control-plane", "my-smcp"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultControlPlane(tt.want)
-			if got := config.GetDefaultControlPlane(); got != tt.want {
-				t.Errorf("GetDefaultControlPlane() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSetGetDefaultIstioIngress(t *testing.T) {
-	tests := []struct {
-		name string
-		arg  string
-		want string
-	}{
-		{"empty-istio-ingress", "", config.DefaultIstioIngressName},
-		{"istio-ingress", "my-istio-ingress", "my-istio-ingress"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config.SetDefaultIstioIngress(tt.arg)
-			if got := config.GetDefaultIstioIngress(); got != tt.want {
-				t.Errorf("GetDefaultIstioIngress() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2_test
+package v1beta1_test
 
 import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"net"
 	"path/filepath"
@@ -27,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opendatahub-io/model-registry-operator/api/common"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,7 +36,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	admissionv1 "k8s.io/api/admission/v1"
 	//+kubebuilder:scaffold:imports
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
@@ -100,6 +100,8 @@ var _ = BeforeSuite(func() {
 
 	scheme := apimachineryruntime.NewScheme()
 	err = v1alpha1.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = v1beta1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = admissionv1.AddToScheme(scheme)
@@ -179,8 +181,8 @@ var _ = Describe("Model Registry validating webhook", func() {
 
 	It("Should not allow creation of MR instance with invalid database config", func(ctx context.Context) {
 		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
-		mr.Spec = v1alpha1.ModelRegistrySpec{
-			MySQL: &common.MySQLConfig{},
+		mr.Spec = v1beta1.ModelRegistrySpec{
+			MySQL: &v1beta1.MySQLConfig{},
 		}
 
 		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
@@ -190,8 +192,8 @@ var _ = Describe("Model Registry validating webhook", func() {
 		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
 		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 
-		mr.Spec = v1alpha1.ModelRegistrySpec{
-			MySQL: &common.MySQLConfig{},
+		mr.Spec = v1beta1.ModelRegistrySpec{
+			MySQL: &v1beta1.MySQLConfig{},
 		}
 
 		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
@@ -208,50 +210,34 @@ var _ = Describe("Model Registry validating webhook", func() {
 		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
 	})
 
-	It("Should support creating MR instance with Istio configured", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.Istio = &common.IstioConfig{}
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
-	})
-
 	It("Should support creating MR instance with OAuth Proxy configured", func(ctx context.Context) {
 		config.SetRegistriesNamespace(namespaceBase)
 		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.OAuthProxy = &common.OAuthProxyConfig{}
+		mr.Spec.OAuthProxy = &v1beta1.OAuthProxyConfig{}
 		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
 	})
-
-	It("Should not allow creating MR instance with both Istio and OAuth Proxy set", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.Istio = &common.IstioConfig{}
-		mr.Spec.OAuthProxy = &common.OAuthProxyConfig{}
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
-	})
 })
 
-func newModelRegistry(ctx context.Context, name string, namespace string) *v1alpha1.ModelRegistry {
+func newModelRegistry(ctx context.Context, name string, namespace string) *v1beta1.ModelRegistry {
 	// create test namespace
 	Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: namespace},
 	}))).Should(Succeed())
 
 	// return
-	return &v1alpha1.ModelRegistry{
+	return &v1beta1.ModelRegistry{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha1.ModelRegistrySpec{
-			Rest: common.RestSpec{},
-			Grpc: common.GrpcSpec{},
-			MySQL: &common.MySQLConfig{
+		Spec: v1beta1.ModelRegistrySpec{
+			Rest: v1beta1.RestSpec{},
+			Grpc: v1beta1.GrpcSpec{},
+			MySQL: &v1beta1.MySQLConfig{
 				Host:     "test-db",
 				Username: "test-user",
-				PasswordSecret: &common.SecretKeyValue{
+				PasswordSecret: &v1beta1.SecretKeyValue{
 					Name: "test-secret",
 					Key:  "test-key",
 				},
@@ -260,3 +246,149 @@ func newModelRegistry(ctx context.Context, name string, namespace string) *v1alp
 		},
 	}
 }
+
+var _ = Describe("ModelRegistry Conversion Webhook", func() {
+	var (
+		oldObj               *v1alpha1.ModelRegistry
+		expectedObj          *v1beta1.ModelRegistry
+		expectedConvertedObj *v1alpha1.ModelRegistry
+		key                  client.ObjectKey
+		testNamespace        corev1.Namespace
+	)
+
+	BeforeEach(func(ctx context.Context) {
+		httpsPort := int32(v1alpha1.DefaultHttpsPort)
+		httpsRoutePort := int32(v1alpha1.DefaultRoutePort)
+
+		oldObj = &v1alpha1.ModelRegistry{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-v1alpha1-mr",
+				Namespace: namespaceBase,
+			},
+			Spec: v1alpha1.ModelRegistrySpec{
+				Rest: v1alpha1.RestSpec{},
+				Grpc: v1alpha1.GrpcSpec{},
+				MySQL: &v1alpha1.MySQLConfig{
+					Host:     "test-db",
+					Username: "test-user",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "test-secret",
+						Key:  "test-key",
+					},
+					Database: "test-db",
+				},
+				Istio: &v1alpha1.IstioConfig{
+					Gateway: &v1alpha1.GatewayConfig{
+						Rest: v1alpha1.ServerConfig{TLS: &v1alpha1.TLSServerSettings{}},
+						Grpc: v1alpha1.ServerConfig{TLS: &v1alpha1.TLSServerSettings{}},
+					},
+				},
+			},
+		}
+		restPort := int32(8080)
+		grpcPort := int32(9090)
+		mysqlPort := int32(3306)
+		expectedObj = &v1beta1.ModelRegistry{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-v1alpha1-mr",
+				Namespace: namespaceBase,
+			},
+			Spec: v1beta1.ModelRegistrySpec{
+				Rest: v1beta1.RestSpec{
+					Port:         &restPort,
+					ServiceRoute: config.RouteDisabled,
+				},
+				Grpc: v1beta1.GrpcSpec{
+					Port: &grpcPort,
+				},
+				MySQL: &v1beta1.MySQLConfig{
+					Host:     "test-db",
+					Port:     &mysqlPort,
+					Username: "test-user",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "test-secret",
+						Key:  "test-key",
+					},
+					Database: "test-db",
+				},
+				OAuthProxy: &v1beta1.OAuthProxyConfig{
+					Port:         &httpsPort,
+					ServiceRoute: config.RouteEnabled,
+					RoutePort:    &httpsRoutePort,
+				},
+			},
+		}
+		expectedConvertedObj = &v1alpha1.ModelRegistry{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-v1alpha1-mr",
+				Namespace: namespaceBase,
+			},
+			Spec: v1alpha1.ModelRegistrySpec{
+				Rest: v1alpha1.RestSpec{
+					Port:         &restPort,
+					ServiceRoute: config.RouteDisabled,
+				},
+				Grpc: v1alpha1.GrpcSpec{
+					Port: &grpcPort,
+				},
+				MySQL: &v1alpha1.MySQLConfig{
+					Host:     "test-db",
+					Port:     &mysqlPort,
+					Username: "test-user",
+					PasswordSecret: &v1alpha1.SecretKeyValue{
+						Name: "test-secret",
+						Key:  "test-key",
+					},
+					Database: "test-db",
+				},
+				OAuthProxy: &v1alpha1.OAuthProxyConfig{
+					Port:         &httpsPort,
+					ServiceRoute: config.RouteEnabled,
+					RoutePort:    &httpsRoutePort,
+				},
+			},
+		}
+		key = client.ObjectKey{Namespace: oldObj.Namespace, Name: oldObj.Name}
+		testNamespace = corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: namespaceBase},
+		}
+
+		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
+		Expect(expectedObj).NotTo(BeNil(), "Expected expectedObj to be initialized")
+
+		// create test namespace
+		config.SetRegistriesNamespace(namespaceBase)
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &testNamespace))).Should(Succeed())
+
+		// create oldObj
+		Expect(k8sClient.Create(ctx, oldObj)).To(Succeed())
+	})
+
+	AfterEach(func(ctx context.Context) {
+		// remove oldObj and test namespace
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, oldObj))).Should(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &testNamespace))).Should(Succeed())
+	})
+
+	Context("When creating ModelRegistry under Conversion Webhook", func() {
+		It("Should convert model registry v1alpha1 to v1beta1 and back correctly", func(ctx context.Context) {
+
+			// from v1alpha1 to v1beta1
+			newObj := v1beta1.ModelRegistry{}
+			Expect(k8sClient.Get(ctx, key, &newObj)).To(Succeed())
+			Expect(newObj).ToNot(BeNil())
+			Expect(newObj.GetObjectKind()).To(Equal(expectedObj.GetObjectKind()))
+			Expect(newObj.Spec).To(Equal(expectedObj.Spec))
+
+			// from v1beta1 back to v1alpha1
+			oldConvertedObj := v1alpha1.ModelRegistry{}
+			Expect(k8sClient.Get(ctx, key, &oldConvertedObj)).To(Succeed())
+			Expect(oldConvertedObj).ToNot(BeNil())
+			Expect(oldConvertedObj.GetObjectKind()).To(Equal(expectedConvertedObj.GetObjectKind()))
+			Expect(oldConvertedObj.Spec).To(Equal(expectedConvertedObj.Spec))
+
+			Expect(k8sClient.Delete(ctx, oldObj)).To(Succeed())
+		})
+	})
+
+})

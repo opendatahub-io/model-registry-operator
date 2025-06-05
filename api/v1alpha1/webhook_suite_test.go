@@ -20,15 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	webhook2 "github.com/opendatahub-io/model-registry-operator/internal/webhook"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
+	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"net"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
 
-	"github.com/opendatahub-io/model-registry-operator/api/common"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	corev1 "k8s.io/api/core/v1"
@@ -102,6 +102,8 @@ var _ = BeforeSuite(func() {
 	scheme := apimachineryruntime.NewScheme()
 	err = v1alpha1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = v1beta1.AddToScheme(scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	err = admissionv1.AddToScheme(scheme)
 	Expect(err).NotTo(HaveOccurred())
@@ -129,7 +131,7 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
-	err = webhook2.SetupWebhookWithManager(mgr)
+	err = mrwebhook.SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:webhook
@@ -190,7 +192,7 @@ var _ = Describe("Model Registry validating webhook", func() {
 		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 
 		mr.Spec = v1alpha1.ModelRegistrySpec{
-			MySQL: &common.MySQLConfig{},
+			MySQL: &v1alpha1.MySQLConfig{},
 		}
 
 		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
@@ -210,7 +212,7 @@ var _ = Describe("Model Registry validating webhook", func() {
 	It("Should support creating MR instance with Istio configured", func(ctx context.Context) {
 		config.SetRegistriesNamespace(namespaceBase)
 		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.Istio = &common.IstioConfig{}
+		mr.Spec.Istio = &v1alpha1.IstioConfig{}
 		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
 	})
@@ -218,17 +220,9 @@ var _ = Describe("Model Registry validating webhook", func() {
 	It("Should support creating MR instance with OAuth Proxy configured", func(ctx context.Context) {
 		config.SetRegistriesNamespace(namespaceBase)
 		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.OAuthProxy = &common.OAuthProxyConfig{}
+		mr.Spec.OAuthProxy = &v1alpha1.OAuthProxyConfig{}
 		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
-	})
-
-	It("Should not allow creating MR instance with both Istio and OAuth Proxy set", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.Istio = &common.IstioConfig{}
-		mr.Spec.OAuthProxy = &common.OAuthProxyConfig{}
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
 	})
 })
 
@@ -245,12 +239,12 @@ func newModelRegistry(ctx context.Context, name string, namespace string) *v1alp
 			Namespace: namespace,
 		},
 		Spec: v1alpha1.ModelRegistrySpec{
-			Rest: common.RestSpec{},
-			Grpc: common.GrpcSpec{},
-			MySQL: &common.MySQLConfig{
+			Rest: v1alpha1.RestSpec{},
+			Grpc: v1alpha1.GrpcSpec{},
+			MySQL: &v1alpha1.MySQLConfig{
 				Host:     "test-db",
 				Username: "test-user",
-				PasswordSecret: &common.SecretKeyValue{
+				PasswordSecret: &v1alpha1.SecretKeyValue{
 					Name: "test-secret",
 					Key:  "test-key",
 				},

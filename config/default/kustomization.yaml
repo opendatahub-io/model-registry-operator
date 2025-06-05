@@ -23,7 +23,7 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
-- ../webhook
+#- ../webhook
 #- ../prometheus
 
 # Protect the /metrics endpoint by putting it behind auth.

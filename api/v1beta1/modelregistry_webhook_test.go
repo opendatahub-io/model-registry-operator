@@ -1,16 +1,12 @@
-package v1alpha2_test
+package v1beta1_test
 
 import (
 	"reflect"
 	"testing"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/opendatahub-io/model-registry-operator/api/common"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha2"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 )
 
@@ -23,28 +19,28 @@ func TestValidateNamespace(t *testing.T) {
 	tests := []struct {
 		name                string
 		registriesNamespace string
-		registry            *v1alpha1.ModelRegistry
+		registry            *v1beta1.ModelRegistry
 		wantErr             bool
 	}{
 		{"empty registries namespace", "",
-			&v1alpha1.ModelRegistry{
+			&v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
-				Spec: v1alpha1.ModelRegistrySpec{
-					MySQL: &common.MySQLConfig{},
+				Spec: v1beta1.ModelRegistrySpec{
+					MySQL: &v1beta1.MySQLConfig{},
 				}},
 			false},
 		{"valid registries namespace", "test-ns",
-			&v1alpha1.ModelRegistry{
+			&v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
-				Spec: v1alpha1.ModelRegistrySpec{
-					MySQL: &common.MySQLConfig{},
+				Spec: v1beta1.ModelRegistrySpec{
+					MySQL: &v1beta1.MySQLConfig{},
 				}},
 			false},
 		{"invalid registries namespace", "test-ns",
-			&v1alpha1.ModelRegistry{
+			&v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Namespace: "not-test-ns"},
-				Spec: v1alpha1.ModelRegistrySpec{
-					MySQL: &common.MySQLConfig{},
+				Spec: v1beta1.ModelRegistrySpec{
+					MySQL: &v1beta1.MySQLConfig{},
 				}},
 			true},
 	}
@@ -69,26 +65,26 @@ func TestValidateNamespace(t *testing.T) {
 func TestValidateDatabase(t *testing.T) {
 	tests := []struct {
 		name    string
-		mrSpec  *v1alpha1.ModelRegistry
+		mrSpec  *v1beta1.ModelRegistry
 		wantErr bool
 	}{
 		{
 			name: "valid - mysql",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				MySQL: &common.MySQLConfig{},
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				MySQL: &v1beta1.MySQLConfig{},
 			}},
 			wantErr: false,
 		},
 		{
 			name: "valid - postgres",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Postgres: &common.PostgresConfig{},
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				Postgres: &v1beta1.PostgresConfig{},
 			}},
 			wantErr: false,
 		},
 		{
 			name:    "invalid - missing databases",
-			mrSpec:  &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{}},
+			mrSpec:  &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{}},
 			wantErr: true,
 		},
 	}
@@ -111,21 +107,21 @@ func TestValidateDatabase(t *testing.T) {
 func TestDefault(t *testing.T) {
 	tests := []struct {
 		name       string
-		mrSpec     *v1alpha1.ModelRegistry
-		wantMrSpec *v1alpha1.ModelRegistry
+		mrSpec     *v1beta1.ModelRegistry
+		wantMrSpec *v1beta1.ModelRegistry
 	}{
 		{
 			name: "set default values",
-			mrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Rest:     common.RestSpec{},
-					Postgres: &common.PostgresConfig{},
-					MySQL:    &common.MySQLConfig{},
+			mrSpec: &v1beta1.ModelRegistry{
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest:     v1beta1.RestSpec{},
+					Postgres: &v1beta1.PostgresConfig{},
+					MySQL:    &v1beta1.MySQLConfig{},
 				},
 			},
-			wantMrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Rest: common.RestSpec{
+			wantMrSpec: &v1beta1.ModelRegistry{
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
 						ServiceRoute: config.RouteDisabled,
 					},
 					Postgres: nil,
@@ -150,30 +146,30 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		mrSpec     *v1alpha1.ModelRegistry
-		wantMrSpec *v1alpha1.ModelRegistry
+		mrSpec     *v1beta1.ModelRegistry
+		wantMrSpec *v1beta1.ModelRegistry
 	}{
 		{
 			name: "cleanup runtime default values",
-			mrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Rest: common.RestSpec{
+			mrSpec: &v1beta1.ModelRegistry{
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
 						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
-					Grpc: common.GrpcSpec{
+					Grpc: v1beta1.GrpcSpec{
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
 						Image:     config.DefaultGrpcImage,
 					},
 				},
 			},
-			wantMrSpec: &v1alpha1.ModelRegistry{
-				Spec: v1alpha1.ModelRegistrySpec{
-					Rest: common.RestSpec{
+			wantMrSpec: &v1beta1.ModelRegistry{
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
 						Resources: nil,
 						Image:     "",
 					},
-					Grpc: common.GrpcSpec{
+					Grpc: v1beta1.GrpcSpec{
 						Resources: nil,
 						Image:     "",
 					},
@@ -197,34 +193,34 @@ func TestRuntimeDefaults(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		mrSpec     *v1alpha1.ModelRegistry
-		wantMrSpec *v1alpha1.ModelRegistry
+		mrSpec     *v1beta1.ModelRegistry
+		wantMrSpec *v1beta1.ModelRegistry
 	}{
 		{
 			name: "set runtime default values for oauth proxy config",
-			mrSpec: &v1alpha1.ModelRegistry{
+			mrSpec: &v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: v1alpha1.ModelRegistrySpec{
-					OAuthProxy: &common.OAuthProxyConfig{},
+				Spec: v1beta1.ModelRegistrySpec{
+					OAuthProxy: &v1beta1.OAuthProxyConfig{},
 				},
 			},
-			wantMrSpec: &v1alpha1.ModelRegistry{
+			wantMrSpec: &v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
-				Spec: v1alpha1.ModelRegistrySpec{
-					Grpc: common.GrpcSpec{
+				Spec: v1beta1.ModelRegistrySpec{
+					Grpc: v1beta1.GrpcSpec{
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
 						Image:     config.DefaultGrpcImage,
 					},
-					Rest: common.RestSpec{
+					Rest: v1beta1.RestSpec{
 						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
-					OAuthProxy: &common.OAuthProxyConfig{
-						TLSCertificateSecret: &common.SecretKeyValue{
+					OAuthProxy: &v1beta1.OAuthProxyConfig{
+						TLSCertificateSecret: &v1beta1.SecretKeyValue{
 							Name: "default-oauth-proxy",
 							Key:  "tls.crt",
 						},
-						TLSKeySecret: &common.SecretKeyValue{
+						TLSKeySecret: &v1beta1.SecretKeyValue{
 							Name: "default-oauth-proxy",
 							Key:  "tls.key",
 						},
@@ -250,34 +246,4 @@ func setupDefaults(t testing.TB) {
 	t.Helper()
 
 	config.SetDefaultDomain(domain, k8sClient, false)
-	config.SetDefaultCert(certName)
 }
-
-var _ = Describe("ModelRegistry Webhook", func() {
-	var (
-		obj    *v1alpha2.ModelRegistry
-		oldObj *v1alpha1.ModelRegistry
-	)
-
-	BeforeEach(func() {
-		obj = &v1alpha2.ModelRegistry{}
-		oldObj = &v1alpha1.ModelRegistry{}
-		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
-		Expect(obj).NotTo(BeNil(), "Expected obj to be initialized")
-		// TODO (user): Add any setup logic common to all tests
-	})
-
-	AfterEach(func() {
-		// TODO (user): Add any teardown logic common to all tests
-	})
-
-	Context("When creating ModelRegistry under Conversion Webhook", func() {
-		// TODO (user): Add logic to convert the object to the desired version and verify the conversion
-		It("Should convert model registry v1alpha1 to v1alpha2 correctly", func() {
-			convertedObj := &v1alpha2.ModelRegistry{}
-			Expect(oldObj.ConvertTo(convertedObj)).To(Succeed())
-			Expect(convertedObj).ToNot(BeNil())
-		})
-	})
-
-})

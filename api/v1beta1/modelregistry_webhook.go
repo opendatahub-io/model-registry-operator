@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package v1beta1
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/opendatahub-io/model-registry-operator/api/common"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -143,11 +142,11 @@ func (r *ModelRegistry) RuntimeDefaults() {
 		// set default cert and key if not provided
 		if r.Spec.OAuthProxy.TLSCertificateSecret == nil {
 			secretName := r.Name + "-oauth-proxy"
-			r.Spec.OAuthProxy.TLSCertificateSecret = &common.SecretKeyValue{
+			r.Spec.OAuthProxy.TLSCertificateSecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.crt",
 			}
-			r.Spec.OAuthProxy.TLSKeySecret = &common.SecretKeyValue{
+			r.Spec.OAuthProxy.TLSKeySecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.key",
 			}
