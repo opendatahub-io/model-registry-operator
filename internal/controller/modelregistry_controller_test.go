@@ -49,8 +49,6 @@ import (
 
 const DescriptionPrefix = "Test Registry "
 
-var TestSmcp = "test-smcp"
-
 var _ = Describe("ModelRegistry controller", func() {
 
 	Context("ModelRegistry controller test", func() {
@@ -75,12 +73,6 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = os.Setenv(config.RestImage, config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
-				Expect(err).To(Not(HaveOccurred()))
-
-				By("Setting the Istio ENV VARs which store istio config")
-				err = os.Setenv(config.DefaultControlPlane, TestSmcp)
-				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv(config.DefaultIstioIngress, config.DefaultIstioIngressName)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 

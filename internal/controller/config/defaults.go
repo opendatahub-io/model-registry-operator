@@ -50,15 +50,10 @@ const (
 	DefaultIstioIngressName = "ingressgateway"
 
 	// config env variables
-	RegistriesNamespace     = "REGISTRIES_NAMESPACE"
-	EnableWebhooks          = "ENABLE_WEBHOOKS"
-	CreateAuthResources     = "CREATE_AUTH_RESOURCES"
-	DefaultDomain           = "DEFAULT_DOMAIN"
-	DefaultCert             = "DEFAULT_CERT"
-	DefaultAuthProvider     = "DEFAULT_AUTH_PROVIDER"
-	DefaultAuthConfigLabels = "DEFAULT_AUTH_CONFIG_LABELS"
-	DefaultControlPlane     = "DEFAULT_CONTROL_PLANE"
-	DefaultIstioIngress     = "DEFAULT_ISTIO_INGRESS"
+	RegistriesNamespace = "REGISTRIES_NAMESPACE"
+	EnableWebhooks      = "ENABLE_WEBHOOKS"
+	CreateAuthResources = "CREATE_AUTH_RESOURCES"
+	DefaultDomain       = "DEFAULT_DOMAIN"
 )
 
 var (

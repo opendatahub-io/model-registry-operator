@@ -191,18 +191,7 @@ func main() {
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
-	defaultCert := os.Getenv(config.DefaultCert)
-	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
-
-	// default auth env variables
-	defaultAuthProvider := os.Getenv(config.DefaultAuthProvider)
-	defaultAuthConfigLabelsString := os.Getenv(config.DefaultAuthConfigLabels)
-	setupLog.Info("default registry authorino config", config.DefaultAuthProvider, defaultAuthProvider, config.DefaultAuthConfigLabels, defaultAuthConfigLabelsString)
-
-	// default smcp env variables
-	defaultControlPlane := os.Getenv(config.DefaultControlPlane)
-	defaultIstioIngress := os.Getenv(config.DefaultIstioIngress)
-	setupLog.Info("default registry istio config", config.DefaultControlPlane, defaultControlPlane, config.DefaultIstioIngress, defaultIstioIngress)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
 
 	// set default values for defaulting webhook
 	config.SetRegistriesNamespace(registriesNamespace)

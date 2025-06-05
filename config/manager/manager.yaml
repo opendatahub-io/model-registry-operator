@@ -87,12 +87,6 @@ spec:
             value: ""
           - name: DEFAULT_DOMAIN
             value: ""
-          - name: DEFAULT_CERT
-            value: ""
-          - name: DEFAULT_AUTH_PROVIDER
-            value: ""
-          - name: DEFAULT_AUTH_CONFIG_LABELS
-            value: ""
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
