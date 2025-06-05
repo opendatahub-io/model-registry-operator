@@ -180,8 +180,8 @@ GOVULNCHECK_VERSION ?= v1.1.3
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
-CONTROLLER_TOOLS_VERSION ?= v0.18.0
-CONVERSION_GEN_VERSION ?= v0.33.1
+CONTROLLER_TOOLS_VERSION ?= v0.17.3
+CONVERSION_GEN_VERSION ?= v0.32.4
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
