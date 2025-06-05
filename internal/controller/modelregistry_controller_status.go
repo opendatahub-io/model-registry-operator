@@ -370,12 +370,12 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 				routeAvailable := make(map[string]bool)
 				routeMessage := make(map[string]string)
 				r.CheckRouteIngressConditions(&routeList, true, routeAvailable, routeMessage)
-				routeName := routeList.Items[0].Name
-				routeType := routeName[strings.LastIndex(routeName, "-")+1:]
+				routeName := modelRegistry.Name + "-https"
+				routeType := "https"
 				if !routeAvailable[routeType] {
 					status2 = metav1.ConditionFalse
 					reason2 = ReasonResourcesUnavailable
-					message = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeName])
+					message2 = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
 				}
 			}
 		}

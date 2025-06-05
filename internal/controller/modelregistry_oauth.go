@@ -92,7 +92,7 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 }
 
 func (r *ModelRegistryReconciler) deleteOAuthClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
-	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator", Namespace: params.Namespace}}
+	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator"}}
 	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
 }
 
