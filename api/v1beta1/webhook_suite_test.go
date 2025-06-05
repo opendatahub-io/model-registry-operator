@@ -365,9 +365,8 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 	})
 
 	AfterEach(func(ctx context.Context) {
-		// remove oldObj and test namespace
+		// remove oldObj
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, oldObj))).Should(Succeed())
-		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &testNamespace))).Should(Succeed())
 	})
 
 	Context("When creating ModelRegistry under Conversion Webhook", func() {

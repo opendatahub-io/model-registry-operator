@@ -367,11 +367,12 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 					// log K8s error
 					r.Log.Error(err, "failed to get oauth proxy route")
 				}
-				var routeAvailable map[string]bool
-				var routeMessage map[string]string
+				routeAvailable := make(map[string]bool)
+				routeMessage := make(map[string]string)
 				r.CheckRouteIngressConditions(&routeList, true, routeAvailable, routeMessage)
 				routeName := routeList.Items[0].Name
-				if !routeAvailable[routeName] {
+				routeType := routeName[strings.LastIndex(routeName, "-")+1:]
+				if !routeAvailable[routeType] {
 					status2 = metav1.ConditionFalse
 					reason2 = ReasonResourcesUnavailable
 					message = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeName])
