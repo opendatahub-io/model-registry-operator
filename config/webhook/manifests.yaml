@@ -5,19 +5,22 @@ metadata:
   name: mutating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
-  - v1
+  - v1beta1
+  - v1alpha1
   clientConfig:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-modelregistry-opendatahub-io-v1alpha1-modelregistry
+      path: /mutate-modelregistry-opendatahub-io-modelregistry
   failurePolicy: Fail
+  matchPolicy: Equivalent
   name: mmodelregistry.opendatahub.io
   rules:
   - apiGroups:
     - modelregistry.opendatahub.io
     apiVersions:
     - v1alpha1
+    - v1beta1
     operations:
     - CREATE
     - UPDATE
@@ -31,19 +34,22 @@ metadata:
   name: validating-webhook-configuration
 webhooks:
 - admissionReviewVersions:
-  - v1
+  - v1beta1
+  - v1alpha1
   clientConfig:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-modelregistry-opendatahub-io-v1alpha1-modelregistry
+      path: /validate-modelregistry-opendatahub-io-modelregistry
   failurePolicy: Fail
+  matchPolicy: Equivalent
   name: vmodelregistry.opendatahub.io
   rules:
   - apiGroups:
     - modelregistry.opendatahub.io
     apiVersions:
     - v1alpha1
+    - v1beta1
     operations:
     - CREATE
     - UPDATE

@@ -29,7 +29,7 @@ import (
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
@@ -87,7 +87,7 @@ type ModelRegistryReconciler struct {
 func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
-	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
+	modelRegistry := &v1beta1.ModelRegistry{}
 	err := r.Get(ctx, req.NamespacedName, modelRegistry)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -190,12 +190,10 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// set defaults and validate if not using webhooks
 	if !r.EnableWebhooks {
 		modelRegistry.Default()
-		if !isMarkedToBeDeleted {
-			_, err = modelRegistry.ValidateRegistry()
-			if err != nil {
-				log.Error(err, "validate registry error")
-				return ctrl.Result{}, err
-			}
+		_, err = modelRegistry.ValidateRegistry()
+		if err != nil {
+			log.Error(err, "validate registry error")
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -239,7 +237,7 @@ func IgnoreDeletingErrors(err error) error {
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
-		For(&modelregistryv1alpha1.ModelRegistry{}).
+		For(&v1beta1.ModelRegistry{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&appsv1.Deployment{}).
@@ -349,7 +347,9 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
-func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *modelregistryv1alpha1.ModelRegistry) (OperationResult, error) {
+func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) (OperationResult, error) {
+
+	//log := klog.FromContext(ctx)
 	var result, result2 OperationResult
 
 	var err error
@@ -412,23 +412,18 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	}
 
 	if r.HasIstio {
-		if registry.Spec.Istio != nil {
-			result2, err = r.createOrUpdateIstioConfig(ctx, params, registry)
-			if err != nil {
-				return result2, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
-		} else {
-			result2, err = r.deleteIstioConfig(ctx, params)
-			if err != nil {
-				return result2, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
+		// TODO check registry type and convert on reconcile up top!!!
+		//if registry.Spec.Istio != nil {
+		//	log.V(1).Info("Istio config is deprecated, use OAuth Proxy instead")
+		//} else {
+		result2, err = r.deleteIstioConfig(ctx, params)
+		if err != nil {
+			return result2, err
 		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+		//}
 	}
 
 	// create or update oauth proxy config if enabled, delete if disabled
@@ -444,7 +439,7 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var roleBinding rbac.RoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
@@ -462,7 +457,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoleBinding(ctx context.Context,
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateClusterRoleBinding(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	_ *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var roleBinding rbac.ClusterRoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
@@ -473,7 +468,7 @@ func (r *ModelRegistryReconciler) createOrUpdateClusterRoleBinding(ctx context.C
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateNetworkPolicy(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var networkPolicy networkingv1.NetworkPolicy
 	if err = r.Apply(params, templateName, &networkPolicy); err != nil {
@@ -487,7 +482,7 @@ func (r *ModelRegistryReconciler) createOrUpdateNetworkPolicy(ctx context.Contex
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var role rbac.Role
 	if err = r.Apply(params, templateName, &role); err != nil {
@@ -505,7 +500,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, params *ModelRegistryParams,
-	_ *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	_ *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var group userv1.Group
 	if err = r.Apply(params, templateName, &group); err != nil {
@@ -520,7 +515,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, param
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err = r.Apply(params, templateName, &deployment); err != nil {
@@ -538,7 +533,7 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string, serviceRoute string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string, serviceRoute string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var route routev1.Route
 	if err = r.Apply(params, templateName, &route); err != nil {
@@ -564,7 +559,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, param
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateService(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var service corev1.Service
 	if err = r.Apply(params, templateName, &service); err != nil {
@@ -595,7 +590,7 @@ func (r *ModelRegistryReconciler) createOrUpdateService(ctx context.Context, par
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var sa corev1.ServiceAccount
 	if err = r.Apply(params, templateName, &sa); err != nil {
@@ -672,7 +667,7 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 }
 
 // finalizeMemcached will perform the required operations before delete the CR.
-func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry) error {
+func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx context.Context, registry *v1beta1.ModelRegistry) error {
 	// TODO(user): Add the cleanup steps that the operator
 	// needs to do before the CR can be deleted. Examples
 	// of finalizers include performing backups and deleting
@@ -705,13 +700,13 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 type ModelRegistryParams struct {
 	Name         string
 	Namespace    string
-	Spec         *modelregistryv1alpha1.ModelRegistrySpec
-	OriginalSpec *modelregistryv1alpha1.ModelRegistrySpec
+	Spec         *v1beta1.ModelRegistrySpec
+	OriginalSpec *v1beta1.ModelRegistrySpec
 
 	// gateway route parameters
 	Host           string
 	IngressService *corev1.Service
-	TLS            *modelregistryv1alpha1.TLSServerSettings
+	//TLS            *common.TLSServerSettings
 }
 
 // Apply executes given template name with params
@@ -728,7 +723,7 @@ func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateNam
 	return nil
 }
 
-func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alpha1.ModelRegistry, result OperationResult) {
+func (r *ModelRegistryReconciler) logResultAsEvent(registry *v1beta1.ModelRegistry, result OperationResult) {
 	switch result {
 	case ResourceCreated:
 		r.Recorder.Event(registry, "Normal", "ServiceCreated",
@@ -745,7 +740,7 @@ func (r *ModelRegistryReconciler) logResultAsEvent(registry *modelregistryv1alph
 	}
 }
 
-func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, registry *modelregistryv1alpha1.ModelRegistry, result ctrl.Result, err error) (ctrl.Result, error) {
+func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, registry *v1beta1.ModelRegistry, result ctrl.Result, err error) (ctrl.Result, error) {
 	if err != nil {
 		// set Available condition to false, and message to err message
 		meta.SetStatusCondition(&registry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,

@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -29,7 +29,7 @@ import (
 )
 
 func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context, params *ModelRegistryParams,
-	registry *modelregistryv1alpha1.ModelRegistry) (result OperationResult, err error) {
+	registry *v1beta1.ModelRegistry) (result OperationResult, err error) {
 
 	result = ResourceUnchanged
 
@@ -92,7 +92,7 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 }
 
 func (r *ModelRegistryReconciler) deleteOAuthClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
-	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator", Namespace: params.Namespace}}
+	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator"}}
 	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
 }
 

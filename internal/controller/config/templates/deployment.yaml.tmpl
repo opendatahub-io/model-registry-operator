@@ -24,16 +24,8 @@ spec:
       labels:
         app: {{.Name}}
         component: model-registry
-        sidecar.istio.io/inject: {{with .Spec.Istio}}"true"{{else}}"false"{{end}}
       annotations:
         openshift.io/required-scc: restricted-v2
-        {{- if .Spec.Istio}}
-        {{- if .Spec.Postgres}}
-        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.Postgres.Port}}
-        {{- else if .Spec.MySQL}}
-        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.MySQL.Port}}
-        {{- end}}
-        {{- end}}
     spec:
       securityContext:
         seccompProfile:

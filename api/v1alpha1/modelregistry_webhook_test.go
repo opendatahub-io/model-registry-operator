@@ -1,12 +1,12 @@
 package v1alpha1_test
 
 import (
-	"fmt"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"reflect"
 	"testing"
 
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 )
 
@@ -17,10 +17,10 @@ var (
 	authProvider   = "test-auth-provider"
 	authLabelKey   = "test-auth-labels"
 	authLabelValue = "true"
-	authLabel      = fmt.Sprintf("%s=%s", authLabelKey, authLabelValue)
-	domain         = "example.com"
-	controlPlane   = "test-smcp"
-	istioIngress   = config.DefaultIstioIngressName
+
+	domain       = "example.com"
+	controlPlane = "test-smcp"
+	istioIngress = config.DefaultIstioIngressName
 )
 
 func TestValidateNamespace(t *testing.T) {
@@ -112,122 +112,9 @@ func TestValidateDatabase(t *testing.T) {
 	}
 }
 
-func TestValidateIstioConfig(t *testing.T) {
-	defaultIstioIngress := config.DefaultIstioIngressName
-	tests := []struct {
-		name    string
-		mrSpec  *v1alpha1.ModelRegistry
-		wantErr bool
-	}{
-		{
-			name: "invalid - istio missing authProvider",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "invalid - istio missing authConfigLabels",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{AuthProvider: "istio"},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "invalid - istio gateway missing domain",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{
-					AuthProvider:     "istio",
-					AuthConfigLabels: map[string]string{"auth": "enabled"},
-					Gateway: &v1alpha1.GatewayConfig{
-						IstioIngress: &defaultIstioIngress,
-					},
-				},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "invalid - istio gateway missing istioIngress",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{
-					AuthProvider:     "istio",
-					AuthConfigLabels: map[string]string{"auth": "enabled"},
-					Gateway:          &v1alpha1.GatewayConfig{},
-				},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "invalid - istio gateway rest custom TLS missing credentials",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{
-					AuthProvider:     "istio",
-					AuthConfigLabels: map[string]string{"auth": "enabled"},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain:       "test.com",
-						IstioIngress: &defaultIstioIngress,
-						Rest: v1alpha1.ServerConfig{
-							TLS: &v1alpha1.TLSServerSettings{
-								Mode: "SIMPLE",
-							},
-						},
-					},
-				},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "invalid - istio gateway grpc custom TLS missing credentials",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{
-					AuthProvider:     "istio",
-					AuthConfigLabels: map[string]string{"auth": "enabled"},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain:       "test.com",
-						IstioIngress: &defaultIstioIngress,
-						Grpc: v1alpha1.ServerConfig{
-							TLS: &v1alpha1.TLSServerSettings{
-								Mode: "SIMPLE",
-							},
-						},
-					},
-				},
-			}},
-			wantErr: true,
-		},
-		{
-			name: "valid - istio config",
-			mrSpec: &v1alpha1.ModelRegistry{Spec: v1alpha1.ModelRegistrySpec{
-				Istio: &v1alpha1.IstioConfig{
-					AuthProvider:     "istio",
-					AuthConfigLabels: map[string]string{"auth": "enabled"},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain:       "test.com",
-						IstioIngress: &defaultIstioIngress,
-					},
-				},
-			}},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, errList := tt.mrSpec.ValidateIstioConfig()
-			if tt.wantErr {
-				if len(errList) == 0 {
-					t.Errorf("ValidateIstioConfig() error = %v, wantErr %v", errList, tt.wantErr)
-				}
-			} else {
-				if len(errList) > 0 {
-					t.Errorf("ValidateIstioConfig() error = %v, wantErr %v", errList, tt.wantErr)
-				}
-			}
-		})
-	}
-}
-
 func TestDefault(t *testing.T) {
-	var httpPort int32 = v1alpha1.DefaultHttpPort
+	var httpsPort int32 = v1alpha1.DefaultHttpsPort
+	var httpsRoutePort int32 = v1alpha1.DefaultRoutePort
 
 	tests := []struct {
 		name       string
@@ -253,18 +140,10 @@ func TestDefault(t *testing.T) {
 					},
 					Postgres: nil,
 					MySQL:    nil,
-					Istio: &v1alpha1.IstioConfig{
-						TlsMode: v1alpha1.DefaultTlsMode,
-						Gateway: &v1alpha1.GatewayConfig{
-							Rest: v1alpha1.ServerConfig{
-								Port:         &httpPort,
-								GatewayRoute: config.RouteEnabled,
-							},
-							Grpc: v1alpha1.ServerConfig{
-								Port:         &httpPort,
-								GatewayRoute: config.RouteEnabled,
-							},
-						},
+					OAuthProxy: &v1alpha1.OAuthProxyConfig{
+						Port:         &httpsPort,
+						ServiceRoute: config.RouteEnabled,
+						RoutePort:    &httpsRoutePort,
 					},
 				},
 			},
@@ -284,13 +163,15 @@ func TestDefault(t *testing.T) {
 func TestCleanupRuntimeDefaults(t *testing.T) {
 	setupDefaults(t)
 
+	defaultHttpsPort := int32(v1alpha1.DefaultHttpsPort)
+	defaultRoutePort := int32(v1alpha1.DefaultRoutePort)
 	tests := []struct {
 		name       string
 		mrSpec     *v1alpha1.ModelRegistry
 		wantMrSpec *v1alpha1.ModelRegistry
 	}{
 		{
-			name: "cleanup runtime default values",
+			name: "cleanup runtime default values, replacing istio with oauth proxy",
 			mrSpec: &v1alpha1.ModelRegistry{
 				Spec: v1alpha1.ModelRegistrySpec{
 					Rest: v1alpha1.RestSpec{
@@ -333,25 +214,11 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 						Resources: nil,
 						Image:     "",
 					},
-					Istio: &v1alpha1.IstioConfig{
-						Audiences:        []string{},
-						AuthProvider:     "",
-						AuthConfigLabels: map[string]string{},
-						Gateway: &v1alpha1.GatewayConfig{
-							Domain: "",
-							Rest: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: nil,
-								},
-							},
-							Grpc: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: nil,
-								},
-							},
-						},
+					OAuthProxy: &v1alpha1.OAuthProxyConfig{
+						Port:         &defaultHttpsPort,
+						RoutePort:    &defaultRoutePort,
+						ServiceRoute: config.RouteEnabled,
+						Domain:       domain,
 					},
 				},
 			},
@@ -371,14 +238,17 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 func TestRuntimeDefaults(t *testing.T) {
 	setupDefaults(t)
 
+	httpsRoute := int32(v1alpha1.DefaultHttpsPort)
+	httpsRoutePort := int32(v1alpha1.DefaultRoutePort)
 	tests := []struct {
 		name       string
 		mrSpec     *v1alpha1.ModelRegistry
 		wantMrSpec *v1alpha1.ModelRegistry
 	}{
 		{
-			name: "set runtime default values for istio config",
+			name: "set runtime default values for istio config replaced with oauth proxy",
 			mrSpec: &v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: v1alpha1.ModelRegistrySpec{
 					Istio: &v1alpha1.IstioConfig{
 						Gateway: &v1alpha1.GatewayConfig{
@@ -397,6 +267,7 @@ func TestRuntimeDefaults(t *testing.T) {
 				},
 			},
 			wantMrSpec: &v1alpha1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: v1alpha1.ModelRegistrySpec{
 					Grpc: v1alpha1.GrpcSpec{
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
@@ -406,27 +277,21 @@ func TestRuntimeDefaults(t *testing.T) {
 						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
-					Istio: &v1alpha1.IstioConfig{
-						Audiences:        []string{audience},
-						AuthProvider:     authProvider,
-						AuthConfigLabels: map[string]string{authLabelKey: authLabelValue},
-						Gateway: &v1alpha1.GatewayConfig{
-							Domain:       domain,
-							ControlPlane: &controlPlane,
-							IstioIngress: &istioIngress,
-							Rest: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
-							Grpc: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
+					// istio config is replaced with default oauth proxy config
+					OAuthProxy: &v1alpha1.OAuthProxyConfig{
+						Port:         &httpsRoute,
+						RoutePort:    &httpsRoutePort,
+						ServiceRoute: config.RouteEnabled,
+						TLSCertificateSecret: &v1alpha1.SecretKeyValue{
+							Name: "default-oauth-proxy",
+							Key:  "tls.crt",
 						},
+						TLSKeySecret: &v1alpha1.SecretKeyValue{
+							Name: "default-oauth-proxy",
+							Key:  "tls.key",
+						},
+						Domain: domain,
+						Image:  config.DefaultOAuthProxyImage,
 					},
 				},
 			},
@@ -480,10 +345,10 @@ func TestRuntimeDefaults(t *testing.T) {
 func setupDefaults(t testing.TB) {
 	t.Helper()
 
-	config.SetDefaultAudiences([]string{audience})
 	config.SetDefaultDomain(domain, k8sClient, false)
-	config.SetDefaultControlPlane(controlPlane)
-	config.SetDefaultCert(certName)
-	config.SetDefaultAuthProvider(authProvider)
-	config.SetDefaultAuthConfigLabels(authLabel)
+	// config.SetDefaultAudiences([]string{audience})
+	// config.SetDefaultControlPlane(controlPlane)
+	// config.SetDefaultCert(certName)
+	// config.SetDefaultAuthProvider(authProvider)
+	// config.SetDefaultAuthConfigLabels(authLabel)
 }

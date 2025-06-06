@@ -18,6 +18,7 @@ package controller
 
 import (
 	"fmt"
+	v1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,7 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	v1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	//+kubebuilder:scaffold:imports
 )
@@ -117,7 +118,10 @@ var _ = BeforeSuite(func() {
 	err = authorinoScheme.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = modelregistryv1alpha1.AddToScheme(schm)
+	err = v1alpha1.AddToScheme(schm)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = v1beta1.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = networkingscheme.AddToScheme(schm)

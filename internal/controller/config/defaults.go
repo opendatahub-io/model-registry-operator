@@ -35,7 +35,6 @@ import (
 )
 
 //go:embed templates/*.yaml.tmpl
-//go:embed templates/istio/*.yaml.tmpl
 //go:embed templates/oauth-proxy/*.yaml.tmpl
 var templateFS embed.FS
 
@@ -51,25 +50,14 @@ const (
 	DefaultIstioIngressName = "ingressgateway"
 
 	// config env variables
-	RegistriesNamespace     = "REGISTRIES_NAMESPACE"
-	EnableWebhooks          = "ENABLE_WEBHOOKS"
-	CreateAuthResources     = "CREATE_AUTH_RESOURCES"
-	DefaultDomain           = "DEFAULT_DOMAIN"
-	DefaultCert             = "DEFAULT_CERT"
-	DefaultAuthProvider     = "DEFAULT_AUTH_PROVIDER"
-	DefaultAuthConfigLabels = "DEFAULT_AUTH_CONFIG_LABELS"
-	DefaultControlPlane     = "DEFAULT_CONTROL_PLANE"
-	DefaultIstioIngress     = "DEFAULT_ISTIO_INGRESS"
+	RegistriesNamespace = "REGISTRIES_NAMESPACE"
+	EnableWebhooks      = "ENABLE_WEBHOOKS"
+	CreateAuthResources = "CREATE_AUTH_RESOURCES"
+	DefaultDomain       = "DEFAULT_DOMAIN"
 )
 
 var (
-	defaultAuthConfigLabels    map[string]string
-	defaultAuthProvider        = ""
-	defaultCert                = ""
 	defaultDomain              = ""
-	defaultAudiences           []string
-	defaultIstioIngress        = ""
-	defaultControlPlane        = ""
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
@@ -104,69 +92,11 @@ func GetStringConfigWithDefault(configName, value string) string {
 
 func ParseTemplates() (*template.Template, error) {
 	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl",
-		"templates/istio/*.yaml.tmpl", "templates/oauth-proxy/*.yaml.tmpl")
+		"templates/oauth-proxy/*.yaml.tmpl")
 	if err != nil {
 		return nil, err
 	}
 	return template, err
-}
-
-func SetDefaultAudiences(audiences []string) {
-	defaultAudiences = make([]string, len(audiences))
-	copy(defaultAudiences, audiences)
-}
-
-func GetDefaultAudiences() []string {
-	result := make([]string, len(defaultAudiences))
-	copy(result, defaultAudiences)
-	return result
-}
-
-func SetDefaultAuthProvider(provider string) {
-	defaultAuthProvider = provider
-}
-
-func GetDefaultAuthProvider() string {
-	return defaultAuthProvider
-}
-
-func SetDefaultAuthConfigLabels(labelsStr string) {
-	defaultAuthConfigLabels = getAuthConfigLabels(labelsStr)
-}
-
-func GetDefaultAuthConfigLabels() map[string]string {
-	configLabels := make(map[string]string, len(defaultAuthConfigLabels))
-	for k, v := range defaultAuthConfigLabels {
-		configLabels[k] = v
-	}
-	return configLabels
-}
-
-func SetDefaultCert(cert string) {
-	defaultCert = cert
-}
-
-func GetDefaultCert() string {
-	return defaultCert
-}
-
-func SetDefaultControlPlane(controlPlane string) {
-	defaultControlPlane = controlPlane
-}
-
-func GetDefaultControlPlane() string {
-	return defaultControlPlane
-}
-
-func SetDefaultIstioIngress(istioIngress string) {
-	defaultIstioIngress = istioIngress
-}
-
-func GetDefaultIstioIngress() string {
-	if len(defaultIstioIngress) == 0 {
-		return DefaultIstioIngressName
-	}
-	return defaultIstioIngress
 }
 
 var (
@@ -208,25 +138,4 @@ func GetDefaultDomain() string {
 		defaultDomain = ingress.Spec.Domain
 	}
 	return defaultDomain
-}
-
-func getAuthConfigLabels(defaultAuthConfigLabelsString string) map[string]string {
-	authConfigLabels := make(map[string]string)
-	if len(defaultAuthConfigLabelsString) != 0 {
-		// split key=value pairs separated by commas
-		pairs := strings.Split(defaultAuthConfigLabelsString, ",")
-		for _, pair := range pairs {
-			// split key value pair
-			parts := strings.SplitN(pair, "=", 2)
-			if len(parts) > 0 {
-				key := parts[0]
-				var value string
-				if len(parts) > 1 {
-					value = parts[1]
-				}
-				authConfigLabels[key] = value
-			}
-		}
-	}
-	return authConfigLabels
 }

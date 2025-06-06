@@ -52,16 +52,6 @@
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
-    fieldPath: data.DEFAULT_CERT
-  targets:
-    - select:
-        kind: Deployment
-        name: controller-manager
-      fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=DEFAULT_CERT].value
-- source:
-    kind: ConfigMap
-    name: model-registry-operator-parameters
     fieldPath: data.REGISTRIES_NAMESPACE
   targets:
     - select:

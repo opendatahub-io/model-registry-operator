@@ -17,16 +17,17 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
+	"os"
+
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
-	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -43,6 +44,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	//+kubebuilder:scaffold:imports
 )
@@ -63,6 +65,7 @@ func init() {
 	utilruntime.Must(networking.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -141,18 +144,6 @@ func main() {
 
 	mgrRestConfig := mgr.GetConfig()
 	client := mgr.GetClient()
-	tokenReview := &authentication.TokenReview{
-		Spec: authentication.TokenReviewSpec{
-			Token: mgrRestConfig.BearerToken,
-		},
-	}
-	ctx := context.Background()
-	err = client.Create(ctx, tokenReview)
-	if err != nil {
-		setupLog.Error(err, "error getting controller serviceaccount audience")
-		os.Exit(1)
-	}
-	setupLog.Info("default authorino authconfig audiences", "audiences", tokenReview.Status.Audiences)
 
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
 	groups, err := discoveryClient.ServerGroups()
@@ -186,28 +177,11 @@ func main() {
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
 	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
-	defaultCert := os.Getenv(config.DefaultCert)
-	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain, config.DefaultCert, defaultCert)
-
-	// default auth env variables
-	defaultAuthProvider := os.Getenv(config.DefaultAuthProvider)
-	defaultAuthConfigLabelsString := os.Getenv(config.DefaultAuthConfigLabels)
-	setupLog.Info("default registry authorino config", config.DefaultAuthProvider, defaultAuthProvider, config.DefaultAuthConfigLabels, defaultAuthConfigLabelsString)
-
-	// default smcp env variables
-	defaultControlPlane := os.Getenv(config.DefaultControlPlane)
-	defaultIstioIngress := os.Getenv(config.DefaultIstioIngress)
-	setupLog.Info("default registry istio config", config.DefaultControlPlane, defaultControlPlane, config.DefaultIstioIngress, defaultIstioIngress)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
 
 	// set default values for defaulting webhook
 	config.SetRegistriesNamespace(registriesNamespace)
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
-	config.SetDefaultAudiences(tokenReview.Status.Audiences)
-	config.SetDefaultCert(defaultCert)
-	config.SetDefaultAuthProvider(defaultAuthProvider)
-	config.SetDefaultAuthConfigLabels(defaultAuthConfigLabelsString)
-	config.SetDefaultControlPlane(defaultControlPlane)
-	config.SetDefaultIstioIngress(defaultIstioIngress)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
@@ -225,7 +199,7 @@ func main() {
 		os.Exit(1)
 	}
 	if enableWebhooks {
-		if err = (&modelregistryv1alpha1.ModelRegistry{}).SetupWebhookWithManager(mgr); err != nil {
+		if err = webhook.SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")
 			os.Exit(1)
 		}

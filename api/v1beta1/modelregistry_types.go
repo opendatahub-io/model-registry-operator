@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/conversion"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -192,127 +193,6 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
-type TLSServerSettings struct {
-
-	//+kubebuilder:default=SIMPLE
-	//+kubebuilder:validation:Enum=SIMPLE;MUTUAL;ISTIO_MUTUAL;OPTIONAL_MUTUAL
-
-	// The value of this field determines how TLS is enforced.
-	// SIMPLE: Secure connections with standard TLS semantics. In this mode client certificate is not requested during handshake.
-	//
-	// MUTUAL: Secure connections to the downstream using mutual TLS by presenting server certificates for authentication. A client certificate will also be requested during the handshake and at least one valid certificate is required to be sent by the client.
-	//
-	// ISTIO_MUTUAL: Secure connections from the downstream using mutual TLS by presenting server certificates for authentication. Compared to Mutual mode, this mode uses certificates, representing gateway workload identity, generated automatically by Istio for mTLS authentication. When this mode is used, all other TLS fields should be empty.
-	//
-	// OPTIONAL_MUTUAL: Similar to MUTUAL mode, except that the client certificate is optional. Unlike SIMPLE mode, A client certificate will still be explicitly requested during handshake, but the client is not required to send a certificate. If a client certificate is presented, it will be validated. ca_certificates should be specified for validating client certificates.
-	Mode string `json:"mode,omitempty"`
-
-	// The name of the secret that holds the TLS certs including the CA certificates.
-	// If not provided, it is set automatically using model registry operator env variable DEFAULT_CERT.
-	// An Opaque secret should contain the following
-	// keys and values: `tls.key: <privateKey>` and `tls.crt: <serverCert>` or
-	// `key: <privateKey>` and `cert: <serverCert>`.
-	// For mutual TLS, `cacert: <CACertificate>` and `crl: <CertificateRevocationList>`
-	// can be provided in the same secret or a separate secret named `<secret>-cacert`.
-	// A TLS secret for server certificates with an additional `tls.ocsp-staple` key
-	// for specifying OCSP staple information, `ca.crt` key for CA certificates
-	// and `ca.crl` for certificate revocation list is also supported.
-	// Only one of server certificates and CA certificate
-	// or credentialName can be specified.
-	//+optional
-	CredentialName *string `json:"credentialName,omitempty"`
-}
-
-type ServerConfig struct {
-	//+kubebuilder:validation:Minimum=0
-	//+kubebuilder:validation:Maximum=65535
-
-	// Listen port for server connections, defaults to 80 without TLS and 443 when TLS settings are present.
-	Port *int32 `json:"port,omitempty"`
-
-	// Set of TLS related options that govern the server's behavior. Use
-	// these options to control if all http requests should be redirected to
-	// https, and the TLS modes to use.
-	//+optional
-	TLS *TLSServerSettings `json:"tls,omitempty"`
-
-	//+kubebuilder:default:enabled
-	//+kubebuilder:validation:Enum=disabled;enabled
-
-	// Creates an OpenShift Route for Gateway Service when set to enabled (default).
-	GatewayRoute string `json:"gatewayRoute,omitempty"`
-}
-
-type GatewayConfig struct {
-
-	//+optional
-	//+kubebuilder:validation:MaxLength=253
-	//+kubebuilder:validation:Pattern=`^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$`
-
-	// Domain name for Gateway configuration.
-	// Must follow DNS952 subdomain conventions.
-	// If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
-	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
-	Domain string `json:"domain,omitempty"`
-
-	// Value of label `istio` used to identify the Ingress Gateway
-	IstioIngress *string `json:"istioIngress,omitempty"`
-
-	// Maistra/OpenShift Servicemesh control plane name
-	//+optional
-	ControlPlane *string `json:"controlPlane,omitempty"`
-
-	// Rest gateway server config
-	Rest ServerConfig `json:"rest"`
-
-	// gRPC  gateway server config
-	Grpc ServerConfig `json:"grpc"`
-}
-
-type IstioConfig struct {
-
-	// Authorino authentication provider name
-	//
-	// If missing, it is set using the operator environment property DEFAULT_AUTH_PROVIDER
-	// Model registry will have an error status if the operator property is also missing
-	AuthProvider string `json:"authProvider,omitempty"`
-
-	// Authorino AuthConfig selector labels.
-	//
-	// If missing, it is set using the operator environment property DEFAULT_AUTH_CONFIG_LABELS
-	//+optional
-	AuthConfigLabels map[string]string `json:"authConfigLabels,omitempty"`
-
-	//+kubebuilder:default=ISTIO_MUTUAL
-	//+kubebuilder:Enum=DISABLE;SIMPLE;MUTUAL;ISTIO_MUTUAL
-
-	// DestinationRule TLS mode. Defaults to ISTIO_MUTUAL.
-	//
-	// DISABLE: Do not setup a TLS connection to the upstream endpoint.
-	//
-	// SIMPLE: Originate a TLS connection to the upstream endpoint.
-	//
-	// MUTUAL: Secure connections to the upstream using mutual TLS by presenting
-	// client certificates for authentication.
-	//
-	// ISTIO_MUTUAL: Secure connections to the upstream using mutual TLS by presenting
-	// client certificates for authentication.
-	// Compared to Mutual mode, this mode uses certificates generated
-	// automatically by Istio for mTLS authentication. When this mode is
-	// used, all other fields in `ClientTLSSettings` should be empty.
-	TlsMode string `json:"tlsMode,omitempty"`
-
-	// Optional Istio Gateway for registry services.
-	// Gateway is not created if set to null (default).
-	//+optional
-	Gateway *GatewayConfig `json:"gateway,omitempty"`
-
-	// Optional Authorino AuthConfig credential audiences. This depends on the cluster identity provider.
-	// If not specified, operator will determine the cluster's audience using its own service account.
-	//+optional
-	Audiences []string `json:"audiences,omitempty"`
-}
-
 // +kubebuilder:validation:XValidation:rule="has(self.tlsCertificateSecret) == has(self.tlsKeySecret)",message="tlsCertificateSecret and tlsKeySecret MUST be set together"
 type OAuthProxyConfig struct {
 	//+kubebuilder:default=8443
@@ -361,7 +241,6 @@ type OAuthProxyConfig struct {
 	Image string `json:"image,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="!(has(self.istio) && has(self.oauthProxy))",message="Cannot use both istio and oauthProxy"
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -397,10 +276,6 @@ type ModelRegistrySpec struct {
 	//+optional
 	DowngradeDbSchemaVersion *int64 `json:"downgrade_db_schema_version,omitempty"`
 
-	// Istio servicemesh configuration options
-	//+optional
-	Istio *IstioConfig `json:"istio,omitempty"`
-
 	// OpenShift OAuth proxy configuration options
 	//+optional
 	OAuthProxy *OAuthProxyConfig `json:"oauthProxy,omitempty"`
@@ -424,13 +299,11 @@ type ModelRegistryStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-//+kubebuilder:deprecatedversion:warning="Version v1alpha1 of the ModelRegistry API is deprecated and will be removed in a future release. Please use v1beta1 instead."
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=mr
 //+kubebuilder:subresource:status
+//+kubebuilder:storageversion
 //+kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
-//+kubebuilder:printcolumn:name="Istio",type=string,JSONPath=`.status.conditions[?(@.type=="IstioAvailable")].status`,priority=2
-//+kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.status.conditions[?(@.type=="GatewayAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="OAuthProxy",type=string,JSONPath=`.status.conditions[?(@.type=="OAuthProxyAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 //+kubebuilder:printcolumn:name="Hosts",type=string,JSONPath=`.status.hostsStr`,priority=2
@@ -453,6 +326,8 @@ type ModelRegistryList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ModelRegistry `json:"items"`
 }
+
+var _ conversion.Hub = (*ModelRegistry)(nil)
 
 func init() {
 	SchemeBuilder.Register(&ModelRegistry{}, &ModelRegistryList{})
