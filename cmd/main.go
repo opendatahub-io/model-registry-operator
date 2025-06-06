@@ -17,14 +17,12 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"os"
 
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
-	authentication "k8s.io/api/authentication/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -146,18 +144,6 @@ func main() {
 
 	mgrRestConfig := mgr.GetConfig()
 	client := mgr.GetClient()
-	tokenReview := &authentication.TokenReview{
-		Spec: authentication.TokenReviewSpec{
-			Token: mgrRestConfig.BearerToken,
-		},
-	}
-	ctx := context.Background()
-	err = client.Create(ctx, tokenReview)
-	if err != nil {
-		setupLog.Error(err, "error getting controller serviceaccount audience")
-		os.Exit(1)
-	}
-	setupLog.Info("default authorino authconfig audiences", "audiences", tokenReview.Status.Audiences)
 
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
 	groups, err := discoveryClient.ServerGroups()
