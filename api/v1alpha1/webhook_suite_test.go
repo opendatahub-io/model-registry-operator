@@ -167,62 +167,92 @@ var _ = Describe("Model Registry validating webhook", func() {
 	// TODO add tests for defaulting webhook and MR config validation
 
 	It("Should not allow creation of duplicate MR instance in cluster", func(ctx context.Context) {
-		suffix1 := "-mr1"
-		suffix2 := "-mr2"
-		// create mr1
-		mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
-		Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
-		// mr1 creation with same name and suffix, in another ns should fail
-		mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
-		Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
-		// mr2 creation with another suffix, in another ns should succeed
-		mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
-		Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace("") // run this test with no ns restrictions
+
+			suffix1 := "-mr1"
+			suffix2 := "-mr2"
+			// create mr1
+			mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
+			Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
+			// mr1 creation with same name and suffix, in another ns should fail
+			mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
+			Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
+			// mr2 creation with another suffix, in another ns should succeed
+			mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
+			Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow creation of MR instance with invalid database config", func(ctx context.Context) {
-		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
-		mr.Spec = v1alpha1.ModelRegistrySpec{}
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
 
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+			mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
+			mr.Spec = v1alpha1.ModelRegistrySpec{}
+
+			Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow update of MR instance with invalid database config", func(ctx context.Context) {
-		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
 
-		mr.Spec = v1alpha1.ModelRegistrySpec{
-			MySQL: &v1alpha1.MySQLConfig{},
-		}
+			mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 
-		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+			mr.Spec = v1alpha1.ModelRegistrySpec{
+				MySQL: &v1alpha1.MySQLConfig{},
+			}
+
+			Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow creating MR instance in a different namespace when registries namespace is set", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
 
-		// use a different namespace
-		mr.Namespace = namespaceBase + "-invalid"
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+			// use a different namespace
+			mr.Namespace = namespaceBase + "-invalid"
+			Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should support creating MR instance with Istio configured", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.Istio = &v1alpha1.IstioConfig{}
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			mr.Spec.Istio = &v1alpha1.IstioConfig{}
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should support creating MR instance with OAuth Proxy configured", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.OAuthProxy = &v1alpha1.OAuthProxyConfig{}
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			mr.Spec.OAuthProxy = &v1alpha1.OAuthProxyConfig{}
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 })
 

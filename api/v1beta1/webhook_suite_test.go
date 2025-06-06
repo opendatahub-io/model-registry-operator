@@ -166,56 +166,79 @@ var _ = Describe("Model Registry validating webhook", func() {
 	// TODO add tests for defaulting webhook and MR config validation
 
 	It("Should not allow creation of duplicate MR instance in cluster", func(ctx context.Context) {
-		suffix1 := "-mr1"
-		suffix2 := "-mr2"
-		// create mr1
-		mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
-		Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
-		// mr1 creation with same name and suffix, in another ns should fail
-		mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
-		Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
-		// mr2 creation with another suffix, in another ns should succeed
-		mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
-		Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace("") // run this test with no ns restrictions
+			suffix1 := "-mr1"
+			suffix2 := "-mr2"
+			// create mr1
+			mr1 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix1)
+			Expect(k8sClient.Create(ctx, mr1)).Should(Succeed())
+			// mr1 creation with same name and suffix, in another ns should fail
+			mr2 := newModelRegistry(ctx, mrNameBase+suffix1, namespaceBase+suffix2)
+			Expect(k8sClient.Create(ctx, mr2)).ShouldNot(Succeed())
+			// mr2 creation with another suffix, in another ns should succeed
+			mr2 = newModelRegistry(ctx, mrNameBase+suffix2, namespaceBase+suffix2)
+			Expect(k8sClient.Create(ctx, mr2)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow creation of MR instance with invalid database config", func(ctx context.Context) {
-		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
-		mr.Spec = v1beta1.ModelRegistrySpec{
-			MySQL: &v1beta1.MySQLConfig{},
-		}
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-create", namespaceBase)
+			mr.Spec = v1beta1.ModelRegistrySpec{
+				MySQL: &v1beta1.MySQLConfig{},
+			}
 
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+			Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow update of MR instance with invalid database config", func(ctx context.Context) {
-		mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase+"-invalid-db-update", namespaceBase)
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
 
-		mr.Spec = v1beta1.ModelRegistrySpec{
-			MySQL: &v1beta1.MySQLConfig{},
-		}
+			mr.Spec = v1beta1.ModelRegistrySpec{
+				MySQL: &v1beta1.MySQLConfig{},
+			}
 
-		Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+			Expect(k8sClient.Update(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should not allow creating MR instance in a different namespace when registries namespace is set", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
 
-		// use a different namespace
-		mr.Namespace = namespaceBase + "-invalid"
-		Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+			// use a different namespace
+			mr.Namespace = namespaceBase + "-invalid"
+			Expect(k8sClient.Create(ctx, mr)).ShouldNot(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 
 	It("Should support creating MR instance with OAuth Proxy configured", func(ctx context.Context) {
-		config.SetRegistriesNamespace(namespaceBase)
-		mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
-		mr.Spec.OAuthProxy = &v1beta1.OAuthProxyConfig{}
-		Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
-		Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			mr.Spec.OAuthProxy = &v1beta1.OAuthProxyConfig{}
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
 	})
 })
 
@@ -252,7 +275,6 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 		oldObj               *v1alpha1.ModelRegistry
 		expectedObj          *v1beta1.ModelRegistry
 		expectedConvertedObj *v1alpha1.ModelRegistry
-		key                  client.ObjectKey
 		testNamespace        corev1.Namespace
 	)
 
@@ -348,20 +370,9 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 				},
 			},
 		}
-		key = client.ObjectKey{Namespace: oldObj.Namespace, Name: oldObj.Name}
-		testNamespace = corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{Name: namespaceBase},
-		}
 
 		Expect(oldObj).NotTo(BeNil(), "Expected oldObj to be initialized")
 		Expect(expectedObj).NotTo(BeNil(), "Expected expectedObj to be initialized")
-
-		// create test namespace
-		config.SetRegistriesNamespace(namespaceBase)
-		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &testNamespace))).Should(Succeed())
-
-		// create oldObj
-		Expect(k8sClient.Create(ctx, oldObj)).To(Succeed())
 	})
 
 	AfterEach(func(ctx context.Context) {
@@ -371,6 +382,17 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 
 	Context("When creating ModelRegistry under Conversion Webhook", func() {
 		It("Should convert model registry v1alpha1 to v1beta1 and back correctly", func(ctx context.Context) {
+
+			// create test namespace
+			key := client.ObjectKey{Namespace: oldObj.Namespace, Name: oldObj.Name}
+			testNamespace = corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: namespaceBase},
+			}
+			config.SetRegistriesNamespace(namespaceBase)
+			Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, &testNamespace))).Should(Succeed())
+
+			// create oldObj
+			Expect(k8sClient.Create(ctx, oldObj)).To(Succeed())
 
 			// from v1alpha1 to v1beta1
 			newObj := v1beta1.ModelRegistry{}
