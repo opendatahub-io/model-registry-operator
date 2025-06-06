@@ -44,8 +44,8 @@ spec:
       priority: 2
       type: string
     deprecated: true
-    deprecationWarning: v1alpha1 of the ModelRegistry API is deprecated and will be
-      removed in a future release. Please use v1beta1 instead.
+    deprecationWarning: Version v1alpha1 of the ModelRegistry API is deprecated and
+      will be removed in a future release. Please use v1beta1 instead.
     name: v1alpha1
     schema:
       openAPIV3Schema:

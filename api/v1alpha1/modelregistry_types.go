@@ -424,7 +424,7 @@ type ModelRegistryStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-//+kubebuilder:deprecatedversion:warning="v1alpha1 of the ModelRegistry API is deprecated and will be removed in a future release. Please use v1beta1 instead."
+//+kubebuilder:deprecatedversion:warning="Version v1alpha1 of the ModelRegistry API is deprecated and will be removed in a future release. Please use v1beta1 instead."
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=mr
 //+kubebuilder:subresource:status
