@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
 import (
 	"context"
@@ -35,20 +35,16 @@ import (
 var modelregistrylog = logf.Log.WithName("modelregistry-resource")
 
 const (
-	// DefaultHttpsPort is the default port number for https
-	DefaultHttpsPort = 8443
-	DefaultRoutePort = 443
+	// default ports
+	DefaultHttpPort  = 80
+	DefaultHttpsPort = 443
 
 	tagSeparator = ":"
 	emptyValue   = ""
 )
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
 var (
-	_              webhook.Defaulter = &ModelRegistry{}
-	httpsPort      int32             = DefaultHttpsPort
-	httpsRoutePort int32             = DefaultRoutePort
+	_ webhook.Defaulter = &ModelRegistry{}
 )
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
@@ -67,11 +63,6 @@ func (r *ModelRegistry) Default() {
 		r.Spec.MySQL = nil
 	}
 
-	// istio defaults
-	if r.Spec.Istio != nil {
-		r.ReplaceIstioWithOAuthProxy()
-	}
-
 	// enable oauth proxy route by default
 	if r.Spec.OAuthProxy != nil && len(r.Spec.OAuthProxy.ServiceRoute) == 0 {
 		r.Spec.OAuthProxy.ServiceRoute = config.RouteEnabled
@@ -79,32 +70,6 @@ func (r *ModelRegistry) Default() {
 
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
 	r.CleanupRuntimeDefaults()
-}
-
-func (r *ModelRegistry) ReplaceIstioWithOAuthProxy() {
-	modelregistrylog.Info("replacing Istio with Oauth Proxy defaults", "name", r.Name)
-	r.Spec.OAuthProxy = &OAuthProxyConfig{
-		Port:         &httpsPort,
-		ServiceRoute: config.RouteEnabled,
-		RoutePort:    &httpsRoutePort,
-	}
-	// copy custom domain and route port if set
-	if r.Spec.Istio.Gateway != nil {
-		if r.Spec.Istio.Gateway.Rest.GatewayRoute == config.RouteDisabled {
-			r.Spec.OAuthProxy.ServiceRoute = config.RouteDisabled
-		}
-		if len(r.Spec.Istio.Gateway.Domain) != 0 {
-			r.Spec.OAuthProxy.Domain = r.Spec.Istio.Gateway.Domain
-		}
-		if r.Spec.Istio.Gateway.Rest.TLS != nil && r.Spec.Istio.Gateway.Rest.Port != nil {
-			r.Spec.OAuthProxy.RoutePort = r.Spec.Istio.Gateway.Rest.Port
-		}
-	} else {
-		// disable oauth proxy route if istio gateway was disabled
-		r.Spec.OAuthProxy.ServiceRoute = config.RouteDisabled
-	}
-	// MUST remove old istio config
-	r.Spec.Istio = nil
 }
 
 // CleanupRuntimeDefaults removes runtime defaults. Usually on first reconcile, when specDefaults is empty,
@@ -152,12 +117,6 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 			r.Spec.Rest.Resources = nil
 		}
 	}
-
-	// reset istio defaults
-	if r.Spec.Istio != nil {
-		// replace istio with oauth proxy defaults
-		r.ReplaceIstioWithOAuthProxy()
-	}
 }
 
 // RuntimeDefaults sets default values from the operator environment, which could change at runtime.
@@ -176,12 +135,6 @@ func (r *ModelRegistry) RuntimeDefaults() {
 	}
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
-	}
-
-	// istio defaults
-	if r.Spec.Istio != nil {
-		// replace deprecated istio config with oauth proxy defaults
-		r.ReplaceIstioWithOAuthProxy()
 	}
 
 	// oauth proxy defaults

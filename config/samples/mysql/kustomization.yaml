@@ -3,5 +3,5 @@ kind: Kustomization
 ## Append samples of your project ##
 resources:
 - mysql-db.yaml
-- modelregistry_v1alpha1_modelregistry.yaml
+- modelregistry_v1beta1_modelregistry.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

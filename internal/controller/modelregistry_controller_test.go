@@ -19,11 +19,13 @@ package controller
 import (
 	"context"
 	"fmt"
-	v1 "k8s.io/api/networking/v1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
 	"strings"
 	"text/template"
 	"time"
+
+	v1 "k8s.io/api/networking/v1"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
@@ -32,9 +34,9 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -42,15 +44,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 )
 
 const DescriptionPrefix = "Test Registry "
-
-var TestSmcp = "test-smcp"
 
 var _ = Describe("ModelRegistry controller", func() {
 
@@ -66,7 +63,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			var namespace *corev1.Namespace
 			var typeNamespaceName types.NamespacedName
-			var modelRegistry *v1alpha1.ModelRegistry
+			var modelRegistry *v1beta1.ModelRegistry
 			var registryName string
 
 			BeforeEach(func() {
@@ -76,12 +73,6 @@ var _ = Describe("ModelRegistry controller", func() {
 				err = os.Setenv(config.RestImage, config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
-				Expect(err).To(Not(HaveOccurred()))
-
-				By("Setting the Istio ENV VARs which store istio config")
-				err = os.Setenv(config.DefaultControlPlane, TestSmcp)
-				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv(config.DefaultIstioIngress, config.DefaultIstioIngressName)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 
@@ -93,7 +84,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					},
 				}
 				typeNamespaceName = types.NamespacedName{Name: registryName, Namespace: registryName}
-				modelRegistry = &v1alpha1.ModelRegistry{}
+				modelRegistry = &v1beta1.ModelRegistry{}
 
 				By("Creating the Namespace to perform the tests")
 				err := k8sClient.Create(ctx, namespace)
@@ -107,17 +98,17 @@ var _ = Describe("ModelRegistry controller", func() {
 				// apply on the cluster the manifest under config/samples
 				var gRPCPort int32 = 9090
 				var restPort int32 = 8080
-				modelRegistry = &v1alpha1.ModelRegistry{
+				modelRegistry = &v1beta1.ModelRegistry{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:        registryName,
 						Namespace:   namespace.Name,
 						Annotations: map[string]string{DisplayNameAnnotation: registryName, DescriptionAnnotation: DescriptionPrefix + registryName},
 					},
-					Spec: v1alpha1.ModelRegistrySpec{
-						Grpc: v1alpha1.GrpcSpec{
+					Spec: v1beta1.ModelRegistrySpec{
+						Grpc: v1beta1.GrpcSpec{
 							Port: &gRPCPort,
 						},
-						Rest: v1alpha1.RestSpec{
+						Rest: v1beta1.RestSpec{
 							Port: &restPort,
 						},
 					},
@@ -130,12 +121,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var postgresPort int32 = 5432
 				modelRegistry.Spec.MySQL = nil
-				modelRegistry.Spec.Postgres = &v1alpha1.PostgresConfig{
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
 					Host:     "model-registry-db",
 					Port:     &postgresPort,
 					Database: "model-registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -156,12 +147,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -182,12 +173,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -216,12 +207,12 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -241,189 +232,19 @@ var _ = Describe("ModelRegistry controller", func() {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-http", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 				Expect(err).To(HaveOccurred())
 			})
-
-			It("When using Istio", func() {
-				registryName = "model-registry-istio"
-				specInit()
-
-				var mySQLPort int32 = 3306
-				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
-					Host:     "model-registry-db",
-					Port:     &mySQLPort,
-					Database: "model_registry",
-					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
-						Name: "model-registry-db",
-						Key:  "database-password",
-					},
-				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
-					AuthProvider: "opendatahub-auth-provider",
-					AuthConfigLabels: map[string]string{
-						"auth": "enabled",
-					},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-						Grpc: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-					},
-				}
-
-				err = k8sClient.Create(ctx, modelRegistry)
-				Expect(err).To(Not(HaveOccurred()))
-
-				modelRegistryReconciler := initModelRegistryReconciler(template)
-
-				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
-					time.Minute, time.Second).Should(Succeed())
-			})
-
-			It("When using Istio on Openshift", func() {
-				registryName = "model-registry-istio-openshift"
-				specInit()
-
-				var mySQLPort int32 = 3306
-				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
-					Host:     "model-registry-db",
-					Port:     &mySQLPort,
-					Database: "model_registry",
-					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
-						Name: "model-registry-db",
-						Key:  "database-password",
-					},
-				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
-					AuthProvider: "opendatahub-auth-provider",
-					AuthConfigLabels: map[string]string{
-						"auth": "enabled",
-					},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-						Grpc: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-						ControlPlane: &TestSmcp,
-					},
-				}
-
-				err = k8sClient.Create(ctx, modelRegistry)
-				Expect(err).To(Not(HaveOccurred()))
-
-				modelRegistryReconciler := initModelRegistryReconciler(template)
-
-				modelRegistryReconciler.IsOpenShift = true
-
-				Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
-					time.Minute, time.Second).Should(Succeed())
-			})
-
-			It("When using Istio and Authorino", func() {
-				registryName = "model-registry-istio-authorino"
-				specInit()
-
-				var mySQLPort int32 = 3306
-				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
-					Host:     "model-registry-db",
-					Port:     &mySQLPort,
-					Database: "model_registry",
-					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
-						Name: "model-registry-db",
-						Key:  "database-password",
-					},
-				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
-					AuthProvider: "opendatahub-auth-provider",
-					AuthConfigLabels: map[string]string{
-						"auth": "enabled",
-					},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-						Grpc: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-					},
-				}
-
-				err = k8sClient.Create(ctx, modelRegistry)
-				Expect(err).To(Not(HaveOccurred()))
-
-				modelRegistryReconciler := initModelRegistryReconciler(template)
-
-				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
-					time.Minute, time.Second).Should(Succeed())
-			})
-
-			It("When using Istio and Authorino on openshift", func() {
-				registryName = "model-registry-istio-authorino-openshift"
-				specInit()
-
-				var mySQLPort int32 = 3306
-				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
-					Host:     "model-registry-db",
-					Port:     &mySQLPort,
-					Database: "model_registry",
-					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
-						Name: "model-registry-db",
-						Key:  "database-password",
-					},
-				}
-				modelRegistry.Spec.Istio = &v1alpha1.IstioConfig{
-					AuthProvider: "opendatahub-auth-provider",
-					AuthConfigLabels: map[string]string{
-						"auth": "enabled",
-					},
-					Gateway: &v1alpha1.GatewayConfig{
-						Domain: "example.com",
-						Rest: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-						Grpc: v1alpha1.ServerConfig{
-							GatewayRoute: "enabled",
-						},
-					},
-				}
-
-				err = k8sClient.Create(ctx, modelRegistry)
-				Expect(err).To(Not(HaveOccurred()))
-
-				modelRegistryReconciler := initModelRegistryReconciler(template)
-
-				modelRegistryReconciler.IsOpenShift = true
-
-				Eventually(validateRegistryAuth(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
-					time.Minute, time.Second).Should(Succeed())
-			})
-
 			// Oauth Proxy config tests
-			var oauthProxyConfig *v1alpha1.OAuthProxyConfig
+			var oauthProxyConfig *v1beta1.OAuthProxyConfig
 			oauthValidate := func() {
 				specInit()
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
-				modelRegistry.Spec.MySQL = &v1alpha1.MySQLConfig{
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
 					Username: "mlmduser",
-					PasswordSecret: &v1alpha1.SecretKeyValue{
+					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
 					},
@@ -443,18 +264,18 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using default Oauth Proxy config on openshift", func() {
 				registryName = "model-registry-oauth-proxy"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{}
+				oauthProxyConfig = &v1beta1.OAuthProxyConfig{}
 				oauthValidate()
 			})
 
 			It("When using Oauth Proxy with custom certs on openshift", func() {
 				registryName = "model-registry-oauth-certs"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
-					TLSCertificateSecret: &v1alpha1.SecretKeyValue{
+				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
+					TLSCertificateSecret: &v1beta1.SecretKeyValue{
 						Name: "test-cert-secret",
 						Key:  "test-cert-key",
 					},
-					TLSKeySecret: &v1alpha1.SecretKeyValue{
+					TLSKeySecret: &v1beta1.SecretKeyValue{
 						Name: "test-key-secret",
 						Key:  "test-key-key",
 					},
@@ -464,7 +285,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using Oauth Proxy without route config on openshift", func() {
 				registryName = "model-registry-oauth-noroute"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
+				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
 					ServiceRoute: config.RouteDisabled,
 				}
 				oauthValidate()
@@ -472,7 +293,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			It("When using Oauth Proxy with custom image on openshift", func() {
 				registryName = "model-registry-oauth-image"
-				oauthProxyConfig = &v1alpha1.OAuthProxyConfig{
+				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
 					Image: "test-proxy-image",
 				}
 				oauthValidate()
@@ -480,7 +301,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
-				found := &v1alpha1.ModelRegistry{}
+				found := &v1beta1.ModelRegistry{}
 				err := k8sClient.Get(ctx, typeNamespaceName, found)
 				Expect(err).To(Not(HaveOccurred()))
 
@@ -524,11 +345,11 @@ func initModelRegistryReconciler(template *template.Template) *ModelRegistryReco
 	return modelRegistryReconciler
 }
 
-func validateRegistryBase(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+func validateRegistryBase(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
 		By("Checking if the custom resource was successfully created")
 		Eventually(func() error {
-			found := &v1alpha1.ModelRegistry{}
+			found := &v1beta1.ModelRegistry{}
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
@@ -607,47 +428,6 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			found := &appsv1.Deployment{}
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
-
-		if modelRegistry.Spec.Istio != nil && modelRegistry.Spec.Istio.Gateway != nil && modelRegistryReconciler.IsOpenShift {
-			By("Checking if the Route was successfully created in the reconciliation")
-			routes := &routev1.RouteList{}
-			err = k8sClient.List(ctx, routes, client.MatchingLabels{
-				"app":                     typeNamespaceName.Name,
-				"component":               "model-registry",
-				"maistra.io/gateway-name": typeNamespaceName.Name,
-			})
-			Expect(err).To(Not(HaveOccurred()))
-
-			By("Mocking the conditions in the Route to perform the tests")
-			if len(routes.Items) > 0 {
-				for _, route := range routes.Items {
-					ingresses := []routev1.RouteIngress{
-						{
-							Conditions: []routev1.RouteIngressCondition{
-								{
-									Type:   routev1.RouteAdmitted,
-									Status: corev1.ConditionTrue,
-								},
-							},
-						},
-					}
-
-					route.Status.Ingress = ingresses
-
-					err = k8sClient.Status().Update(ctx, &route)
-					Expect(err).To(Not(HaveOccurred()))
-				}
-
-				Eventually(func() error {
-					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
-						NamespacedName: typeNamespaceName,
-					})
-
-					return err
-				}, time.Minute, time.Second).Should(Succeed())
-			}
-		}
-
 		if modelRegistryReconciler.CreateAuthResources {
 			By("Checking if the Auth resources were successfully created in the reconciliation")
 			authConfig := CreateAuthConfig()
@@ -691,43 +471,65 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			}, time.Minute, time.Second).Should(Succeed())
 		}
 
+		if modelRegistry.Spec.OAuthProxy != nil && modelRegistry.Spec.OAuthProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
+			By("Checking if the Route was successfully created in the reconciliation")
+			routes := &routev1.RouteList{}
+			err = k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
+				"app":       typeNamespaceName.Name,
+				"component": "model-registry",
+			})
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Mocking the conditions in the Route to perform the tests")
+			if len(routes.Items) > 0 {
+				for _, route := range routes.Items {
+					ingresses := []routev1.RouteIngress{
+						{
+							Conditions: []routev1.RouteIngressCondition{
+								{
+									Type:   routev1.RouteAdmitted,
+									Status: corev1.ConditionTrue,
+								},
+							},
+						},
+					}
+
+					route.Status.Ingress = ingresses
+
+					err = k8sClient.Status().Update(ctx, &route)
+					Expect(err).To(Not(HaveOccurred()))
+				}
+
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+			}
+		}
+
 		By("Checking the latest Status Condition added to the ModelRegistry instance")
 		Eventually(func() error {
 			err := k8sClient.Get(ctx, typeNamespaceName, modelRegistry)
 			Expect(err).To(Not(HaveOccurred()))
-
-			if modelRegistry.Spec.Istio != nil && modelRegistry.Spec.Istio.Gateway != nil {
+			if modelRegistry.Spec.OAuthProxy != nil && modelRegistry.Spec.OAuthProxy.ServiceRoute != config.RouteDisabled {
 				hosts := modelRegistry.Status.Hosts
-				Expect(len(hosts)).To(Equal(5))
+				Expect(len(hosts)).To(Equal(4))
 				name := modelRegistry.Name
 				namespace := modelRegistry.Namespace
-				domain := modelRegistry.Spec.Istio.Gateway.Domain
+				domain := modelRegistry.Spec.OAuthProxy.Domain
 				Expect(hosts[0]).
 					To(Equal(fmt.Sprintf("%s-rest.%s", name, domain)))
 				Expect(hosts[1]).
-					To(Equal(fmt.Sprintf("%s-grpc.%s", name, domain)))
-				Expect(hosts[2]).
 					To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
+				Expect(hosts[2]).
+					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
 				Expect(hosts[3]).
-					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
-				Expect(hosts[4]).
-					To(Equal(name))
-				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
-			} else {
-				// also check hosts in status
-				hosts := modelRegistry.Status.Hosts
-				Expect(len(hosts)).To(Equal(3))
-				name := modelRegistry.Name
-				namespace := modelRegistry.Namespace
-				Expect(hosts[0]).
-					To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
-				Expect(hosts[1]).
-					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
-				Expect(hosts[2]).
 					To(Equal(name))
 				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
 			}
-
 			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeProgressing) {
 				return fmt.Errorf("Condition %s is not true", ConditionTypeProgressing)
 			}
@@ -757,7 +559,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 	}
 }
 
-func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
 		modelRegistryReconciler.IsOpenShift = true
 
@@ -781,47 +583,7 @@ func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.Name
 	}
 }
 
-func validateRegistryIstio(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
-	return func() error {
-		modelRegistryReconciler.HasIstio = true
-
-		svc := corev1.Service{}
-		svc.Name = "istio"
-		svc.Namespace = typeNamespaceName.Namespace
-		svc.Labels = map[string]string{"istio": config.DefaultIstioIngressName, "istio.io/rev": TestSmcp}
-		svc.Spec.Ports = []corev1.ServicePort{
-			{
-				Name:       "http2",
-				Port:       80,
-				TargetPort: intstr.FromInt(80),
-			},
-			{
-				Name:       "https",
-				Port:       443,
-				TargetPort: intstr.FromInt(443),
-			},
-		}
-
-		err := k8sClient.Create(ctx, &svc)
-		Expect(err).To(Not(HaveOccurred()))
-
-		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
-
-		return nil
-	}
-}
-
-func validateRegistryAuth(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
-	return func() error {
-		modelRegistryReconciler.CreateAuthResources = true
-
-		Eventually(validateRegistryIstio(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
-
-		return nil
-	}
-}
-
-func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1alpha1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
 		modelRegistryReconciler.IsOpenShift = true
 

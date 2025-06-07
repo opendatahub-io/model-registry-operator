@@ -24,16 +24,8 @@ spec:
       labels:
         app: {{.Name}}
         component: model-registry
-        sidecar.istio.io/inject: {{with .Spec.Istio}}"true"{{else}}"false"{{end}}
       annotations:
         openshift.io/required-scc: restricted-v2
-        {{- if .Spec.Istio}}
-        {{- if .Spec.Postgres}}
-        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.Postgres.Port}}
-        {{- else if .Spec.MySQL}}
-        traffic.sidecar.istio.io/excludeOutboundPorts: {{.Spec.MySQL.Port}}
-        {{- end}}
-        {{- end}}
     spec:
       securityContext:
         seccompProfile:
@@ -262,6 +254,7 @@ spec:
             - --tls-cert=/etc/tls/private-cert/{{.Spec.OAuthProxy.TLSCertificateSecret.Key}}
             - --tls-key=/etc/tls/private-key/{{.Spec.OAuthProxy.TLSKeySecret.Key}}
             - --cookie-secret=MODEL_REGISTRY_OAUTH_SECRET
+            - --cookie-name=_{{.Name}}_oauth_proxy
             - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
             - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
           image: {{.Spec.OAuthProxy.Image}}

@@ -20,20 +20,18 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"regexp"
 	"strings"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	routev1 "github.com/openshift/api/route/v1"
-	"istio.io/client-go/pkg/apis/networking/v1beta1"
-	v1beta12 "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -81,7 +79,7 @@ var errRegexp = regexp.MustCompile("Check failed: absl::OkStatus\\(\\) == status
 func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (bool, error) {
 	log := klog.FromContext(ctx)
 
-	modelRegistry := &modelregistryv1alpha1.ModelRegistry{}
+	modelRegistry := &v1beta1.ModelRegistry{}
 	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
 		log.Error(err, "Failed to re-fetch modelRegistry")
 		return false, err
@@ -180,7 +178,9 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 
 	if available {
 		if r.HasIstio {
-			status, reason, message = r.SetIstioAndGatewayConditions(ctx, req, modelRegistry, status, reason, message)
+			// remove deprecated Istio and Gateway conditions
+			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeIstio)
+			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
 		}
 		if modelRegistry.Spec.OAuthProxy != nil {
 			status, reason, message = r.SetOauthProxyCondition(ctx, req, modelRegistry, status, reason, message)
@@ -198,16 +198,15 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	return available, nil
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, registry *modelregistryv1alpha1.ModelRegistry) {
+func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, registry *v1beta1.ModelRegistry) {
 
 	var hosts []string
 
-	istio := registry.Spec.Istio
+	oAuthProxy := registry.Spec.OAuthProxy
 	name := req.Name
-	if istio != nil && istio.Gateway != nil && len(istio.Gateway.Domain) != 0 {
-		domain := istio.Gateway.Domain
+	if oAuthProxy != nil && oAuthProxy.ServiceRoute == config.RouteEnabled {
+		domain := oAuthProxy.Domain
 		hosts = append(hosts, fmt.Sprintf("%s-rest.%s", name, domain))
-		hosts = append(hosts, fmt.Sprintf("%s-grpc.%s", name, domain))
 	}
 	namespace := req.Namespace
 	hosts = append(hosts, fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace))
@@ -218,7 +217,7 @@ func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, regis
 	registry.Status.HostsStr = strings.Join(hosts, ",")
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *modelregistryv1alpha1.ModelRegistry, spec *modelregistryv1alpha1.ModelRegistrySpec) error {
+func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta1.ModelRegistry, spec *v1beta1.ModelRegistrySpec) error {
 	originalJson, err := json.Marshal(registry.Spec)
 	if err != nil {
 		return fmt.Errorf("error marshalling spec for model registry %s: %w", registry.Name, err)
@@ -244,7 +243,11 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 
 	// find the not ready pod and get message
 	var pods corev1.PodList
-	r.Client.List(ctx, &pods, client.MatchingLabels{"app": req.Name, "component": "model-registry"}, client.InNamespace(req.Namespace))
+	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": req.Name, "component": "model-registry"}, client.InNamespace(req.Namespace))
+	if err != nil {
+		// log K8s error
+		r.Log.Error(err, "failed to get grpc container error")
+	}
 	for _, p := range pods.Items {
 		// look for not ready container status first
 		failedContainers := make(map[string]string)
@@ -334,72 +337,8 @@ func (r *ModelRegistryReconciler) getGrpcContainerDBerror(ctx context.Context, p
 	return nil, nil
 }
 
-func (r *ModelRegistryReconciler) SetIstioAndGatewayConditions(ctx context.Context, req ctrl.Request,
-	modelRegistry *modelregistryv1alpha1.ModelRegistry,
-	status metav1.ConditionStatus, reason string, message string) (metav1.ConditionStatus, string, string) {
-	if modelRegistry.Spec.Istio != nil {
-		// set Istio available condition
-		if !r.SetIstioCondition(ctx, req, modelRegistry) {
-			status = metav1.ConditionFalse
-			reason = ReasonResourcesUnavailable
-			message = "Istio resources are unavailable"
-		}
-
-		// set Gateway available condition
-		if modelRegistry.Spec.Istio.Gateway != nil {
-			if !r.SetGatewayCondition(ctx, req, modelRegistry) {
-				status = metav1.ConditionFalse
-				reason = ReasonResourcesUnavailable
-				message = "Istio Gateway resources are unavailable"
-			}
-		} else {
-			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
-		}
-	} else {
-		meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeIstio)
-		meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
-	}
-
-	return status, reason, message
-}
-
-func (r *ModelRegistryReconciler) SetIstioCondition(ctx context.Context, req ctrl.Request,
-	modelRegistry *modelregistryv1alpha1.ModelRegistry) bool {
-
-	log := klog.FromContext(ctx)
-
-	reason := ReasonResourcesCreated
-	message := "Istio resources were successfully created"
-
-	available := true
-	// verify that virtualservice, destinationrule, authorizationpolicy are available
-	name := req.NamespacedName
-	message, available, reason = r.CheckIstioResourcesAvailable(ctx, name, log, message, available, reason)
-
-	if r.CreateAuthResources {
-		message, available, reason = r.CheckAuthConfigCondition(ctx, name, log, message, available, reason)
-	}
-
-	status := metav1.ConditionFalse
-	if available {
-		if reason == ReasonResourcesAvailable || (!r.CreateAuthResources && reason == ReasonResourcesCreated) {
-			status = metav1.ConditionTrue
-		}
-		// additionally verify that Deployment pod has 3 containers including the istio-envoy proxy
-		message, reason, status = r.CheckDeploymentPods(ctx, name, "Istio", log, message, reason, status)
-	} else {
-		status = metav1.ConditionFalse
-		reason = ReasonResourcesUnavailable
-	}
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeIstio,
-		Status: status, Reason: reason,
-		Message: message})
-
-	return status == metav1.ConditionTrue
-}
-
 func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, req ctrl.Request,
-	modelRegistry *modelregistryv1alpha1.ModelRegistry,
+	modelRegistry *v1beta1.ModelRegistry,
 	status metav1.ConditionStatus, reason string, message string) (metav1.ConditionStatus, string, string) {
 
 	log := klog.FromContext(ctx)
@@ -411,11 +350,39 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 		reason2 := ReasonResourcesCreated
 		message2 := "OAuth Proxy was successfully created"
 		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "OAuth", log, message2, reason2, status)
-		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
-			Status: status2, Reason: reason2,
-			Message: message2})
 
 		// set OAuth proxy available condition
+		if status2 == metav1.ConditionTrue {
+
+			reason2 = ReasonResourcesAvailable
+
+			// also check Oauth proxy route if enabled
+			if modelRegistry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
+				// get proxy route
+				var routeList routev1.RouteList
+				err := r.Client.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{
+					"app": req.Name, "component": "model-registry",
+				}))
+				if err != nil {
+					// log K8s error
+					r.Log.Error(err, "failed to get oauth proxy route")
+				}
+				routeAvailable := make(map[string]bool)
+				routeMessage := make(map[string]string)
+				r.CheckRouteIngressConditions(&routeList, true, routeAvailable, routeMessage)
+				routeName := modelRegistry.Name + "-https"
+				routeType := "https"
+				if !routeAvailable[routeType] {
+					status2 = metav1.ConditionFalse
+					reason2 = ReasonResourcesUnavailable
+					message2 = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
+				}
+			}
+		}
+
+		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
+			Status: status2, Reason: reason2, Message: message2})
+
 		if status2 == metav1.ConditionFalse {
 			status = status2
 			reason = reason2
@@ -462,170 +429,6 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 	}
 
 	return message, reason, status
-}
-
-func (r *ModelRegistryReconciler) CheckAuthConfigCondition(ctx context.Context, name types.NamespacedName, log logr.Logger, message string, available bool, reason string) (string, bool, string) {
-	authConfig := CreateAuthConfig()
-	if err := r.Get(ctx, name, authConfig); err != nil {
-		log.Error(err, "Failed to get model registry Istio Authorino AuthConfig", "name", name)
-		message = fmt.Sprintf("Failed to find AuthConfig: %s", err.Error())
-		available = false
-	}
-
-	// check authconfig Ready condition
-	if available {
-		conditions, _, _ := unstructured.NestedSlice(authConfig.Object, "status", "conditions")
-		for _, c := range conditions {
-			switch con := c.(type) {
-			case map[string]interface{}:
-
-				condType, _, _ := unstructured.NestedString(con, "type")
-				if condType == "Ready" {
-					status, _, _ := unstructured.NestedString(con, "status")
-					available = status == "True"
-					if available {
-						reason = ReasonResourcesAvailable
-						message = "Istio resources are available"
-					} else {
-						reason = ReasonResourcesUnavailable
-						condReason, _, _ := unstructured.NestedString(con, "reason")
-						condMessage, _, _ := unstructured.NestedString(con, "message")
-						message = fmt.Sprintf("Istio AuthConfig is not ready: {reason: %s, message: %s}", condReason, condMessage)
-					}
-					break
-				}
-			}
-		}
-	}
-	return message, available, reason
-}
-
-func (r *ModelRegistryReconciler) CheckIstioResourcesAvailable(ctx context.Context, name types.NamespacedName,
-	log logr.Logger, message string, available bool, reason string) (string, bool, string) {
-
-	var resource client.Object
-	resource = &v1beta1.VirtualService{}
-	if err := r.Get(ctx, name, resource); err != nil {
-		log.Error(err, "Failed to get model registry Istio VirtualService", "name", name)
-		message = fmt.Sprintf("Failed to find VirtualService: %s", err.Error())
-		available = false
-		reason = ReasonResourcesUnavailable
-	}
-	resource = &v1beta1.DestinationRule{}
-	if err := r.Get(ctx, name, resource); err != nil {
-		log.Error(err, "Failed to get model registry Istio DestinationRule", "name", name)
-		message = fmt.Sprintf("Failed to find DestinationRule: %s", err.Error())
-		available = false
-		reason = ReasonResourcesUnavailable
-	}
-	if r.CreateAuthResources {
-		resource = &v1beta12.AuthorizationPolicy{}
-		policyName := name
-		policyName.Name = policyName.Name + "-authorino"
-		if err := r.Get(ctx, policyName, resource); err != nil {
-			log.Error(err, "Failed to get model registry Istio AuthorizationPolicy", "name", policyName)
-			message = fmt.Sprintf("Failed to find AuthorizationPolicy %s: %s", policyName, err.Error())
-			available = false
-			reason = ReasonResourcesUnavailable
-		}
-	}
-
-	return message, available, reason
-}
-
-func (r *ModelRegistryReconciler) SetGatewayCondition(ctx context.Context, req ctrl.Request,
-	modelRegistry *modelregistryv1alpha1.ModelRegistry) bool {
-
-	log := klog.FromContext(ctx)
-
-	reason := ReasonResourcesCreated
-	message := "Istio Gateway resources were successfully created"
-
-	available := true
-	// verify that gateway is available
-	name := req.NamespacedName
-	resource := &v1beta1.Gateway{}
-	if err := r.Get(ctx, name, resource); err != nil {
-		log.Error(err, "Failed to get model registry Istio Gateway", "name", name)
-		message = fmt.Sprintf("Failed to find Gateway: %s", err.Error())
-		available = false
-	}
-
-	// check routes Ingress Admitted condition
-	if available && r.IsOpenShift {
-		message, available = r.CheckGatewayRoutes(ctx, modelRegistry, name, log, message, available)
-
-		// set Gateway condition true if routes are available
-		if available {
-			reason = ReasonResourcesAvailable
-			message = "Istio Gateway resources are available"
-		}
-	}
-
-	status := metav1.ConditionFalse
-	if available {
-		if reason == ReasonResourcesAvailable || (!r.IsOpenShift && reason == ReasonResourcesCreated) {
-			status = metav1.ConditionTrue
-		}
-	} else {
-		status = metav1.ConditionFalse
-		reason = ReasonResourcesUnavailable
-	}
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeGateway,
-		Status: status, Reason: reason,
-		Message: message})
-
-	return status == metav1.ConditionTrue
-}
-
-func (r *ModelRegistryReconciler) CheckGatewayRoutes(ctx context.Context, modelRegistry *modelregistryv1alpha1.ModelRegistry, name types.NamespacedName, log logr.Logger, message string, available bool) (string, bool) {
-	restRouteEnabled := modelRegistry.Spec.Istio.Gateway.Rest.GatewayRoute == "enabled"
-	grpcRouteEnabled := modelRegistry.Spec.Istio.Gateway.Grpc.GatewayRoute == "enabled"
-
-	routeAvailable := map[string]bool{"rest": false, "grpc": false}
-	routeMessage := map[string]string{}
-
-	if restRouteEnabled || grpcRouteEnabled {
-
-		routes := &routev1.RouteList{}
-		labels := getRouteLabels(name.Name)
-		if err := r.Client.List(ctx, routes, labels); err != nil {
-			log.Error(err, "Failed to get model registry Routes", "name", name)
-			message = fmt.Sprintf("Failed to find Routes: %s", err.Error())
-			available = false
-		}
-
-		// check Ingress Admitted condition
-		if available {
-
-			// look for conditions in all ingresses in all routes
-			available = r.CheckRouteIngressConditions(routes, available, routeAvailable, routeMessage)
-
-			// check that expected routes are available
-			restError := false
-			if restRouteEnabled && !routeAvailable["rest"] {
-				restError = true
-				message = routeMessage["rest"]
-				if len(message) == 0 {
-					available = false
-					message = "Istio Gateway REST Route missing"
-				}
-			}
-			if grpcRouteEnabled && !routeAvailable["grpc"] {
-				if restError {
-					message = fmt.Sprintf("%s, %s", message, routeMessage["grpc"])
-				} else {
-					message = routeMessage["grpc"]
-				}
-				if len(message) == 0 {
-					available = false
-					message = "Istio Gateway GRPC Route missing"
-				}
-			}
-		}
-	}
-
-	return message, available
 }
 
 func (r *ModelRegistryReconciler) CheckRouteIngressConditions(routes *routev1.RouteList, available bool,

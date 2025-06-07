@@ -1,4 +1,4 @@
-apiVersion: modelregistry.opendatahub.io/v1alpha1
+apiVersion: modelregistry.opendatahub.io/v1beta1
 kind: ModelRegistry
 metadata:
   labels:
@@ -15,9 +15,9 @@ spec:
   rest:
     port: 8080
     serviceRoute: disabled
-  mysql:
+  postgres:
     host: model-registry-db
-    database: model_registry
+    database: model-registry
     username: mlmduser
     passwordSecret:
       name: model-registry-db
