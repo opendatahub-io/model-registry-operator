@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"fmt"
+
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	apiconversion "k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -42,6 +43,12 @@ func (src *ModelRegistry) ConvertTo(dstRaw conversion.Hub) error {
 	// Replace istio config in v1alpha1 with oauth proxy config with defaults in v1beta1
 	if src.Spec.Istio != nil {
 		src.ReplaceIstioWithOAuthProxy()
+	}
+
+	// Copy status
+	err := Convert_v1alpha1_ModelRegistryStatus_To_v1beta1_ModelRegistryStatus(&src.Status, &dst.Status, nil)
+	if err != nil {
+		return fmt.Errorf("failed to convert model registry v1alpha1 status to v1beta1: %w", err)
 	}
 
 	// Copy src spec to a map[string]interface{}
@@ -70,6 +77,12 @@ func (dst *ModelRegistry) ConvertFrom(srcRaw conversion.Hub) error {
 
 	// Copy metadata
 	dst.ObjectMeta = src.ObjectMeta
+
+	// Copy status
+	err := Convert_v1beta1_ModelRegistryStatus_To_v1alpha1_ModelRegistryStatus(&src.Status, &dst.Status, nil)
+	if err != nil {
+		return fmt.Errorf("failed to convert model registry v1beta1 status to v1alpha1: %w", err)
+	}
 
 	// convert src spec to map[string]interface{}
 	srcSpec, err := json.Marshal(src.Spec)
