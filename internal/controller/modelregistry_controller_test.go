@@ -520,6 +520,9 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 				name := modelRegistry.Name
 				namespace := modelRegistry.Namespace
 				domain := modelRegistry.Spec.OAuthProxy.Domain
+				if domain == "" {
+					domain = config.GetDefaultDomain()
+				}
 				Expect(hosts[0]).
 					To(Equal(fmt.Sprintf("%s-rest.%s", name, domain)))
 				Expect(hosts[1]).
