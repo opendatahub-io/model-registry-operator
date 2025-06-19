@@ -85,7 +85,7 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		return false, err
 	}
 
-	r.setRegistryStatusHosts(req, modelRegistry)
+	r.setRegistryStatusHosts(req, params, modelRegistry)
 	if err := r.setRegistryStatusSpecDefaults(modelRegistry, params.Spec); err != nil {
 		// log error but continue updating rest of the status since it's not a blocker
 		log.Error(err, "Failed to set registry status defaults")
@@ -198,14 +198,15 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	return available, nil
 }
 
-func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, registry *v1beta1.ModelRegistry) {
+func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) {
 
 	var hosts []string
 
 	oAuthProxy := registry.Spec.OAuthProxy
 	name := req.Name
 	if oAuthProxy != nil && oAuthProxy.ServiceRoute == config.RouteEnabled {
-		domain := oAuthProxy.Domain
+		// use domain from the reconciled registry with runtime defaults
+		domain := params.Spec.OAuthProxy.Domain
 		hosts = append(hosts, fmt.Sprintf("%s-rest.%s", name, domain))
 	}
 	namespace := req.Namespace

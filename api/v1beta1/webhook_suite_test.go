@@ -20,14 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
-	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"net"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
+	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -37,6 +38,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	admissionv1 "k8s.io/api/admission/v1"
+
 	//+kubebuilder:scaffold:imports
 	apimachineryruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -306,6 +308,12 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 					},
 				},
 			},
+			Status: v1alpha1.ModelRegistryStatus{
+				Hosts:        []string{"host1", "host2"},
+				HostsStr:     "host1,host2",
+				SpecDefaults: "{\"foo\":\"bar\"}",
+				Conditions:   []metav1.Condition{{Type: "Ready", Status: "True"}},
+			},
 		}
 		restPort := int32(8080)
 		grpcPort := int32(9090)
@@ -339,6 +347,12 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 					RoutePort:    &httpsRoutePort,
 				},
 			},
+			Status: v1beta1.ModelRegistryStatus{
+				Hosts:        []string{"host1", "host2"},
+				HostsStr:     "host1,host2",
+				SpecDefaults: "{\"foo\":\"bar\"}",
+				Conditions:   []metav1.Condition{{Type: "Ready", Status: "True"}},
+			},
 		}
 		expectedConvertedObj = &v1alpha1.ModelRegistry{
 			ObjectMeta: metav1.ObjectMeta{
@@ -368,6 +382,12 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 					ServiceRoute: config.RouteEnabled,
 					RoutePort:    &httpsRoutePort,
 				},
+			},
+			Status: v1alpha1.ModelRegistryStatus{
+				Hosts:        []string{"host1", "host2"},
+				HostsStr:     "host1,host2",
+				SpecDefaults: "{\"foo\":\"bar\"}",
+				Conditions:   []metav1.Condition{{Type: "Ready", Status: "True"}},
 			},
 		}
 
@@ -400,6 +420,8 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 			Expect(newObj).ToNot(BeNil())
 			Expect(newObj.GetObjectKind()).To(Equal(expectedObj.GetObjectKind()))
 			Expect(newObj.Spec).To(Equal(expectedObj.Spec))
+			// TODO figure out why status conversion is not working in suite test
+			//Expect(newObj.Status).To(Equal(expectedObj.Status))
 
 			// from v1beta1 back to v1alpha1
 			oldConvertedObj := v1alpha1.ModelRegistry{}
@@ -407,6 +429,8 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 			Expect(oldConvertedObj).ToNot(BeNil())
 			Expect(oldConvertedObj.GetObjectKind()).To(Equal(expectedConvertedObj.GetObjectKind()))
 			Expect(oldConvertedObj.Spec).To(Equal(expectedConvertedObj.Spec))
+			// TODO figure out why status conversion is not working in suite test
+			//Expect(oldConvertedObj.Status).To(Equal(expectedConvertedObj.Status))
 
 			Expect(k8sClient.Delete(ctx, oldObj)).To(Succeed())
 		})
