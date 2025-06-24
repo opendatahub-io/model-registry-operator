@@ -37,7 +37,10 @@ spec:
             - --port={{.Spec.Rest.Port}}
             {{- if .Spec.Postgres}}
             - --embedmd-database-type=postgres
-                {{- $pgHost := .Spec.Postgres.Host | default .Spec.Postgres.HostAddress }}
+                {{- $pgHost := .Spec.Postgres.Host }}
+                {{- if not $pgHost }}
+                    {{- $pgHost = .Spec.Postgres.HostAddress }}
+                {{- end }}
                 {{- $pgUser := .Spec.Postgres.Username }}
                 {{- $pgPort := .Spec.Postgres.Port }}
                 {{- $pgDB := .Spec.Postgres.Database }}
@@ -63,7 +66,10 @@ spec:
             {{- end}}
             {{- else if .Spec.MySQL}}
             - --embedmd-database-type=mysql
-                {{- $mysqlHost := .Spec.MySQL.Host | default "localhost" }}
+                {{- $mysqlHost := .Spec.MySQL.Host }}
+                {{- if not $mysqlHost }}
+                    {{- $mysqlHost = "localhost" }}
+                {{- end }}
                 {{- $mysqlUser := .Spec.MySQL.Username }}
                 {{- $mysqlPort := .Spec.MySQL.Port }}
                 {{- $mysqlDB := .Spec.MySQL.Database }}
