@@ -19,11 +19,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 
 	v1 "k8s.io/api/networking/v1"
 
@@ -599,7 +600,7 @@ func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.Nam
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 			Expect(err).To(Not(HaveOccurred()))
 
-			proxyContainer := found.Spec.Template.Spec.Containers[2]
+			proxyContainer := found.Spec.Template.Spec.Containers[1]
 
 			// check image
 			if len(modelRegistry.Spec.OAuthProxy.Image) != 0 {
