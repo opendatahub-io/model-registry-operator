@@ -49,9 +49,9 @@ spec:
                     {{- $sslMode = printf "?sslmode=%s" .Spec.Postgres.SSLMode }}
                 {{- end }}
                 {{- if .Spec.Postgres.PasswordSecret}}
-            - --embedmd-database-dsn={{$pgUser}}:$(POSTGRES_PASSWORD)@tcp({{$pgHost}}:{{$pgPort}})/{{$pgDB}}{{$sslMode}}
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}:$(POSTGRES_PASSWORD)@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
                 {{- else}}
-            - --embedmd-database-dsn={{$pgUser}}@tcp({{$pgHost}}:{{$pgPort}})/{{$pgDB}}{{$sslMode}}
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
                 {{- end}}
                 {{- if .Spec.Postgres.SSLCertificateSecret}}
             - --embedmd-database-ssl-cert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
