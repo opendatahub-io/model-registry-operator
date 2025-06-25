@@ -62,11 +62,11 @@ const (
 	ReasonDeploymentAvailable   = "DeploymentAvailable"
 	ReasonDeploymentUnavailable = "DeploymentUnavailable"
 	ReasonConfigurationError    = "ConfigurationError"
-	ReasonSchemaMigrationError  = "SchemaMigrationError"
 
 	ReasonResourcesCreated     = "CreatedResources"
 	ReasonResourcesAvailable   = "ResourcesAvailable"
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
+	ReasonResourcesAlert       = "ResourcesAlert"
 
 	grpcContainerName       = "grpc-container"
 	restContainerName       = "rest-container"
@@ -266,9 +266,14 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 						r.Log.Error(err, "failed to get grpc container error")
 					}
 					if dbError != nil {
+						if strings.Contains(dbError.Error(), "{{ALERT}}") {
+							reason = ReasonResourcesAlert
+							message = fmt.Sprintf("grpc container alert: %s", dbError)
+							return available, reason, message
+						}
 						// MLMD errors take priority
 						reason = ReasonConfigurationError
-						message = fmt.Sprintf("Metadata database configuration error: %s", dbError)
+						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
 						return available, reason, message
 					}
 				}
@@ -281,14 +286,14 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 						r.Log.Error(err, "failed to get rest container error")
 					}
 					if dbError != nil {
-						if strings.Contains(dbError.Error(), "Fix and force version.") {
-							reason = ReasonSchemaMigrationError
-							message = fmt.Sprintf("Schema Migration failed for metadata db. Must manually correct error and set dirty state to false: %s", dbError)
+						if strings.Contains(dbError.Error(), "{{ALERT}}") {
+							reason = ReasonResourcesAlert
+							message = fmt.Sprintf("rest container alert: %s", dbError)
 							return available, reason, message
 						}
 						// if not a schema migration error, return a generic configuration error
 						reason = ReasonConfigurationError
-						message = fmt.Sprintf("Metadata database configuration error: %s", dbError)
+						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
 						return available, reason, message
 					}
 				}
