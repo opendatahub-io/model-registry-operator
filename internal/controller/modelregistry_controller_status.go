@@ -355,6 +355,12 @@ func (r *ModelRegistryReconciler) getContainerDBerror(ctx context.Context, pod c
 	scanner := bufio.NewScanner(podLogs)
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// priority check for alert errors
+		if strings.Contains(line, "{{ALERT}}") {
+			return fmt.Errorf("%s", line), nil
+		}
+		// then check for generic errors
 		submatch := errRegexp.FindStringSubmatch(line)
 		if len(submatch) > 0 {
 			return fmt.Errorf("%s: %s", submatch[2], submatch[1]), nil
