@@ -54,7 +54,7 @@ jobs:
           make deploy
       - name: Create Test Registry
         run: |
-          kubectl apply -k config/samples/postgres/
+          kubectl apply -k config/samples/mysql/
           kubectl describe mr
       - name: Wait for Test Registry Deployment
         run: |
