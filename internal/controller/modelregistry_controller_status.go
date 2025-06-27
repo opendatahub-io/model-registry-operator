@@ -20,9 +20,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"regexp"
 	"strings"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	"github.com/go-logr/logr"
@@ -65,8 +66,10 @@ const (
 	ReasonResourcesCreated     = "CreatedResources"
 	ReasonResourcesAvailable   = "ResourcesAvailable"
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
+	ReasonResourcesAlert       = "ResourcesAlert"
 
 	grpcContainerName       = "grpc-container"
+	restContainerName       = "rest-container"
 	containerCreatingReason = "ContainerCreating"
 )
 
@@ -257,15 +260,40 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 				// look for MLMD container errors, make sure it has also been created
 				if s.Name == grpcContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
 					// check container log for MLMD errors
-					dbError, err := r.getGrpcContainerDBerror(ctx, p)
+					dbError, err := r.getContainerDBerror(ctx, p, grpcContainerName)
 					if err != nil {
 						// log K8s error
 						r.Log.Error(err, "failed to get grpc container error")
 					}
 					if dbError != nil {
+						if strings.Contains(dbError.Error(), "{{ALERT}}") {
+							reason = ReasonResourcesAlert
+							message = fmt.Sprintf("grpc container alert: %s", dbError)
+							return available, reason, message
+						}
 						// MLMD errors take priority
 						reason = ReasonConfigurationError
-						message = fmt.Sprintf("Metadata database configuration error: %s", dbError)
+						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
+						return available, reason, message
+					}
+				}
+				// check for schema migration errors within rest containers
+				if s.Name == restContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
+					// check container log for schema migration errors
+					dbError, err := r.getContainerDBerror(ctx, p, restContainerName)
+					if err != nil {
+						// log K8s error
+						r.Log.Error(err, "failed to get rest container error")
+					}
+					if dbError != nil {
+						if strings.Contains(dbError.Error(), "{{ALERT}}") {
+							reason = ReasonResourcesAlert
+							message = fmt.Sprintf("rest container alert: %s", dbError)
+							return available, reason, message
+						}
+						// if not a schema migration error, return a generic configuration error
+						reason = ReasonConfigurationError
+						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
 						return available, reason, message
 					}
 				}
@@ -314,10 +342,10 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 	return available, reason, message
 }
 
-// getGrpcContainerDBerror scrapes container log and returns a database connection error if it exists in the logs
+// getContainerDBerror scrapes container log and returns a database connection error if it exists in the logs
 // it also returns a k8s API error if it cannot read the container log
-func (r *ModelRegistryReconciler) getGrpcContainerDBerror(ctx context.Context, pod corev1.Pod) (error, error) {
-	request := r.ClientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: grpcContainerName})
+func (r *ModelRegistryReconciler) getContainerDBerror(ctx context.Context, pod corev1.Pod, containerTypeName string) (error, error) {
+	request := r.ClientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: containerTypeName})
 	podLogs, err := request.Stream(ctx)
 	if err != nil {
 		return nil, err
@@ -327,6 +355,12 @@ func (r *ModelRegistryReconciler) getGrpcContainerDBerror(ctx context.Context, p
 	scanner := bufio.NewScanner(podLogs)
 	for scanner.Scan() {
 		line := scanner.Text()
+
+		// priority check for alert errors
+		if strings.Contains(line, "{{ALERT}}") {
+			return fmt.Errorf("%s", line), nil
+		}
+		// then check for generic errors
 		submatch := errRegexp.FindStringSubmatch(line)
 		if len(submatch) > 0 {
 			return fmt.Errorf("%s: %s", submatch[2], submatch[1]), nil
