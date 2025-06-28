@@ -24,6 +24,9 @@ patches:
 # patch to add webhooks to manager
 - path: patches/manager_webhook_patch.yaml
 
+# patch to add storage migration environment variables
+- path: patches/manager_migration_env_patch.yaml
+
 # patch to add CA bundles in Webhooks
 - path: patches/mutatingwh_cainjection_patch.yaml
 - path: patches/validatingwh_cainjection_patch.yaml
