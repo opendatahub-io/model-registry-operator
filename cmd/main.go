@@ -18,8 +18,9 @@ package main
 
 import (
 	"flag"
-	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"os"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
@@ -46,6 +47,7 @@ import (
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+	"github.com/opendatahub-io/model-registry-operator/internal/migration"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -215,8 +217,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Start storage migration monitor
+	ctx := ctrl.SetupSignalHandler()
+	migrationMgr := migration.NewStorageMigrationManager(mgr.GetClient())
+	migrationMgr.StartMigrationMonitor(ctx)
+
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
