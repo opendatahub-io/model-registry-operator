@@ -33,75 +33,75 @@ spec:
         runAsNonRoot: true
       containers:
         - args:
-            - --grpc_port={{.Spec.Grpc.Port}}
+            - --hostname=0.0.0.0
+            - --port={{.Spec.Rest.Port}}
             {{- if .Spec.Postgres}}
-            - --metadata_source_config_type=postgresql
-            - --postgres_config_dbname={{.Spec.Postgres.Database}}
-                {{- if .Spec.Postgres.Host}}
-            - --postgres_config_host={{.Spec.Postgres.Host}}
-                {{- end}}
-                {{- if .Spec.Postgres.HostAddress}}
-            - --postgres_config_hostaddr={{.Spec.Postgres.HostAddress}}
-                {{- end}}
-            - --postgres_config_port={{.Spec.Postgres.Port}}
-            - --postgres_config_user={{.Spec.Postgres.Username}}
+            - --embedmd-database-type=postgres
+                {{- $pgHost := .Spec.Postgres.Host }}
+                {{- if not $pgHost }}
+                    {{- $pgHost = .Spec.Postgres.HostAddress }}
+                {{- end }}
+                {{- $pgUser := .Spec.Postgres.Username }}
+                {{- $pgPort := .Spec.Postgres.Port }}
+                {{- $pgDB := .Spec.Postgres.Database }}
+                {{- $sslMode := "" }}
+                {{- if .Spec.Postgres.SSLMode }}
+                    {{- $sslMode = printf "?sslmode=%s" .Spec.Postgres.SSLMode }}
+                {{- end }}
                 {{- if .Spec.Postgres.PasswordSecret}}
-            - --postgres_config_password=$(POSTGRES_PASSWORD)
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}:$(POSTGRES_PASSWORD)@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
+                {{- else}}
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
                 {{- end}}
-            - --postgres_config_skip_db_creation={{.Spec.Postgres.SkipDBCreation}}
-            - --postgres_config_sslmode={{.Spec.Postgres.SSLMode}}
                 {{- if .Spec.Postgres.SSLCertificateSecret}}
-            - --postgres_config_sslcert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
+            - --embedmd-database-ssl-cert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
                 {{- end}}
                 {{- if .Spec.Postgres.SSLKeySecret}}
-            - --postgres_config_sslkey=/etc/postgres_ssl_key/{{.Spec.Postgres.SSLKeySecret.Key}}
-                {{- end}}
-                {{- if .Spec.Postgres.SSLPasswordSecret}}
-            - --postgres_config_sslpassword=${POSTGRES_SSLPASSWORD}
+            - --embedmd-database-ssl-key=/etc/postgres_ssl_key/{{.Spec.Postgres.SSLKeySecret.Key}}
                 {{- end}}
                 {{- if .Spec.Postgres.SSLRootCertificateConfigMap}}
-            - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateConfigMap.Key}}
+            - --embedmd-database-ssl-root-cert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateConfigMap.Key}}
                 {{- else if .Spec.Postgres.SSLRootCertificateSecret}}
-            - --postgres_config_sslrootcert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
-                {{- end}}
+            - --embedmd-database-ssl-root-cert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
+            {{- end}}
             {{- else if .Spec.MySQL}}
-            - --metadata_source_config_type=mysql
-            - --mysql_config_database={{.Spec.MySQL.Database}}
-                {{- if .Spec.MySQL.Host}}
-            - --mysql_config_host={{.Spec.MySQL.Host}}
-                {{- end}}
-            - --mysql_config_port={{.Spec.MySQL.Port}}
-            - --mysql_config_user={{.Spec.MySQL.Username}}
+            - --embedmd-database-type=mysql
+                {{- $mysqlHost := .Spec.MySQL.Host }}
+                {{- if not $mysqlHost }}
+                    {{- $mysqlHost = "localhost" }}
+                {{- end }}
+                {{- $mysqlUser := .Spec.MySQL.Username }}
+                {{- $mysqlPort := .Spec.MySQL.Port }}
+                {{- $mysqlDB := .Spec.MySQL.Database }}
                 {{- if .Spec.MySQL.PasswordSecret}}
-            - --mysql_config_password=$(MYSQL_PASSWORD)
-                {{- end}}
-                {{- if .Spec.MySQL.SkipDBCreation}}
-            - --mysql_config_skip_db_creation={{.Spec.MySQL.SkipDBCreation}}
+            - --embedmd-database-dsn={{$mysqlUser}}:$(MYSQL_PASSWORD)@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}
+                {{- else}}
+            - --embedmd-database-dsn={{$mysqlUser}}@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}
                 {{- end}}
                 {{- if .Spec.MySQL.SSLCertificateSecret}}
-            - --mysql_config_sslcert=/etc/mysql_ssl_cert/{{.Spec.MySQL.SSLCertificateSecret.Key}}
+            - --embedmd-database-ssl-cert=/etc/mysql_ssl_cert/{{.Spec.MySQL.SSLCertificateSecret.Key}}
                 {{- end}}
                 {{- if .Spec.MySQL.SSLKeySecret}}
-            - --mysql_config_sslkey=/etc/mysql_ssl_key/{{.Spec.MySQL.SSLKeySecret.Key}}
+            - --embedmd-database-ssl-key=/etc/mysql_ssl_key/{{.Spec.MySQL.SSLKeySecret.Key}}
                 {{- end}}
                 {{- if .Spec.MySQL.SSLRootCertificateConfigMap}}
-            - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateConfigMap.Key}}
+            - --embedmd-database-ssl-root-cert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateConfigMap.Key}}
                 {{- else if .Spec.MySQL.SSLRootCertificateSecret}}
-            - --mysql_config_sslrootcert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
+            - --embedmd-database-ssl-root-cert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
                 {{- end}}
                 {{- if or .Spec.MySQL.SSLRootCertificatesConfigMapName .Spec.MySQL.SSLRootCertificatesSecretName}}
-            - --mysql_config_sslcapath=/etc/mysql_ssl_rootcerts/
+            - --embedmd-database-ssl-ca=/etc/mysql_ssl_rootcerts/
                 {{- end}}
                 {{- if .Spec.MySQL.SSLCipher}}
-            - --mysql_config_sslcipher={{.Spec.MySQL.SSLCipher}}
+            - --embedmd-database-ssl-cipher={{.Spec.MySQL.SSLCipher}}
                 {{- end}}
                 {{- if .Spec.MySQL.VerifyServerCert}}
-            - --mysql_config_verify_server_cert={{.Spec.MySQL.VerifyServerCert}}
+            - --embedmd-database-ssl-verify-server-cert={{.Spec.MySQL.VerifyServerCert}}
                 {{- end}}
             {{- end}}
-            - --enable_database_upgrade=true
           command:
-            - /bin/metadata_store_server
+            - /model-registry
+            - proxy
           env:
             {{- if .Spec.Postgres}}
                 {{- if .Spec.Postgres.PasswordSecret}}
@@ -166,49 +166,6 @@ spec:
               readOnly: true
                 {{- end}}
             {{- end}}
-          image: {{.Spec.Grpc.Image}}
-          name: grpc-container
-          ports:
-            - containerPort: {{.Spec.Grpc.Port}}
-              name: grpc-api
-          livenessProbe:
-            initialDelaySeconds: 30
-            periodSeconds: 5
-            tcpSocket:
-              port: grpc-api
-            timeoutSeconds: 2
-          readinessProbe:
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            tcpSocket:
-              port: grpc-api
-            timeoutSeconds: 2
-          {{- with .Spec.Grpc.Resources }}
-          resources:
-            {{- with .Requests }}
-            requests:
-              cpu: {{.Cpu}}
-              memory: {{.Memory}}
-            {{- end }}
-            {{- with .Limits }}
-            limits:
-              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
-              memory: {{.Memory}}
-            {{- end }}
-          {{- end }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-        - args:
-            - --hostname=0.0.0.0
-            - --port={{.Spec.Rest.Port}}
-            - --mlmd-hostname=localhost
-            - --mlmd-port={{.Spec.Grpc.Port}}
-          command:
-            - /model-registry
-            - proxy
           image: {{.Spec.Rest.Image}}
           name: rest-container
           ports:
