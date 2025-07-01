@@ -364,10 +364,6 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 				Name:  "model-registry-rest",
 				Image: config.DefaultRestImage,
 			},
-			{
-				Name:  "model-registry-grpc",
-				Image: config.DefaultGrpcImage,
-			},
 		}
 
 		// mock istio proxy container
