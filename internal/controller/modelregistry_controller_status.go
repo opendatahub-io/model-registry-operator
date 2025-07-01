@@ -104,16 +104,16 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		}
 	}
 
-	status := metav1.ConditionTrue
+	status := metav1.ConditionFalse
 	reason := ReasonDeploymentCreated
 	message := "Deployment was successfully created"
 	switch operationResult {
 	case ResourceCreated:
-		status = metav1.ConditionFalse
+		status = metav1.ConditionTrue
 		reason = ReasonDeploymentCreating
 		message = "Creating deployment"
 	case ResourceUpdated:
-		status = metav1.ConditionFalse
+		status = metav1.ConditionTrue
 		reason = ReasonDeploymentUpdating
 		message = "Updating deployment"
 	case ResourceUnchanged:
@@ -380,7 +380,7 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 
 	if modelRegistry.Spec.OAuthProxy != nil {
 
-		// verify that Deployment pod has 3 containers including the oauth proxy
+		// verify that Deployment pod has 2 containers including the oauth proxy
 		name := req.NamespacedName
 		reason2 := ReasonResourcesCreated
 		message2 := "OAuth Proxy was successfully created"
@@ -453,9 +453,9 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 		return message, reason, status
 	}
 
-	// check that pods have 3 containers
+	// check that pods have 2 containers
 	for _, pod := range pods.Items {
-		if len(pod.Spec.Containers) != 3 {
+		if len(pod.Spec.Containers) != 2 {
 			message = fmt.Sprintf("%s proxy unavailable in Pod %s", proxyType, pod.Name)
 			reason = ReasonResourcesUnavailable
 			status = metav1.ConditionFalse
