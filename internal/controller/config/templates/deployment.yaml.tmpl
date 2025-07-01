@@ -74,9 +74,9 @@ spec:
                 {{- $mysqlPort := .Spec.MySQL.Port }}
                 {{- $mysqlDB := .Spec.MySQL.Database }}
                 {{- if .Spec.MySQL.PasswordSecret}}
-            - --embedmd-database-dsn={{$mysqlUser}}:$(MYSQL_PASSWORD)@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}
+            - --embedmd-database-dsn={{$mysqlUser}}:$(MYSQL_PASSWORD)@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}?charset=utf8mb4
                 {{- else}}
-            - --embedmd-database-dsn={{$mysqlUser}}@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}
+            - --embedmd-database-dsn={{$mysqlUser}}@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}?charset=utf8mb4
                 {{- end}}
                 {{- if .Spec.MySQL.SSLCertificateSecret}}
             - --embedmd-database-ssl-cert=/etc/mysql_ssl_cert/{{.Spec.MySQL.SSLCertificateSecret.Key}}
