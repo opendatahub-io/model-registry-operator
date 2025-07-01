@@ -364,10 +364,6 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 				Name:  "model-registry-rest",
 				Image: config.DefaultRestImage,
 			},
-			{
-				Name:  "model-registry-grpc",
-				Image: config.DefaultGrpcImage,
-			},
 		}
 
 		// mock istio proxy container
@@ -534,8 +530,8 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					To(Equal(name))
 				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
 			}
-			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeProgressing) {
-				return fmt.Errorf("Condition %s is not true", ConditionTypeProgressing)
+			if meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeProgressing) {
+				return fmt.Errorf("Condition %s is not false", ConditionTypeProgressing)
 			}
 			if !meta.IsStatusConditionTrue(modelRegistry.Status.Conditions, ConditionTypeAvailable) {
 				return fmt.Errorf("Condition %s is not true: %+v", ConditionTypeAvailable, modelRegistry.Status)
