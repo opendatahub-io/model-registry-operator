@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/model-registry-operator:v0.2.20-odh
+    value: quay.io/opendatahub/model-registry-operator:v0.2.20a-odh
   - name: dockerfile
     value: Dockerfile
   pipelineSpec:
