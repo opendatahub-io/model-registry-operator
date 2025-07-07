@@ -96,7 +96,7 @@ items:
               command:
                 - /bin/bash
                 - -c
-                - mysqladmin -h 127.0.0.1 -P 3306 -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} ping
+                - mysqladmin -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} ping
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
@@ -109,7 +109,7 @@ items:
               command:
               - /bin/bash
               - -c
-              - mysql -h 127.0.0.1 -P 3306 -D ${MYSQL_DATABASE} -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'
+              - mysql -D ${MYSQL_DATABASE} -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'
             initialDelaySeconds: 10
             timeoutSeconds: 5
           securityContext:
