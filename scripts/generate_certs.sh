@@ -16,5 +16,6 @@ openssl req -out certs/modelregistry-sample-grpc.domain.csr -newkey rsa:2048 -no
 openssl x509 -req -sha256 -days 365 -CA certs/domain.crt -CAkey certs/domain.key -set_serial 0 -in certs/modelregistry-sample-grpc.domain.csr -out certs/modelregistry-sample-grpc.domain.crt -extfile certs/modelregistry-sample-grpc.domain.ext
 
 # create DB service cert and private key
-openssl req -out certs/model-registry-db.csr -newkey rsa:2048 -nodes -keyout certs/model-registry-db.key -subj "/CN=model-registry-db/O=modelregistry organization"
-openssl x509 -req -sha256 -days 365 -CA certs/domain.crt -CAkey certs/domain.key -set_serial 0 -in certs/model-registry-db.csr -out certs/model-registry-db.crt
+echo "subjectAltName = DNS:model-registry-db" > certs/model-registry-db.ext
+openssl req -out certs/model-registry-db.csr -newkey rsa:2048 -nodes -keyout certs/model-registry-db.key -subj "/CN=model-registry-db/O=modelregistry organization" -addext "subjectAltName = DNS:model-registry-db"
+openssl x509 -req -sha256 -days 365 -CA certs/domain.crt -CAkey certs/domain.key -set_serial 0 -in certs/model-registry-db.csr -out certs/model-registry-db.crt -extfile certs/model-registry-db.ext
