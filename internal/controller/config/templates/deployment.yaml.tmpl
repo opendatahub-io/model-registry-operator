@@ -178,9 +178,10 @@ spec:
               port: http-api
             timeoutSeconds: 2
           readinessProbe:
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            tcpSocket:
+            initialDelaySeconds: 10
+            periodSeconds: 60
+            httpGet:
+              path: /readyz/isDirty
               port: http-api
             timeoutSeconds: 2
           {{- with .Spec.Rest.Resources }}
