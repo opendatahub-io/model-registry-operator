@@ -164,6 +164,13 @@ func (m *ManualStrategy) migrateResource(ctx context.Context, resource *unstruct
 
 	// Use a migration marker that includes the migration path
 	migrationKey := fmt.Sprintf("storage-migration.opendatahub.io/migrated-%s-to-%s", m.SourceVersion, m.TargetVersion)
+
+	// Check if the resource has already been migrated
+	if _, ok := annotations[migrationKey]; ok {
+		log.Info("Resource has already been migrated", "name", name, "namespace", namespace, "migrationKey", migrationKey)
+		return nil
+	}
+
 	annotations[migrationKey] = time.Now().Format(time.RFC3339)
 
 	// Also track the resourceVersion we're migrating to avoid duplicate work
