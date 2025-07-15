@@ -24,6 +24,7 @@ import (
 
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -65,6 +66,8 @@ func init() {
 	utilruntime.Must(security.AddToScheme(scheme))
 	// istio networking scheme
 	utilruntime.Must(networking.AddToScheme(scheme))
+	// CRD scheme
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))

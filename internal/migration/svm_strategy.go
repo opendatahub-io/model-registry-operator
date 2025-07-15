@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-//+kubebuilder:rbac:groups=storagemigration.k8s.io,resources=storageversionmigrations,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=migration.k8s.io,resources=storageversionmigrations,verbs=get;list;watch;create;update;patch;delete
 
 // SVMStrategy implements migration using Kubernetes StorageVersionMigration API
 type SVMStrategy struct {
@@ -56,7 +56,7 @@ func (s *SVMStrategy) GetName() string {
 func (s *SVMStrategy) IsSupported(ctx context.Context) bool {
 	// Check if the StorageVersionMigration API is available
 	gvr := schema.GroupVersionResource{
-		Group:    "storagemigration.k8s.io",
+		Group:    "migration.k8s.io",
 		Version:  "v1alpha1",
 		Resource: "storageversionmigrations",
 	}
@@ -91,7 +91,7 @@ func (s *SVMStrategy) PerformMigration(ctx context.Context, crd *apiextensionsv1
 	// Create StorageVersionMigration using unstructured to avoid import issues
 	svm := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"apiVersion": "storagemigration.k8s.io/v1alpha1",
+			"apiVersion": "migration.k8s.io/v1alpha1",
 			"kind":       "StorageVersionMigration",
 			"metadata": map[string]interface{}{
 				"name": svmName,
@@ -114,7 +114,7 @@ func (s *SVMStrategy) PerformMigration(ctx context.Context, crd *apiextensionsv1
 	// Check if migration already exists
 	existingSVM := &unstructured.Unstructured{}
 	existingSVM.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   "storagemigration.k8s.io",
+		Group:   "migration.k8s.io",
 		Version: "v1alpha1",
 		Kind:    "StorageVersionMigration",
 	})
@@ -148,7 +148,7 @@ func (s *SVMStrategy) monitorStorageVersionMigration(ctx context.Context, svmNam
 		case <-ticker.C:
 			svm := &unstructured.Unstructured{}
 			svm.SetGroupVersionKind(schema.GroupVersionKind{
-				Group:   "storagemigration.k8s.io",
+				Group:   "migration.k8s.io",
 				Version: "v1alpha1",
 				Kind:    "StorageVersionMigration",
 			})

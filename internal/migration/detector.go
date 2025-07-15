@@ -35,7 +35,7 @@ const (
 	ModelRegistryResource = "modelregistries"
 )
 
-//+kubebuilder:rbac:groups=storagemigration.k8s.io,resources=storageversionmigrations,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=migration.k8s.io,resources=storageversionmigrations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;update;patch
 
