@@ -36,6 +36,7 @@ import (
 
 //go:embed templates/*.yaml.tmpl
 //go:embed templates/oauth-proxy/*.yaml.tmpl
+//go:embed templates/catalog/*.yaml.tmpl
 var templateFS embed.FS
 
 const (
@@ -54,6 +55,7 @@ const (
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
 	CreateAuthResources = "CREATE_AUTH_RESOURCES"
 	DefaultDomain       = "DEFAULT_DOMAIN"
+	EnableModelCatalog  = "ENABLE_MODEL_CATALOG"
 )
 
 var (
@@ -91,8 +93,11 @@ func GetStringConfigWithDefault(configName, value string) string {
 }
 
 func ParseTemplates() (*template.Template, error) {
-	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl",
-		"templates/oauth-proxy/*.yaml.tmpl")
+	template, err := template.ParseFS(templateFS,
+		"templates/*.yaml.tmpl",
+		"templates/oauth-proxy/*.yaml.tmpl",
+		"templates/catalog/*.yaml.tmpl",
+	)
 	if err != nil {
 		return nil, err
 	}
