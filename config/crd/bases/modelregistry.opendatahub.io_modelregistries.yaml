@@ -888,6 +888,14 @@ spec:
               ModelRegistrySpec defines the desired state of ModelRegistry.
               One of `postgres` or `mysql` database configurations MUST be provided!
             properties:
+              database:
+                description: Database configuration for the model registry.
+                properties:
+                  generate:
+                    default: false
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
+                type: object
               downgrade_db_schema_version:
                 description: |-
                   Database downgrade schema version value. If set the database

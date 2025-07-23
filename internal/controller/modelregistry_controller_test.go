@@ -300,6 +300,42 @@ var _ = Describe("ModelRegistry controller", func() {
 				oauthValidate()
 			})
 
+			It("When using auto-provisioned PostgreSQL database", func() {
+				registryName = "model-registry-auto-postgres"
+				specInit()
+
+				trueValue := true
+				modelRegistry.Spec.Database = &v1beta1.DatabaseSpec{
+					Generate: &trueValue,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Secret was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &corev1.Secret{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-credentials", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Deployment was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &appsv1.Deployment{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Service was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &corev1.Service{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+			})
+
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
 				found := &v1beta1.ModelRegistry{}
