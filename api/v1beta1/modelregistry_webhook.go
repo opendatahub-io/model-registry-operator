@@ -191,9 +191,12 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
 	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
+		if r.Spec.Database != nil && r.Spec.Database.Generate != nil && *r.Spec.Database.Generate {
+			return nil, nil
+		}
 		return nil, field.ErrorList{
-			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
-			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
+			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database, unless `database.generate` is true"),
+			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database, unless `database.generate` is true"),
 		}
 	}
 	return nil, nil

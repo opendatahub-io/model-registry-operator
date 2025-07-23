@@ -193,6 +193,12 @@ type GrpcSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
+type DatabaseSpec struct {
+	//+kubebuilder:default=false
+	// Auto-provision a PostgreSQL database if true.
+	Generate *bool `json:"generate,omitempty"`
+}
+
 // +kubebuilder:validation:XValidation:rule="has(self.tlsCertificateSecret) == has(self.tlsKeySecret)",message="tlsCertificateSecret and tlsKeySecret MUST be set together"
 type OAuthProxyConfig struct {
 	//+kubebuilder:default=8443
@@ -256,6 +262,10 @@ type ModelRegistrySpec struct {
 
 	// Configuration for gRPC endpoint
 	Grpc GrpcSpec `json:"grpc"`
+
+	// Database configuration for the model registry.
+	//+optional
+	Database *DatabaseSpec `json:"database,omitempty"`
 
 	// PostgreSQL configuration options
 	//+optional
