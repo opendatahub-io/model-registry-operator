@@ -60,8 +60,12 @@ func (r *ModelRegistry) Default() {
 	}
 
 	// Fixes default database configs that get set for some reason in Kind cluster
+	// But don't remove postgres config if auto-provisioning is enabled
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
-		r.Spec.Postgres = nil
+		// Check if auto-provisioning is enabled before removing the config
+		if r.Spec.Postgres.Generate == nil || !*r.Spec.Postgres.Generate {
+			r.Spec.Postgres = nil
+		}
 	}
 	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
 		r.Spec.MySQL = nil
@@ -237,12 +241,36 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
-	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
+	hasPostgres := r.Spec.Postgres != nil
+	hasMySQL := r.Spec.MySQL != nil
+	hasAutoProvisioning := hasPostgres && r.Spec.Postgres.Generate != nil && *r.Spec.Postgres.Generate
+
+	if !hasPostgres && !hasMySQL {
 		return nil, field.ErrorList{
 			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
 			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
 		}
 	}
+
+	if hasAutoProvisioning {
+		// When auto-provisioning is enabled, other postgres fields should not be set
+		if len(r.Spec.Postgres.Host) > 0 || len(r.Spec.Postgres.HostAddress) > 0 {
+			return nil, field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("postgres").Child("host"), r.Spec.Postgres.Host, "host should not be set when auto-provisioning is enabled"),
+			}
+		}
+		if len(r.Spec.Postgres.Database) > 0 {
+			return nil, field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("postgres").Child("database"), r.Spec.Postgres.Database, "database should not be set when auto-provisioning is enabled"),
+			}
+		}
+		if len(r.Spec.Postgres.Username) > 0 {
+			return nil, field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("postgres").Child("username"), r.Spec.Postgres.Username, "username should not be set when auto-provisioning is enabled"),
+			}
+		}
+	}
+	
 	return nil, nil
 }
 

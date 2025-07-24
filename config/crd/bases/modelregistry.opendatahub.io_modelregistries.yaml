@@ -551,6 +551,10 @@ spec:
                   database:
                     description: The database name.
                     type: string
+                  generate:
+                    default: false
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string
@@ -678,8 +682,6 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
-                required:
-                - database
                 type: object
               rest:
                 description: Configuration for REST endpoint
@@ -888,14 +890,6 @@ spec:
               ModelRegistrySpec defines the desired state of ModelRegistry.
               One of `postgres` or `mysql` database configurations MUST be provided!
             properties:
-              database:
-                description: Database configuration for the model registry.
-                properties:
-                  generate:
-                    default: false
-                    description: Auto-provision a PostgreSQL database if true.
-                    type: boolean
-                type: object
               downgrade_db_schema_version:
                 description: |-
                   Database downgrade schema version value. If set the database
@@ -1191,6 +1185,10 @@ spec:
                   database:
                     description: The database name.
                     type: string
+                  generate:
+                    default: false
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string
@@ -1318,8 +1316,6 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
-                required:
-                - database
                 type: object
               rest:
                 description: Configuration for REST endpoint

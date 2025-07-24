@@ -63,6 +63,7 @@ func TestValidateNamespace(t *testing.T) {
 }
 
 func TestValidateDatabase(t *testing.T) {
+	trueValue := true
 	tests := []struct {
 		name    string
 		mrSpec  *v1beta1.ModelRegistry
@@ -81,6 +82,25 @@ func TestValidateDatabase(t *testing.T) {
 				Postgres: &v1beta1.PostgresConfig{},
 			}},
 			wantErr: false,
+		},
+		{
+			name: "valid - postgres auto-provisioning",
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				Postgres: &v1beta1.PostgresConfig{
+					Generate: &trueValue,
+				},
+			}},
+			wantErr: false,
+		},
+		{
+			name: "invalid - postgres auto-provisioning with host",
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				Postgres: &v1beta1.PostgresConfig{
+					Generate: &trueValue,
+					Host:     "some-host",
+				},
+			}},
+			wantErr: true,
 		},
 		{
 			name:    "invalid - missing databases",
