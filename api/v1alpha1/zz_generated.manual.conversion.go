@@ -12,4 +12,4 @@ func Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1beta1
 	}
 	// The Database field does not exist in v1alpha1, so it is ignored.
 	return nil
-} 
+}

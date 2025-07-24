@@ -305,7 +305,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				specInit()
 
 				trueValue := true
-				modelRegistry.Spec.Database = &v1beta1.DatabaseSpec{
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
 					Generate: &trueValue,
 				}
 

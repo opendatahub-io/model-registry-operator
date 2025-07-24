@@ -3,7 +3,7 @@ kind: ModelRegistry
 metadata:
   name: modelregistry-sample
 spec:
-  database:
+  postgres:
     generate: true
   rest:
     port: 8080
