@@ -477,7 +477,7 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 					Namespace: params.Namespace,
 				},
 				StringData: map[string]string{
-					"username": "postgres",
+					"username": "modelregistry",
 					"password": "password",
 				},
 			}
@@ -540,7 +540,7 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 	registry.Spec.Postgres = &v1beta1.PostgresConfig{
 		Host:     params.Name + "-postgres",
 		Port:     &port,
-		Username: "postgres",
+		Username: "modelregistry",
 		Database: "model_registry",
 		PasswordSecret: &v1beta1.SecretKeyValue{
 			Name: secretName,
