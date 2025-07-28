@@ -74,6 +74,9 @@ type PostgresConfig struct {
 	// Auto-provision a PostgreSQL database if true.
 	Generate *bool `json:"generate,omitempty"`
 
+	// Configuration for auto-provisioned PostgreSQL persistence
+	Persistence *PostgresPersistenceConfig `json:"persistence,omitempty"`
+
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable
 	// PostgreSQL sslmode setup. Values can be disable, allow, prefer,
@@ -95,6 +98,31 @@ type PostgresConfig struct {
 	// This parameter specifies the Kubernetes Secret name and key containing SSL
 	// certificate authority (CA) certificate(s).
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
+}
+
+// PostgresPersistenceConfig defines persistence options for auto-provisioned PostgreSQL
+type PostgresPersistenceConfig struct {
+	// If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
+	// When false (default), the database is deleted when the ModelRegistry is deleted.
+	//+kubebuilder:default=false
+	Persist *bool `json:"persist,omitempty"`
+	
+	// Storage configuration for the PostgreSQL database
+	Storage *PostgresStorageConfig `json:"storage,omitempty"`
+}
+
+// PostgresStorageConfig defines storage options for auto-provisioned PostgreSQL
+type PostgresStorageConfig struct {
+	// Size of the persistent volume for PostgreSQL data
+	//+kubebuilder:default="1Gi"
+	Size string `json:"size,omitempty"`
+	
+	// Storage class name for the persistent volume
+	StorageClassName *string `json:"storageClassName,omitempty"`
+	
+	// Access modes for the persistent volume
+	//+kubebuilder:default={"ReadWriteOnce"}
+	AccessModes []string `json:"accessModes,omitempty"`
 }
 
 type MySQLConfig struct {
