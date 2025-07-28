@@ -5,8 +5,7 @@ metadata:
 spec:
   postgres:
     generate: true
-    persistence:
-      persist: true
+    persist: true
   rest:
     port: 8080
   grpc:
