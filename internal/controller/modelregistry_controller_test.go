@@ -413,9 +413,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				trueValue := true
 				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
 					Generate: &trueValue,
-					Persistence: &v1beta1.PostgresPersistenceConfig{
-						Persist: &trueValue,
-					},
+					Persist:  &trueValue,
 				}
 
 				err = k8sClient.Create(ctx, modelRegistry)

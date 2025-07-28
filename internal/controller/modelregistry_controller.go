@@ -898,9 +898,8 @@ func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, reg
 // isPersistent checks if the PostgreSQL database should persist beyond the ModelRegistry lifecycle
 func isPersistent(registry *v1beta1.ModelRegistry) bool {
 	if registry.Spec.Postgres != nil && 
-	   registry.Spec.Postgres.Persistence != nil && 
-	   registry.Spec.Postgres.Persistence.Persist != nil {
-		return *registry.Spec.Postgres.Persistence.Persist
+	   registry.Spec.Postgres.Persist != nil {
+		return *registry.Spec.Postgres.Persist
 	}
 	return false
 }
