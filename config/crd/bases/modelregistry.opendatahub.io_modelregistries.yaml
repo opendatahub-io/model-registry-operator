@@ -577,6 +577,35 @@ spec:
                     - key
                     - name
                     type: object
+                  persistence:
+                    description: Configuration for auto-provisioned PostgreSQL persistence
+                    properties:
+                      persist:
+                        default: false
+                        description: |-
+                          If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
+                          When false (default), the database is deleted when the ModelRegistry is deleted.
+                        type: boolean
+                      storage:
+                        description: Storage configuration for the PostgreSQL database
+                        properties:
+                          accessModes:
+                            default:
+                            - ReadWriteOnce
+                            description: Access modes for the persistent volume
+                            items:
+                              type: string
+                            type: array
+                          size:
+                            default: 1Gi
+                            description: Size of the persistent volume for PostgreSQL
+                              data
+                            type: string
+                          storageClassName:
+                            description: Storage class name for the persistent volume
+                            type: string
+                        type: object
+                    type: object
                   port:
                     default: 5432
                     description: Port number to connect to at the server host.
@@ -1210,6 +1239,35 @@ spec:
                     required:
                     - key
                     - name
+                    type: object
+                  persistence:
+                    description: Configuration for auto-provisioned PostgreSQL persistence
+                    properties:
+                      persist:
+                        default: false
+                        description: |-
+                          If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
+                          When false (default), the database is deleted when the ModelRegistry is deleted.
+                        type: boolean
+                      storage:
+                        description: Storage configuration for the PostgreSQL database
+                        properties:
+                          accessModes:
+                            default:
+                            - ReadWriteOnce
+                            description: Access modes for the persistent volume
+                            items:
+                              type: string
+                            type: array
+                          size:
+                            default: 1Gi
+                            description: Size of the persistent volume for PostgreSQL
+                              data
+                            type: string
+                          storageClassName:
+                            description: Storage class name for the persistent volume
+                            type: string
+                        type: object
                     type: object
                   port:
                     default: 5432
