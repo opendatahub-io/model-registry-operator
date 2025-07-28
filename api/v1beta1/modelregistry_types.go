@@ -56,21 +56,28 @@ type PostgresConfig struct {
 	// Port number to connect to at the server host.
 	Port *int32 `json:"port,omitempty"`
 
-	//+kubebuilder:required
 	// PostgreSQL username to connect as.
 	Username string `json:"username,omitempty"`
 
 	// Password to be used if required by the PostgreSQL server.
 	PasswordSecret *SecretKeyValue `json:"passwordSecret,omitempty"`
 
-	//+kubebuilder:required
 	// The database name.
-	Database string `json:"database"`
+	Database string `json:"database,omitempty"`
 
 	//+kubebuilder:default=false
 	// True if skipping database instance creation during ML Metadata
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
+
+	//+kubebuilder:default=false
+	// Auto-provision a PostgreSQL database if true.
+	Generate *bool `json:"generate,omitempty"`
+
+	//+kubebuilder:default=false
+	// If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
+	// When false (default), the database is deleted when the ModelRegistry is deleted.
+	Persist *bool `json:"persist,omitempty"`
 
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable

@@ -300,6 +300,92 @@ var _ = Describe("ModelRegistry controller", func() {
 				oauthValidate()
 			})
 
+			It("When using auto-provisioned PostgreSQL database", func() {
+				registryName = "model-registry-auto-postgres"
+				specInit()
+
+				trueValue := true
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Generate: &trueValue,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Secret was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &corev1.Secret{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-credentials", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Deployment was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &appsv1.Deployment{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres Service was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &corev1.Service{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using auto-provisioned PostgreSQL database with persistence enabled", func() {
+				registryName = "model-registry-auto-postgres-persistent"
+				specInit()
+
+				trueValue := true
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Generate: &trueValue,
+					Persist:  &trueValue,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking that PostgreSQL resources do NOT have owner references (for persistence)")
+				Eventually(func() bool {
+					deployment := &appsv1.Deployment{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, deployment)
+					if err != nil {
+						return false
+					}
+					// Should have no owner references when persistence is enabled
+					return len(deployment.OwnerReferences) == 0
+				}, time.Minute, time.Second).Should(BeTrue())
+
+				Eventually(func() bool {
+					service := &corev1.Service{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, service)
+					if err != nil {
+						return false
+					}
+					// Should have no owner references when persistence is enabled
+					return len(service.OwnerReferences) == 0
+				}, time.Minute, time.Second).Should(BeTrue())
+
+				Eventually(func() bool {
+					secret := &corev1.Secret{}
+					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-credentials", Namespace: namespace.Name}, secret)
+					if err != nil {
+						return false
+					}
+					// Should have no owner references when persistence is enabled
+					return len(secret.OwnerReferences) == 0
+				}, time.Minute, time.Second).Should(BeTrue())
+			})
+
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
 				found := &v1beta1.ModelRegistry{}
@@ -326,6 +412,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				By("Removing the Image ENV VARs which stores the Server images")
 				_ = os.Unsetenv(config.GrpcImage)
 				_ = os.Unsetenv(config.RestImage)
+				_ = os.Unsetenv(config.OAuthProxyImage)
 			})
 		})
 
