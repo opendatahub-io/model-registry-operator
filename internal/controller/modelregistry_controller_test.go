@@ -412,6 +412,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				By("Removing the Image ENV VARs which stores the Server images")
 				_ = os.Unsetenv(config.GrpcImage)
 				_ = os.Unsetenv(config.RestImage)
+				_ = os.Unsetenv(config.OAuthProxyImage)
 			})
 		})
 
