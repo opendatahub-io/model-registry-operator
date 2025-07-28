@@ -17,18 +17,18 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:13
+          image: quay.io/sclorg/postgresql-13-c9s:latest
           ports:
             - containerPort: 5432
           env:
-            - name: POSTGRES_DB
+            - name: POSTGRESQL_DATABASE
               value: "model_registry"
-            - name: POSTGRES_USER
+            - name: POSTGRESQL_USER
               valueFrom:
                 secretKeyRef:
                   name: {{.Name}}-postgres-credentials
                   key: username
-            - name: POSTGRES_PASSWORD
+            - name: POSTGRESQL_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{.Name}}-postgres-credentials
