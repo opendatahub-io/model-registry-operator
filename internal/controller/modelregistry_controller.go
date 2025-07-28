@@ -448,9 +448,12 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 					"password": "password",
 				},
 			}
-			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
-				log.Error(err, "Failed to set controller reference on secret")
-				return result, err
+			// Only set owner reference if persistence is not enabled
+			if !isPersistent(registry) {
+				if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
+					log.Error(err, "Failed to set controller reference on secret")
+					return result, err
+				}
 			}
 			if result, err = r.createOrUpdate(ctx, &corev1.Secret{}, &secret); err != nil {
 				log.Error(err, "Failed to create or update secret")
@@ -468,9 +471,12 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		log.Error(err, "Failed to apply postgres deployment template")
 		return result, err
 	}
-	if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference on deployment")
-		return result, err
+	// Only set owner reference if persistence is not enabled
+	if !isPersistent(registry) {
+		if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference on deployment")
+			return result, err
+		}
 	}
 	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
 		log.Error(err, "Failed to create or update deployment")
@@ -483,9 +489,12 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		log.Error(err, "Failed to apply postgres service template")
 		return result, err
 	}
-	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
-		log.Error(err, "Failed to set controller reference on service")
-		return result, err
+	// Only set owner reference if persistence is not enabled
+	if !isPersistent(registry) {
+		if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
+			log.Error(err, "Failed to set controller reference on service")
+			return result, err
+		}
 	}
 	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
 		log.Error(err, "Failed to create or update service")
@@ -884,4 +893,14 @@ func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, reg
 		}
 	}
 	return result, err
+}
+
+// isPersistent checks if the PostgreSQL database should persist beyond the ModelRegistry lifecycle
+func isPersistent(registry *v1beta1.ModelRegistry) bool {
+	if registry.Spec.Postgres != nil && 
+	   registry.Spec.Postgres.Persistence != nil && 
+	   registry.Spec.Postgres.Persistence.Persist != nil {
+		return *registry.Spec.Postgres.Persistence.Persist
+	}
+	return false
 }
