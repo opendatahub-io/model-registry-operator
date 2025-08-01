@@ -18,7 +18,9 @@ package config
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/template"
@@ -36,6 +38,7 @@ import (
 
 //go:embed templates/*.yaml.tmpl
 //go:embed templates/oauth-proxy/*.yaml.tmpl
+//go:embed templates/catalog/*.yaml.tmpl
 var templateFS embed.FS
 
 const (
@@ -54,6 +57,7 @@ const (
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
 	CreateAuthResources = "CREATE_AUTH_RESOURCES"
 	DefaultDomain       = "DEFAULT_DOMAIN"
+	EnableModelCatalog  = "ENABLE_MODEL_CATALOG"
 )
 
 var (
@@ -91,12 +95,24 @@ func GetStringConfigWithDefault(configName, value string) string {
 }
 
 func ParseTemplates() (*template.Template, error) {
-	template, err := template.ParseFS(templateFS, "templates/*.yaml.tmpl",
-		"templates/oauth-proxy/*.yaml.tmpl")
+	tmpl := (&template.Template{}).Funcs(template.FuncMap{
+		"randBytes": randBytes,
+	})
+	tmpl, err := tmpl.ParseFS(templateFS,
+		"templates/*.yaml.tmpl",
+		"templates/oauth-proxy/*.yaml.tmpl",
+		"templates/catalog/*.yaml.tmpl",
+	)
 	if err != nil {
 		return nil, err
 	}
-	return template, err
+	return tmpl, err
+}
+
+func randBytes(n int) string {
+	buf := make([]byte, n)
+	rand.Read(buf)
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 var (

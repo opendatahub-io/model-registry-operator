@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-https-route
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  name: {{.Name}}-catalog-https-route
+  namespace: {{.Namespace}}
+spec:
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          network.openshift.io/policy-group: ingress
+    ports:
+      - protocol: TCP
+        {{- if .Spec.OAuthProxy }}
+        port: {{.Spec.OAuthProxy.Port}}
+        {{- else }}
+        port: 8443
+        {{- end }}
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-catalog
+  policyTypes:
+  - Ingress
