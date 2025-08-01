@@ -222,7 +222,7 @@ spec:
             - --upstream=http://localhost:{{.Spec.Rest.Port}}
             - --tls-cert=/etc/tls/private-cert/{{.Spec.OAuthProxy.TLSCertificateSecret.Key}}
             - --tls-key=/etc/tls/private-key/{{.Spec.OAuthProxy.TLSKeySecret.Key}}
-            - --cookie-secret=MODEL_REGISTRY_OAUTH_SECRET
+            - --cookie-secret-file=/cookie-secret/cookie-secret.txt
             - --cookie-name=_{{.Name}}_oauth_proxy
             - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
             - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
@@ -262,6 +262,8 @@ spec:
               name: oauth-proxy-cert
             - mountPath: /etc/tls/private-key
               name: oauth-proxy-key
+            - mountPath: /cookie-secret
+              name: oauth-proxy-cookie-secret
         {{ end }}
       serviceAccountName: {{.Name}}
       volumes:
@@ -333,5 +335,9 @@ spec:
         - name: oauth-proxy-key
           secret:
             secretName: {{.Spec.OAuthProxy.TLSKeySecret.Name}}
+            defaultMode: 0600
+        - name: oauth-proxy-cookie-secret
+          secret:
+            secretName: {{.Name}}-oauth-cookie-secret
             defaultMode: 0600
         {{- end}}

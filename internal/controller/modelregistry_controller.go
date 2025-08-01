@@ -336,6 +336,7 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
@@ -626,6 +627,20 @@ func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, par
 	}
 
 	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) ensureSecretExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
+	result := ResourceUnchanged
+	var cm corev1.Secret
+	if err := r.Apply(params, templateName, &cm); err != nil {
+		return result, err
+	}
+
+	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &cm)
 	if err != nil {
 		return result, err
 	}
