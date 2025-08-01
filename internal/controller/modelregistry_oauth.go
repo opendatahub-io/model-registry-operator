@@ -42,6 +42,14 @@ func (r *ModelRegistryReconciler) createOrUpdateOAuthConfig(ctx context.Context,
 			return result, err
 		}
 
+		result2, err := r.ensureSecretExists(ctx, params, registry, "proxy-cookie-secret.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
 		// check if cluster is OpenShift for Route support
 		if r.IsOpenShift {
 			// create oauth proxy service route if enabled, delete if disabled
