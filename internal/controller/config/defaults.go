@@ -18,7 +18,9 @@ package config
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/template"
@@ -93,7 +95,10 @@ func GetStringConfigWithDefault(configName, value string) string {
 }
 
 func ParseTemplates() (*template.Template, error) {
-	template, err := template.ParseFS(templateFS,
+	tmpl := (&template.Template{}).Funcs(template.FuncMap{
+		"randBytes": randBytes,
+	})
+	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
 		"templates/oauth-proxy/*.yaml.tmpl",
 		"templates/catalog/*.yaml.tmpl",
@@ -101,7 +106,13 @@ func ParseTemplates() (*template.Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	return template, err
+	return tmpl, err
+}
+
+func randBytes(n int) string {
+	buf := make([]byte, n)
+	rand.Read(buf)
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 var (

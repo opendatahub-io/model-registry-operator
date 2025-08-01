@@ -40,6 +40,10 @@ spec:
         secret:
           secretName: {{.Name}}-catalog-oauth-proxy
           defaultMode: 0600
+      - name: oauth-proxy-cookie-secret
+        secret:
+          secretName: {{.Name}}-oauth-cookie-secret
+          defaultMode: 0600
       {{- end}}
       serviceAccountName: {{.Name}}
       containers:
@@ -96,7 +100,7 @@ spec:
             - --upstream=http://localhost:8080
             - --tls-cert=/etc/tls/tls.crt
             - --tls-key=/etc/tls/tls.key
-            - --cookie-secret=MODEL_CATALOG_OAUTH_SECRET
+            - --cookie-secret-file=/cookie-secret/cookie-secret.txt
             - --cookie-name=_{{.Name}}_catalog_oauth_proxy
             - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
             - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
@@ -134,4 +138,6 @@ spec:
           volumeMounts:
             - mountPath: /etc/tls
               name: oauth-proxy-tls
+            - mountPath: /cookie-secret
+              name: oauth-proxy-cookie-secret
         {{ end }}
