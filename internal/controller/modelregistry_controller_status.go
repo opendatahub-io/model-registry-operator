@@ -125,80 +125,46 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		Message: message})
 
 	// determine registry available condition
-	deployment := &appsv1.Deployment{}
-	if err := r.Get(ctx, req.NamespacedName, deployment); err != nil {
+	condition, err := r.checkDeploymentAvailability(ctx, req.NamespacedName, req.Name, "model-registry")
+	if err != nil {
 		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
 		return false, err
 	}
-	log.V(10).Info("Found service deployment", "name", len(deployment.Name))
 
-	// check deployment conditions errors
-	// start with available=false to force DeploymentAvailable condition to set it to true later
-	available := false
-	failed := false
-	progressing := true
-	for _, c := range deployment.Status.Conditions {
-		switch c.Type {
-		case appsv1.DeploymentAvailable:
-			if !failed && progressing {
-				available = c.Status == corev1.ConditionTrue
-				if !available {
-					message = c.Message
-				}
-			}
-		case appsv1.DeploymentProgressing:
-			if c.Status == corev1.ConditionFalse && !failed {
-				available = false
-				progressing = false
-				message = c.Message
-			}
-		case appsv1.DeploymentReplicaFailure:
-			if c.Status == corev1.ConditionTrue {
-				available = false
-				failed = true
-				message = c.Message
-			}
-		}
-	}
-	if !available {
-		reason = ReasonDeploymentUnavailable
-		message = fmt.Sprintf("Deployment is unavailable: %s", message)
-	}
-
-	// look for pod level detailed errors, if present
-	unavailableReplicas := deployment.Status.UnavailableReplicas
-	if unavailableReplicas != 0 {
-		available, reason, message = r.CheckPodStatus(ctx, req, available, reason, message, unavailableReplicas)
-	}
-
-	if available {
-		status = metav1.ConditionTrue
-		reason = ReasonDeploymentAvailable
-		message = "Deployment is available"
-	} else {
-		status = metav1.ConditionFalse
-	}
-
-	if available {
+	if condition.Status == metav1.ConditionTrue {
 		if r.HasIstio {
 			// remove deprecated Istio and Gateway conditions
 			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeIstio)
 			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
 		}
 		if modelRegistry.Spec.OAuthProxy != nil {
-			status, reason, message = r.SetOauthProxyCondition(ctx, req, modelRegistry, status, reason, message)
+			condition.Status, condition.Reason, condition.Message = r.SetOauthProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
+		}
+
+		if r.EnableModelCatalog && condition.Status != metav1.ConditionFalse {
+			catKey := client.ObjectKey{Namespace: req.NamespacedName.Namespace, Name: req.NamespacedName.Name + "-catalog"}
+			catCondition, err := r.checkDeploymentAvailability(ctx, catKey, req.Name, "model-catalog")
+			if err != nil {
+				log.Error(err, "Failed to get model catalog deployment", "name", catKey)
+				return false, err
+			}
+
+			if catCondition.Status != metav1.ConditionTrue {
+				condition = catCondition
+			}
 		}
 	}
 
-	meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeAvailable,
-		Status: status, Reason: reason,
-		Message: message})
+	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)
 	if err := r.Status().Update(ctx, modelRegistry); err != nil {
 		log.Error(err, "Failed to update modelRegistry status")
 		return false, err
 	}
 
-	return available, nil
+	if condition.Status != metav1.ConditionTrue {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) {
@@ -238,16 +204,75 @@ func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta
 	return nil
 }
 
-func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.Request,
-	available bool, reason string, message string, unavailableReplicas int32) (bool, string, string) {
+func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, key, deployment); err != nil {
+		return metav1.Condition{}, err
+	}
+	klog.FromContext(ctx).V(10).Info("Found service deployment", "name", len(deployment.Name))
 
-	available = false
-	reason = ReasonDeploymentUnavailable
+	condition := metav1.Condition{
+		Type: ConditionTypeAvailable,
+	}
+
+	// check deployment conditions errors
+	// start with available=false to force DeploymentAvailable condition to set it to true later
+	available := false
+	failed := false
+	progressing := true
+	for _, c := range deployment.Status.Conditions {
+		switch c.Type {
+		case appsv1.DeploymentAvailable:
+			if !failed && progressing {
+				available = c.Status == corev1.ConditionTrue
+				if !available {
+					condition.Message = c.Message
+				}
+			}
+		case appsv1.DeploymentProgressing:
+			if c.Status == corev1.ConditionFalse && !failed {
+				available = false
+				progressing = false
+				condition.Message = c.Message
+			}
+		case appsv1.DeploymentReplicaFailure:
+			if c.Status == corev1.ConditionTrue {
+				available = false
+				failed = true
+				condition.Message = c.Message
+			}
+		}
+	}
+
+	if !available {
+		condition.Reason = ReasonDeploymentUnavailable
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)
+	}
+
+	// look for pod level detailed errors, if present
+	if deployment.Status.UnavailableReplicas != 0 {
+		condition = r.checkPodStatus(ctx, app, podComponent, key.Namespace, condition, deployment.Status.UnavailableReplicas)
+	}
+
+	if available {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = ReasonDeploymentAvailable
+		condition.Message = "Deployment is available"
+	} else {
+		condition.Status = metav1.ConditionFalse
+	}
+
+	return condition, nil
+}
+
+func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string, component string, namespace string, condition metav1.Condition, unavailableReplicas int32) metav1.Condition {
+	condition.Status = metav1.ConditionFalse
+	condition.Reason = ReasonDeploymentUnavailable
 	foundError := false
 
 	// find the not ready pod and get message
 	var pods corev1.PodList
-	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": req.Name, "component": "model-registry"}, client.InNamespace(req.Namespace))
+	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": app, "component": component}, client.InNamespace(namespace))
 	if err != nil {
 		// log K8s error
 		r.Log.Error(err, "failed to get grpc container error")
@@ -267,14 +292,14 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 					}
 					if dbError != nil {
 						if strings.Contains(dbError.Error(), "{{ALERT}}") {
-							reason = ReasonResourcesAlert
-							message = fmt.Sprintf("grpc container alert: %s", dbError)
-							return available, reason, message
+							condition.Reason = ReasonResourcesAlert
+							condition.Message = fmt.Sprintf("grpc container alert: %s", dbError)
+							return condition
 						}
 						// MLMD errors take priority
-						reason = ReasonConfigurationError
-						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
-						return available, reason, message
+						condition.Reason = ReasonConfigurationError
+						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
+						return condition
 					}
 				}
 				// check for schema migration errors within rest containers
@@ -287,14 +312,14 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 					}
 					if dbError != nil {
 						if strings.Contains(dbError.Error(), "{{ALERT}}") {
-							reason = ReasonResourcesAlert
-							message = fmt.Sprintf("rest container alert: %s", dbError)
-							return available, reason, message
+							condition.Reason = ReasonResourcesAlert
+							condition.Message = fmt.Sprintf("rest container alert: %s", dbError)
+							return condition
 						}
 						// if not a schema migration error, return a generic configuration error
-						reason = ReasonConfigurationError
-						message = fmt.Sprintf("metadata database configuration error: %s", dbError)
-						return available, reason, message
+						condition.Reason = ReasonConfigurationError
+						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
+						return condition
 					}
 				}
 				if s.State.Waiting != nil {
@@ -316,14 +341,14 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 				}
 			}
 			containerErrors.WriteString("]")
-			message = fmt.Sprintf("Deployment is unavailable: pod %s has unready containers %s", p.Name, containerErrors.String())
+			condition.Message = fmt.Sprintf("Deployment is unavailable: pod %s has unready containers %s", p.Name, containerErrors.String())
 		} else {
 
 			// else use not ready pod status
 			for _, c := range p.Status.Conditions {
 				if c.Type == corev1.PodReady && c.Status == corev1.ConditionFalse {
 					foundError = true
-					message = fmt.Sprintf("Deployment is unavailable: pod %s containers not ready: {reason: %s, message: %s}", p.Name, c.Reason, c.Message)
+					condition.Message = fmt.Sprintf("Deployment is unavailable: pod %s containers not ready: {reason: %s, message: %s}", p.Name, c.Reason, c.Message)
 					break
 				}
 			}
@@ -336,10 +361,10 @@ func (r *ModelRegistryReconciler) CheckPodStatus(ctx context.Context, req ctrl.R
 
 	// generic error if a specific one was not found
 	if !foundError {
-		message = fmt.Sprintf("Deployment is unavailable: %d containers unavailable", unavailableReplicas)
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %d containers unavailable", unavailableReplicas)
 	}
 
-	return available, reason, message
+	return condition
 }
 
 // getContainerDBerror scrapes container log and returns a database connection error if it exists in the logs
@@ -418,7 +443,7 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
 			Status: status2, Reason: reason2, Message: message2})
 
-		if status2 == metav1.ConditionFalse {
+		if status2 == metav1.ConditionFalse && status == metav1.ConditionFalse {
 			status = status2
 			reason = reason2
 			message = "OAuth Proxy resources are unavailable"
