@@ -480,6 +480,27 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					}
 				}
 
+				// if model catalog is enabled, also set catalog deployment status to available
+				if modelRegistryReconciler.EnableModelCatalog {
+					catalogDeployment := &appsv1.Deployment{}
+					catalogKey := types.NamespacedName{
+						Name:      typeNamespaceName.Name + "-catalog",
+						Namespace: typeNamespaceName.Namespace,
+					}
+					derr = k8sClient.Get(ctx, catalogKey, catalogDeployment)
+					if derr != nil {
+						return derr
+					}
+					catalogConditions := catalogDeployment.Status.Conditions
+					if len(catalogConditions) == 0 {
+						catalogDeployment.Status.Conditions = append(catalogConditions, appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue})
+						derr = k8sClient.Status().Update(ctx, catalogDeployment)
+						if derr != nil {
+							return derr
+						}
+					}
+				}
+
 				return fmt.Errorf("non-empty reconcile result")
 			}
 			// reconcile done!
