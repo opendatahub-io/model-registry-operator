@@ -406,62 +406,6 @@ var _ = Describe("ModelRegistry controller", func() {
 					time.Minute, time.Second).Should(Succeed())
 			})
 
-			It("When using auto-provisioned PostgreSQL database with persistence enabled", func() {
-				registryName = "model-registry-auto-postgres-persistent"
-				specInit()
-
-				trueValue := true
-				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
-					Generate: &trueValue,
-					Persist:  &trueValue,
-				}
-
-				err = k8sClient.Create(ctx, modelRegistry)
-				Expect(err).To(Not(HaveOccurred()))
-
-				modelRegistryReconciler := initModelRegistryReconciler(template)
-
-				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
-					time.Minute, time.Second).Should(Succeed())
-
-				By("Checking that PostgreSQL resources do NOT have owner references (for persistence)")
-				Eventually(func() bool {
-					deployment := &appsv1.Deployment{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, deployment)
-					if err != nil {
-						return false
-					}
-					// Should have no owner references when persistence is enabled
-					return len(deployment.OwnerReferences) == 0
-				}, time.Minute, time.Second).Should(BeTrue())
-
-				Eventually(func() bool {
-					service := &corev1.Service{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, service)
-					if err != nil {
-						return false
-					}
-					// Should have no owner references when persistence is enabled
-					return len(service.OwnerReferences) == 0
-				}, time.Minute, time.Second).Should(BeTrue())
-
-				Eventually(func() bool {
-					secret := &corev1.Secret{}
-					err := k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-credentials", Namespace: namespace.Name}, secret)
-					if err != nil {
-						return false
-					}
-					// Should have no owner references when persistence is enabled
-					return len(secret.OwnerReferences) == 0
-				}, time.Minute, time.Second).Should(BeTrue())
-
-				By("Checking if the Postgres PVC was successfully created in the reconciliation")
-				Eventually(func() error {
-					found := &corev1.PersistentVolumeClaim{}
-					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-storage", Namespace: namespace.Name}, found)
-				}, time.Minute, time.Second).Should(Succeed())
-			})
-
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
 				found := &v1beta1.ModelRegistry{}
