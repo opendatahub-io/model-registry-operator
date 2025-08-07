@@ -454,6 +454,12 @@ var _ = Describe("ModelRegistry controller", func() {
 					// Should have no owner references when persistence is enabled
 					return len(secret.OwnerReferences) == 0
 				}, time.Minute, time.Second).Should(BeTrue())
+
+				By("Checking if the Postgres PVC was successfully created in the reconciliation")
+				Eventually(func() error {
+					found := &corev1.PersistentVolumeClaim{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-storage", Namespace: namespace.Name}, found)
+				}, time.Minute, time.Second).Should(Succeed())
 			})
 
 			AfterEach(func() {

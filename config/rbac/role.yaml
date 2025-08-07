@@ -33,6 +33,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
   - secrets
   - serviceaccounts
   - services

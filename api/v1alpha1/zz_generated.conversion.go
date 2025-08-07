@@ -415,7 +415,6 @@ func autoConvert_v1alpha1_PostgresConfig_To_v1beta1_PostgresConfig(in *PostgresC
 	out.Database = in.Database
 	out.SkipDBCreation = in.SkipDBCreation
 	out.Generate = (*bool)(unsafe.Pointer(in.Generate))
-	out.Persist = (*bool)(unsafe.Pointer(in.Persist))
 	out.SSLMode = in.SSLMode
 	out.SSLCertificateSecret = (*v1beta1.SecretKeyValue)(unsafe.Pointer(in.SSLCertificateSecret))
 	out.SSLKeySecret = (*v1beta1.SecretKeyValue)(unsafe.Pointer(in.SSLKeySecret))
@@ -439,7 +438,6 @@ func autoConvert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in *v1beta1.P
 	out.Database = in.Database
 	out.SkipDBCreation = in.SkipDBCreation
 	out.Generate = (*bool)(unsafe.Pointer(in.Generate))
-	out.Persist = (*bool)(unsafe.Pointer(in.Persist))
 	out.SSLMode = in.SSLMode
 	out.SSLCertificateSecret = (*SecretKeyValue)(unsafe.Pointer(in.SSLCertificateSecret))
 	out.SSLKeySecret = (*SecretKeyValue)(unsafe.Pointer(in.SSLKeySecret))

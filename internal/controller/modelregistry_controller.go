@@ -320,7 +320,7 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=services;serviceaccounts;secrets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=services;serviceaccounts;secrets;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch
@@ -448,12 +448,9 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 					"password": "password",
 				},
 			}
-			// Only set owner reference if persistence is not enabled
-			if !isPersistent(registry) {
-				if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
-					log.Error(err, "Failed to set controller reference on secret")
-					return result, err
-				}
+			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
+				log.Error(err, "Failed to set controller reference on secret")
+				return result, err
 			}
 			if result, err = r.createOrUpdate(ctx, &corev1.Secret{}, &secret); err != nil {
 				log.Error(err, "Failed to create or update secret")
@@ -465,18 +462,30 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		}
 	}
 
+	log.Info("Creating or updating postgres PVC")
+	var pvc corev1.PersistentVolumeClaim
+	if err = r.Apply(params, "postgres-pvc.yaml.tmpl", &pvc); err != nil {
+		log.Error(err, "Failed to apply postgres PVC template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &pvc, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on PVC")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc); err != nil {
+		log.Error(err, "Failed to create or update PVC")
+		return result, err
+	}
+
 	log.Info("Creating or updating postgres deployment")
 	var deployment appsv1.Deployment
 	if err = r.Apply(params, "postgres-deployment.yaml.tmpl", &deployment); err != nil {
 		log.Error(err, "Failed to apply postgres deployment template")
 		return result, err
 	}
-	// Only set owner reference if persistence is not enabled
-	if !isPersistent(registry) {
-		if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
-			log.Error(err, "Failed to set controller reference on deployment")
-			return result, err
-		}
+	if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on deployment")
+		return result, err
 	}
 	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
 		log.Error(err, "Failed to create or update deployment")
@@ -489,12 +498,9 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		log.Error(err, "Failed to apply postgres service template")
 		return result, err
 	}
-	// Only set owner reference if persistence is not enabled
-	if !isPersistent(registry) {
-		if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
-			log.Error(err, "Failed to set controller reference on service")
-			return result, err
-		}
+	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on service")
+		return result, err
 	}
 	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
 		log.Error(err, "Failed to create or update service")
@@ -893,13 +899,4 @@ func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, reg
 		}
 	}
 	return result, err
-}
-
-// isPersistent checks if the PostgreSQL database should persist beyond the ModelRegistry lifecycle
-func isPersistent(registry *v1beta1.ModelRegistry) bool {
-	if registry.Spec.Postgres != nil && 
-	   registry.Spec.Postgres.Persist != nil {
-		return *registry.Spec.Postgres.Persist
-	}
-	return false
 }

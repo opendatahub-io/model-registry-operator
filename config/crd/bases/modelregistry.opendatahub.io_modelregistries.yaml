@@ -552,7 +552,6 @@ spec:
                     description: The database name.
                     type: string
                   generate:
-                    default: false
                     description: Auto-provision a PostgreSQL database if true.
                     type: boolean
                   host:
@@ -577,12 +576,6 @@ spec:
                     - key
                     - name
                     type: object
-                  persist:
-                    default: false
-                    description: |-
-                      If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
-                      When false (default), the database is deleted when the ModelRegistry is deleted.
-                    type: boolean
                   port:
                     default: 5432
                     description: Port number to connect to at the server host.
@@ -1192,7 +1185,6 @@ spec:
                     description: The database name.
                     type: string
                   generate:
-                    default: false
                     description: Auto-provision a PostgreSQL database if true.
                     type: boolean
                   host:
@@ -1217,12 +1209,6 @@ spec:
                     - key
                     - name
                     type: object
-                  persist:
-                    default: false
-                    description: |-
-                      If true, the PostgreSQL database will persist beyond the lifecycle of the ModelRegistry.
-                      When false (default), the database is deleted when the ModelRegistry is deleted.
-                    type: boolean
                   port:
                     default: 5432
                     description: Port number to connect to at the server host.

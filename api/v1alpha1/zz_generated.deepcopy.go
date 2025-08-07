@@ -376,11 +376,6 @@ func (in *PostgresConfig) DeepCopyInto(out *PostgresConfig) {
 		*out = new(bool)
 		**out = **in
 	}
-	if in.Persist != nil {
-		in, out := &in.Persist, &out.Persist
-		*out = new(bool)
-		**out = **in
-	}
 	if in.SSLCertificateSecret != nil {
 		in, out := &in.SSLCertificateSecret, &out.SSLCertificateSecret
 		*out = new(SecretKeyValue)

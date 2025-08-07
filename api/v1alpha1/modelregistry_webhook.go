@@ -63,7 +63,8 @@ func (r *ModelRegistry) Default() {
 	// But don't remove postgres config if auto-provisioning is enabled
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
 		// Check if auto-provisioning is enabled before removing the config
-		if r.Spec.Postgres.Generate == nil || !*r.Spec.Postgres.Generate {
+		isAutoProvisioning := r.Spec.Postgres.Generate != nil && *r.Spec.Postgres.Generate
+		if !isAutoProvisioning {
 			r.Spec.Postgres = nil
 		}
 	}
@@ -253,24 +254,15 @@ func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList)
 	}
 
 	if hasAutoProvisioning {
-		// When auto-provisioning is enabled, other postgres fields should not be set
+		// When auto-provisioning is enabled, host/hostAddress should not be set (they will be auto-generated)
 		if len(r.Spec.Postgres.Host) > 0 || len(r.Spec.Postgres.HostAddress) > 0 {
 			return nil, field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("postgres").Child("host"), r.Spec.Postgres.Host, "host should not be set when auto-provisioning is enabled"),
 			}
 		}
-		if len(r.Spec.Postgres.Database) > 0 {
-			return nil, field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("postgres").Child("database"), r.Spec.Postgres.Database, "database should not be set when auto-provisioning is enabled"),
-			}
-		}
-		if len(r.Spec.Postgres.Username) > 0 {
-			return nil, field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("postgres").Child("username"), r.Spec.Postgres.Username, "username should not be set when auto-provisioning is enabled"),
-			}
-		}
+		// Note: database and username CAN be set when auto-provisioning - they specify the desired values
 	}
-	
+
 	return nil, nil
 }
 
