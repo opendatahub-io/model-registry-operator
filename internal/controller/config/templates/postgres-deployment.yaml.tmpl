@@ -35,7 +35,8 @@ spec:
                   key: password
           volumeMounts:
             - name: postgres-storage
-              mountPath: /var/lib/postgresql/data
+              mountPath: /var/lib/pgsql/data
       volumes:
         - name: postgres-storage
-          emptyDir: {} 
+          persistentVolumeClaim:
+            claimName: {{.Name}}-postgres-storage 
