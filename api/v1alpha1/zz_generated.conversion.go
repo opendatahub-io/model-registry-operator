@@ -293,7 +293,6 @@ func autoConvert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1b
 	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
 		return err
 	}
-	// WARNING: in.Database requires manual conversion: does not exist in peer-type
 	out.Postgres = (*PostgresConfig)(unsafe.Pointer(in.Postgres))
 	out.MySQL = (*MySQLConfig)(unsafe.Pointer(in.MySQL))
 	out.EnableDatabaseUpgrade = (*bool)(unsafe.Pointer(in.EnableDatabaseUpgrade))
