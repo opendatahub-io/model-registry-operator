@@ -188,7 +188,7 @@ func main() {
 	config.SetRegistriesNamespace(registriesNamespace)
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
 
-	enableModelCatalog := os.Getenv(config.EnableModelCatalog) == "true"
+	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
 	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
 
 	if err = (&controller.ModelRegistryReconciler{
