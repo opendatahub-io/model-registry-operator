@@ -300,6 +300,71 @@ var _ = Describe("ModelRegistry controller", func() {
 				oauthValidate()
 			})
 
+			// Model Catalog integration tests
+			var catalogValidate = func(enableCatalog bool) {
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				modelRegistryReconciler.EnableModelCatalog = enableCatalog
+
+				Eventually(validateRegistryCatalog(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler, enableCatalog),
+					time.Minute, time.Second).Should(Succeed())
+			}
+
+			It("When model catalog is enabled", func() {
+				registryName = "model-registry-catalog-enabled"
+				catalogValidate(true)
+			})
+
+			It("When model catalog is disabled", func() {
+				registryName = "model-registry-catalog-disabled"
+				catalogValidate(false)
+			})
+
+			It("When model catalog is enabled on OpenShift", func() {
+				registryName = "model-registry-catalog-openshift"
+				specInit()
+
+				var mySQLPort int32 = 3306
+				modelRegistry.Spec.Postgres = nil
+				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
+					Host:     "model-registry-db",
+					Port:     &mySQLPort,
+					Database: "model_registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				modelRegistryReconciler.EnableModelCatalog = true
+				modelRegistryReconciler.IsOpenShift = true
+
+				Eventually(validateRegistryCatalogOpenShift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+			})
+
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
 				found := &v1beta1.ModelRegistry{}
@@ -336,11 +401,12 @@ func initModelRegistryReconciler(template *template.Template) *ModelRegistryReco
 	scheme := k8sClient.Scheme()
 
 	modelRegistryReconciler := &ModelRegistryReconciler{
-		Client:   k8sClient,
-		Scheme:   scheme,
-		Recorder: &record.FakeRecorder{},
-		Log:      ctrl.Log.WithName("controller"),
-		Template: template,
+		Client:             k8sClient,
+		Scheme:             scheme,
+		Recorder:           &record.FakeRecorder{},
+		Log:                ctrl.Log.WithName("controller"),
+		Template:           template,
+		EnableModelCatalog: false, // Default to false for most tests
 	}
 
 	return modelRegistryReconciler
@@ -411,6 +477,27 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					derr = k8sClient.Status().Update(ctx, deployment)
 					if derr != nil {
 						return derr
+					}
+				}
+
+				// if model catalog is enabled, also set catalog deployment status to available
+				if modelRegistryReconciler.EnableModelCatalog {
+					catalogDeployment := &appsv1.Deployment{}
+					catalogKey := types.NamespacedName{
+						Name:      typeNamespaceName.Name + "-catalog",
+						Namespace: typeNamespaceName.Namespace,
+					}
+					derr = k8sClient.Get(ctx, catalogKey, catalogDeployment)
+					if derr != nil {
+						return derr
+					}
+					catalogConditions := catalogDeployment.Status.Conditions
+					if len(catalogConditions) == 0 {
+						catalogDeployment.Status.Conditions = append(catalogConditions, appsv1.DeploymentCondition{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue})
+						derr = k8sClient.Status().Update(ctx, catalogDeployment)
+						if derr != nil {
+							return derr
+						}
 					}
 				}
 
@@ -668,6 +755,91 @@ func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.Nam
 
 			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-https-route", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 		}, 5*time.Second, time.Second).Should(matchRoute)
+
+		return nil
+	}
+}
+
+func validateRegistryCatalog(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler, enableCatalog bool) func() error {
+	return func() error {
+		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
+
+		if enableCatalog {
+			By("Checking if the catalog ConfigMap was successfully created in the reconciliation")
+			Eventually(func() error {
+				found := &corev1.ConfigMap{}
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: modelRegistry.Namespace,
+				}, found)
+			}, 10*time.Second, time.Second).Should(Succeed())
+
+			By("Checking if the catalog Deployment was successfully created in the reconciliation")
+			Eventually(func() error {
+				found := &appsv1.Deployment{}
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+					Namespace: modelRegistry.Namespace,
+				}, found)
+			}, 10*time.Second, time.Second).Should(Succeed())
+
+			By("Checking if the catalog Service was successfully created in the reconciliation")
+			Eventually(func() error {
+				found := &corev1.Service{}
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+					Namespace: modelRegistry.Namespace,
+				}, found)
+			}, 10*time.Second, time.Second).Should(Succeed())
+		} else {
+			By("Checking that no catalog resources were created when disabled")
+			configMap := &corev1.ConfigMap{}
+			err := k8sClient.Get(ctx, types.NamespacedName{
+				Name:      "model-catalog-sources",
+				Namespace: modelRegistry.Namespace,
+			}, configMap)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+
+			deployment := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+				Namespace: modelRegistry.Namespace,
+			}, deployment)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+
+			service := &corev1.Service{}
+			err = k8sClient.Get(ctx, types.NamespacedName{
+				Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+				Namespace: modelRegistry.Namespace,
+			}, service)
+			Expect(errors.IsNotFound(err)).To(BeTrue())
+		}
+
+		return nil
+	}
+}
+
+func validateRegistryCatalogOpenShift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+	return func() error {
+		Eventually(validateRegistryCatalog(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler, true)).Should(Succeed())
+
+		By("Checking if the catalog Route was successfully created in the reconciliation")
+		Eventually(func() error {
+			found := &routev1.Route{}
+			return k8sClient.Get(ctx, types.NamespacedName{
+				Name:      fmt.Sprintf("%s-catalog-https", modelRegistry.Name),
+				Namespace: modelRegistry.Namespace,
+			}, found)
+		}, 10*time.Second, time.Second).Should(Succeed())
+
+		By("Checking if the catalog NetworkPolicy was successfully created in the reconciliation")
+		Eventually(func() error {
+			found := &v1.NetworkPolicy{}
+			return k8sClient.Get(ctx, types.NamespacedName{
+				Name:      fmt.Sprintf("%s-catalog-https-route", modelRegistry.Name),
+				Namespace: modelRegistry.Namespace,
+			}, found)
+		}, 10*time.Second, time.Second).Should(Succeed())
 
 		return nil
 	}

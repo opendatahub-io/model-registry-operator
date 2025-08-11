@@ -188,6 +188,9 @@ func main() {
 	config.SetRegistriesNamespace(registriesNamespace)
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
 
+	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
+	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
+
 	if err = (&controller.ModelRegistryReconciler{
 		Client:              client,
 		ClientSet:           clientset,
@@ -199,6 +202,7 @@ func main() {
 		IsOpenShift:         isOpenShift,
 		HasIstio:            hasAuthorino && hasIstio,
 		CreateAuthResources: createAuthResources,
+		EnableModelCatalog:  enableModelCatalog,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

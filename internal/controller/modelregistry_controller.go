@@ -73,6 +73,7 @@ type ModelRegistryReconciler struct {
 	IsOpenShift         bool
 	HasIstio            bool
 	CreateAuthResources bool
+	EnableModelCatalog  bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -334,6 +335,8 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
@@ -430,6 +433,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 
 	// create or update oauth proxy config if enabled, delete if disabled
 	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	result2, err = r.createOrUpdateCatalogConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err
 	}
@@ -608,6 +619,34 @@ func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Conte
 	return result, nil
 }
 
+func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
+	result := ResourceUnchanged
+	var cm corev1.ConfigMap
+	if err := r.Apply(params, templateName, &cm); err != nil {
+		return result, err
+	}
+
+	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) ensureSecretExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
+	result := ResourceUnchanged
+	var cm corev1.Secret
+	if err := r.Apply(params, templateName, &cm); err != nil {
+		return result, err
+	}
+
+	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &cm)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 //go:generate go-enum -type=OperationResult
 type OperationResult int
 
@@ -666,6 +705,42 @@ func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj cl
 	}
 
 	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createIfNotExists(ctx context.Context, currObj client.Object, newObj client.Object) (OperationResult, error) {
+	log := klog.FromContext(ctx)
+	result := ResourceUnchanged
+
+	key := client.ObjectKeyFromObject(newObj)
+	gvk := newObj.GetObjectKind().GroupVersionKind()
+	name := newObj.GetName()
+
+	if err := r.Client.Get(ctx, key, currObj); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// create object
+			result = ResourceCreated
+			log.Info("creating", "kind", gvk, "name", name)
+			// save last applied config in annotation similar to kubectl apply
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
+				return result, err
+			}
+			return result, r.Client.Create(ctx, newObj)
+		}
+		// get error
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) deleteFromTemplate(ctx context.Context, params *ModelRegistryParams, templateName string, obj client.Object) (OperationResult, error) {
+	if err := r.Apply(params, templateName, obj); err != nil {
+		return ResourceUnchanged, err
+	}
+	err := r.Client.Delete(ctx, obj)
+	if err != nil {
+		return ResourceUnchanged, client.IgnoreNotFound(err)
+	}
+	return ResourceUpdated, nil
 }
 
 // finalizeMemcached will perform the required operations before delete the CR.

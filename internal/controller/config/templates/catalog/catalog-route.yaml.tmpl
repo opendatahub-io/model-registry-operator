@@ -1,0 +1,29 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{.Name}}-catalog-https
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    app.kubernetes.io/name: {{.Name}}-catalog
+    app.kubernetes.io/instance: {{.Name}}-catalog-https
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  to:
+    kind: Service
+    name: {{.Name}}-catalog
+  {{- if .Spec.OAuthProxy}}
+  host: {{.Name}}-catalog.{{.Spec.OAuthProxy.Domain}}
+  port:
+    targetPort: https-api
+  tls:
+    termination: reencrypt
+  wildcardPolicy: None
+  {{- else }}
+  port:
+    targetPort: http-api
+  {{ end }}

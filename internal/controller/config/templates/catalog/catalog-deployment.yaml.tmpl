@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}-catalog
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    app.kubernetes.io/name: {{.Name}}-catalog
+    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/component: model-catalog
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-catalog
+  template:
+    metadata:
+      labels:
+        app: {{.Name}}
+        component: model-catalog
+      annotations:
+        openshift.io/required-scc: restricted-v2
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+      volumes:
+      - name: sources
+        configMap:
+          name: model-catalog-sources
+      {{- if .Spec.OAuthProxy }}
+      - name: oauth-proxy-tls
+        secret:
+          secretName: {{.Name}}-catalog-oauth-proxy
+          defaultMode: 0600
+      - name: oauth-proxy-cookie-secret
+        secret:
+          secretName: {{.Name}}-oauth-cookie-secret
+          defaultMode: 0600
+      {{- end}}
+      serviceAccountName: {{.Name}}
+      containers:
+        - name: catalog
+          command:
+            - /model-registry
+            - catalog
+          args:
+            - --listen=0.0.0.0:8080
+            - --catalogs-path=/catalog/sources.yaml
+          image: {{.Spec.Rest.Image}}
+          ports:
+            - name: http-api
+              containerPort: 8080
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            tcpSocket:
+              port: http-api
+            timeoutSeconds: 2
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            tcpSocket:
+              port: http-api
+            timeoutSeconds: 2
+          {{- with .Spec.Rest.Resources }}
+          resources:
+            {{- with .Requests }}
+            requests:
+              cpu: {{.Cpu}}
+              memory: {{.Memory}}
+            {{- end }}
+            {{- with .Limits }}
+            limits:
+              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
+              memory: {{.Memory}}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+          - name: sources
+            mountPath: /catalog
+        {{ if .Spec.OAuthProxy }}
+        - name: oauth-proxy
+          args:
+            - --https-address=:{{.Spec.OAuthProxy.Port}}
+            - --provider=openshift
+            - --openshift-service-account={{.Name}}
+            - --upstream=http://localhost:8080
+            - --tls-cert=/etc/tls/tls.crt
+            - --tls-key=/etc/tls/tls.key
+            - --cookie-secret-file=/cookie-secret/cookie-secret.txt
+            - --cookie-name=_{{.Name}}_catalog_oauth_proxy
+            - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
+            - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
+          image: {{.Spec.OAuthProxy.Image}}
+          ports:
+            - containerPort: 8443
+              name: oauth2-proxy
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth2-proxy
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: oauth2-proxy
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /etc/tls
+              name: oauth-proxy-tls
+            - mountPath: /cookie-secret
+              name: oauth-proxy-cookie-secret
+        {{ end }}
