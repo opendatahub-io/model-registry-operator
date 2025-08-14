@@ -64,6 +64,11 @@ objects:
             modelregistry.kubeflow.org/model-sync-model-version-id: "${MODEL_SYNC_MODEL_VERSION_ID}"
             modelregistry.kubeflow.org/model-sync-model-artifact-id: "${MODEL_SYNC_MODEL_ARTIFACT_ID}"
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
           volumes: # Source and Sink Connection resources
             - name: source-credentials
               secret:
@@ -75,6 +80,19 @@ objects:
           containers:
             - name: async-upload
               image: ${JOB_IMAGE}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  memory: "512Mi"
               volumeMounts: # Source and Sink Connection resources
                 - name: source-credentials
                   readOnly: true
