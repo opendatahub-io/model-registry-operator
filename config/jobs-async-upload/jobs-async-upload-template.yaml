@@ -20,13 +20,13 @@ parameters:
     description: The ModelArtifact ID in the Model Registry
     required: true
   - name: MODEL_SYNC_REGISTRY_SERVER_ADDRESS
-    description: The address of the Model Registry, for the MR py client
+    description: The address of the Model Registry, ref. the MR py client documentation
     required: true
   - name: MODEL_SYNC_REGISTRY_PORT
-    description: The port of the Model Registry, for the MR py client
+    description: The port of the Model Registry, ref. the MR py client documentation
     required: true
   - name: MODEL_SYNC_REGISTRY_AUTHOR
-    description: The author for the MY py client
+    description: The author to be set during API calls to Model Registry, ref. the MR py client documentation
     required: true
     value: "jobs-async-upload"
   - name: SOURCE_CONNECTION
