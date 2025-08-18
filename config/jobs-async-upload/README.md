@@ -1,4 +1,4 @@
-This OpenShift Template generate the Job 'async-upload' developed in: https://github.com/opendatahub-io/model-registry/tree/main/jobs/async-upload
+This OpenShift Template generates the Job 'async-upload' developed in: https://github.com/opendatahub-io/model-registry/tree/main/jobs/async-upload
 
 Example generation
 
