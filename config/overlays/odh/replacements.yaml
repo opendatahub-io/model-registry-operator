@@ -111,6 +111,6 @@
   targets:
     - select:
         kind: Template
-        name: jobs-async-upload-template
+        name: jobs-async-upload-s3-to-oci-template
       fieldPaths:
         - parameters.[name=JOB_IMAGE].value
