@@ -35,6 +35,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} make build
 FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
+COPY --from=builder /workspace/internal/controller/config/templates/catalog/default-catalog.yaml /default-catalog.yaml
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

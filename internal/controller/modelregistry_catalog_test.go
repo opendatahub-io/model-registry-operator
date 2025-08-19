@@ -131,6 +131,18 @@ var _ = Describe("ModelRegistry Catalog controller", func() {
 				Expect(configMap.Labels["app"]).To(Equal(registryName))
 				Expect(configMap.Labels["component"]).To(Equal("model-registry"))
 
+				By("Checking if the default catalog ConfigMap was created")
+				defaultCatalogConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "default-catalog",
+					Namespace: registryName,
+				}, defaultCatalogConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(defaultCatalogConfigMap.Labels["app"]).To(Equal(registryName))
+				Expect(defaultCatalogConfigMap.Labels["component"]).To(Equal("model-registry"))
+				Expect(defaultCatalogConfigMap.Data["default-catalog.yaml"]).To(ContainSubstring("source: Default"))
+				Expect(defaultCatalogConfigMap.Data["default-catalog.yaml"]).To(ContainSubstring("models: []"))
+
 				By("Checking if the Deployment was created")
 				deployment := &appsv1.Deployment{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
@@ -212,6 +224,14 @@ var _ = Describe("ModelRegistry Catalog controller", func() {
 					Name:      "model-catalog-sources",
 					Namespace: registryName,
 				}, configMap)
+				Expect(errors.IsNotFound(err)).To(BeTrue())
+
+				By("Checking that no default catalog ConfigMap was created")
+				defaultCatalogConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "default-catalog",
+					Namespace: registryName,
+				}, defaultCatalogConfigMap)
 				Expect(errors.IsNotFound(err)).To(BeTrue())
 
 				By("Checking that no Deployment was created")
