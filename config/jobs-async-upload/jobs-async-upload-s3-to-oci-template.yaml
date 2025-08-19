@@ -2,9 +2,9 @@
 apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
-  name: jobs-async-upload-template
+  name: jobs-async-upload-s3-to-oci-template
   annotations:
-    description: "Example OpenShift template for the Model Registry jobs/async-upload"
+    description: "Example OpenShift template for the Model Registry jobs/async-upload going from S3 to OCI (KServe ModelCar)"
 parameters:
   - name: JOB_IMAGE
     description: The container image for the Job
@@ -34,6 +34,9 @@ parameters:
     required: true
   - name: DESTINATION_CONNECTION
     description: "Name of the Connection resource for the Sink destination (e.g.: OCI)"
+    required: true
+  - name: MODEL_SYNC_SOURCE_AWS_KEY
+    description: The path in the S3 bucket
     required: true
 objects:
   - apiVersion: batch/v1
@@ -110,3 +113,7 @@ objects:
                   value: "${MODEL_SYNC_MODEL_VERSION_ID}"
                 - name: MODEL_SYNC_MODEL_ARTIFACT_ID
                   value: "${MODEL_SYNC_MODEL_ARTIFACT_ID}"
+                - name: MODEL_SYNC_SOURCE_S3_CREDENTIALS_PATH
+                  value: "/opt/creds/source"
+                - name: MODEL_SYNC_SOURCE_AWS_KEY
+                  value: "${MODEL_SYNC_SOURCE_AWS_KEY}"
