@@ -94,7 +94,7 @@ spec:
           volumeMounts:
           - name: sources
             mountPath: /catalog
-          - name: default-catalog
+          - name: sources
             mountPath: /default-catalog.yaml
             subPath: default-catalog.yaml
         {{ if .Spec.OAuthProxy }}
