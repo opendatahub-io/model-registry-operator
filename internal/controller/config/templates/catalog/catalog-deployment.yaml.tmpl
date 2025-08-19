@@ -35,9 +35,6 @@ spec:
       - name: sources
         configMap:
           name: model-catalog-sources
-          items:
-            - key: default-catalog.yaml
-              path: default-catalog.yaml
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
@@ -94,9 +91,6 @@ spec:
           volumeMounts:
           - name: sources
             mountPath: /catalog
-          - name: sources
-            mountPath: /default-catalog.yaml
-            subPath: default-catalog.yaml
         {{ if .Spec.OAuthProxy }}
         - name: oauth-proxy
           args:
