@@ -14,4 +14,10 @@ metadata:
     app.kubernetes.io/managed-by: model-registry-operator
 data:
   sources.yaml: |-
-    catalogs: []
+    catalogs:
+      - name: Default Catalog
+        id: default_catalog
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /default-catalog.yaml

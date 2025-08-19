@@ -22,15 +22,7 @@ func (r *ModelRegistryReconciler) createOrUpdateCatalogConfig(ctx context.Contex
 		return result, err
 	}
 
-	result2, err := r.ensureConfigMapExists(ctx, params, registry, "default-catalog-configmap.yaml.tmpl")
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	result2, err = r.createOrUpdateDeployment(ctx, params, registry, "catalog-deployment.yaml.tmpl")
+	result2, err := r.createOrUpdateDeployment(ctx, params, registry, "catalog-deployment.yaml.tmpl")
 	if err != nil {
 		return result2, err
 	}
@@ -75,14 +67,6 @@ func (r *ModelRegistryReconciler) deleteCatalogResources(ctx context.Context, pa
 	}
 
 	result2, err := r.deleteFromTemplate(ctx, params, "catalog-service.yaml.tmpl", &corev1.Service{})
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	result2, err = r.deleteFromTemplate(ctx, params, "default-catalog-configmap.yaml.tmpl", &corev1.ConfigMap{})
 	if err != nil {
 		return result2, err
 	}
