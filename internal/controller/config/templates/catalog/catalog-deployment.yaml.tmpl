@@ -36,8 +36,8 @@ spec:
         configMap:
           name: model-catalog-sources
           items:
-           - key: default-catalog.yaml
-            path: default-catalog.yaml
+            - key: default-catalog.yaml
+              path: default-catalog.yaml
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
