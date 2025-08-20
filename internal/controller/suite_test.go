@@ -18,11 +18,12 @@ package controller
 
 import (
 	"fmt"
-	v1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	v1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 
 	networkingscheme "k8s.io/api/networking/v1"
 
@@ -31,19 +32,15 @@ import (
 
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
-	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
-	istiosecurityv1beta1 "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiruntime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/scheme"
 
 	v1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
@@ -64,14 +61,6 @@ var (
 	testEnv          *envtest.Environment
 	testCRDLocalPath = "./testdata/crd"
 	remoteCRDs       = []remoteCRD{
-		{
-			url:      "https://raw.githubusercontent.com/Kuadrant/authorino/refs/heads/main/install/crd/authorino.kuadrant.io_authconfigs.yaml",
-			fileName: "authorino.kuadrant.io_authconfigs.yaml",
-		},
-		{
-			url:      "https://raw.githubusercontent.com/istio/istio/refs/heads/master/manifests/charts/base/files/crd-all.gen.yaml",
-			fileName: "istio.yaml",
-		},
 		{
 			url:      "https://raw.githubusercontent.com/openshift/api/e7ac40fc1590efe8697d76691aa644d1ec3f07a7/route/v1/zz_generated.crd-manifests/routes.crd.yaml",
 			fileName: "route.openshift.io_routes.yaml",
@@ -105,17 +94,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = routev1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = istiosecurityv1beta1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	err = istioclientv1beta1.AddToScheme(schm)
-	Expect(err).NotTo(HaveOccurred())
-
-	authorinoScheme := &scheme.Builder{GroupVersion: schema.GroupVersion{Group: "authorino.kuadrant.io", Version: "v1beta3"}}
-
-	err = authorinoScheme.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = v1alpha1.AddToScheme(schm)

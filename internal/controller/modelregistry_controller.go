@@ -33,8 +33,6 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
-	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
-	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbac "k8s.io/api/rbac/v1"
@@ -64,16 +62,14 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	ClientSet           *kubernetes.Clientset
-	Scheme              *runtime.Scheme
-	Recorder            record.EventRecorder
-	Log                 logr.Logger
-	Template            *template.Template
-	EnableWebhooks      bool
-	IsOpenShift         bool
-	HasIstio            bool
-	CreateAuthResources bool
-	EnableModelCatalog  bool
+	ClientSet          *kubernetes.Clientset
+	Scheme             *runtime.Scheme
+	Recorder           record.EventRecorder
+	Log                logr.Logger
+	Template           *template.Template
+	EnableWebhooks     bool
+	IsOpenShift        bool
+	EnableModelCatalog bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -265,15 +261,6 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.GetRegistryForClusterRoleBinding),
 			pkgbuilder.WithPredicates(labelsPredicate))
 	}
-	if r.HasIstio {
-		if r.CreateAuthResources {
-			builder = builder.Owns(CreateAuthConfig()).
-				Owns(&security.AuthorizationPolicy{})
-		}
-		builder = builder.Owns(&networking.DestinationRule{}).
-			Owns(&networking.Gateway{}).
-			Owns(&networking.VirtualService{})
-	}
 	return builder.Complete(r)
 }
 
@@ -341,11 +328,6 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -414,21 +396,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
-	}
-
-	if r.HasIstio {
-		// TODO check registry type and convert on reconcile up top!!!
-		//if registry.Spec.Istio != nil {
-		//	log.V(1).Info("Istio config is deprecated, use OAuth Proxy instead")
-		//} else {
-		result2, err = r.deleteIstioConfig(ctx, params)
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-		//}
 	}
 
 	// create or update oauth proxy config if enabled, delete if disabled
@@ -752,9 +719,6 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 
 	// delete cross-namespace resources
 	if err := r.Client.Delete(ctx, &userv1.Group{ObjectMeta: metav1.ObjectMeta{Name: registry.Name + "-users"}}); client.IgnoreNotFound(err) != nil {
-		return err
-	}
-	if err := r.deleteGatewayRoutes(ctx, registry.Name); err != nil {
 		return err
 	}
 

@@ -55,7 +55,6 @@ const (
 	// config env variables
 	RegistriesNamespace = "REGISTRIES_NAMESPACE"
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
-	CreateAuthResources = "CREATE_AUTH_RESOURCES"
 	DefaultDomain       = "DEFAULT_DOMAIN"
 	EnableModelCatalog  = "ENABLE_MODEL_CATALOG"
 )
