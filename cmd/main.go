@@ -157,20 +157,12 @@ func main() {
 		os.Exit(1)
 	}
 	isOpenShift := false
-	hasAuthorino := false
-	hasIstio := false
 	for _, g := range groups.Groups {
 		if g.Name == "route.openshift.io" {
 			isOpenShift = true
 		}
-		if g.Name == "authorino.kuadrant.io" {
-			hasAuthorino = true
-		}
-		if g.Name == "networking.istio.io" {
-			hasIstio = true
-		}
 	}
-	setupLog.Info("cluster config", "isOpenShift", isOpenShift, "hasAuthorino", hasAuthorino, "hasIstio", hasIstio)
+	setupLog.Info("cluster config", "isOpenShift", isOpenShift)
 
 	clientset, err := kubernetes.NewForConfig(mgrRestConfig)
 	if err != nil {
@@ -180,7 +172,6 @@ func main() {
 
 	registriesNamespace := os.Getenv(config.RegistriesNamespace)
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
-	createAuthResources := os.Getenv(config.CreateAuthResources) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
 	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
 
@@ -192,17 +183,15 @@ func main() {
 	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
 
 	if err = (&controller.ModelRegistryReconciler{
-		Client:              client,
-		ClientSet:           clientset,
-		Scheme:              mgr.GetScheme(),
-		Recorder:            mgr.GetEventRecorderFor("modelregistry-controller"),
-		Log:                 ctrl.Log.WithName("controller"),
-		Template:            template,
-		EnableWebhooks:      enableWebhooks,
-		IsOpenShift:         isOpenShift,
-		HasIstio:            hasAuthorino && hasIstio,
-		CreateAuthResources: createAuthResources,
-		EnableModelCatalog:  enableModelCatalog,
+		Client:             client,
+		ClientSet:          clientset,
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorderFor("modelregistry-controller"),
+		Log:                ctrl.Log.WithName("controller"),
+		Template:           template,
+		EnableWebhooks:     enableWebhooks,
+		IsOpenShift:        isOpenShift,
+		EnableModelCatalog: enableModelCatalog,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)

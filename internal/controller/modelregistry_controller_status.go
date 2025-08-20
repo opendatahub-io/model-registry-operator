@@ -132,11 +132,6 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	if condition.Status == metav1.ConditionTrue {
-		if r.HasIstio {
-			// remove deprecated Istio and Gateway conditions
-			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeIstio)
-			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
-		}
 		if modelRegistry.Spec.OAuthProxy != nil {
 			condition.Status, condition.Reason, condition.Message = r.SetOauthProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
 		}
