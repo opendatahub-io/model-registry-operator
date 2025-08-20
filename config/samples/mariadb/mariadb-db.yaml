@@ -9,12 +9,11 @@ items:
       app.kubernetes.io/part-of: model-registry-db
       app.kubernetes.io/managed-by: kustomize
     annotations:
-      template.openshift.io/expose-uri: mysql://{.spec.clusterIP}:{.spec.ports[?(.name==\mysql\)].port}
+      template.openshift.io/expose-uri: mysql://{.spec.clusterIP}:{.spec.ports[?(.name=='mysql')].port}
     name: model-registry-db
   spec:
     ports:
     - name: mysql
-      nodePort: 0
       port: 3306
       protocol: TCP
       appProtocol: tcp
@@ -59,23 +58,6 @@ items:
       max_connections = 100
       character-set-server = utf8mb4
       collation-server = utf8mb4_unicode_ci
-      
-      # Logging
-      log-error = /var/log/mysql/error.log
-      general_log = 1
-      general_log_file = /var/log/mysql/general.log
-      
-      # Performance optimizations
-      query_cache_type = 1
-      query_cache_size = 32M
-      tmp_table_size = 64M
-      max_heap_table_size = 64M
-      
-      [mysql]
-      default-character-set = utf8mb4
-      
-      [client]
-      default-character-set = utf8mb4
 - apiVersion: apps/v1
   kind: Deployment
   metadata:
@@ -99,6 +81,7 @@ items:
       metadata:
         labels:
           name: model-registry-db
+        annotations:
           sidecar.istio.io/inject: "false"
       spec:
         imagePullSecrets:
@@ -130,7 +113,7 @@ items:
               secretKeyRef:
                 key: database-name
                 name: model-registry-db
-          image: quay.io/sclorg/mariadb-105-c9s:latest
+          image: quay.io/fedora/mariadb-1011:latest
           imagePullPolicy: IfNotPresent
           livenessProbe:
             exec:
