@@ -551,6 +551,9 @@ spec:
                   database:
                     description: The database name.
                     type: string
+                  generate:
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string
@@ -678,8 +681,6 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
-                required:
-                - database
                 type: object
               rest:
                 description: Configuration for REST endpoint
@@ -1183,6 +1184,9 @@ spec:
                   database:
                     description: The database name.
                     type: string
+                  generate:
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string
@@ -1310,8 +1314,6 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
-                required:
-                - database
                 type: object
               rest:
                 description: Configuration for REST endpoint
