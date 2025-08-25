@@ -8,4 +8,4 @@ spec:
   rest:
     port: 8080
   grpc:
-    port: 9090 
+    port: 9090
