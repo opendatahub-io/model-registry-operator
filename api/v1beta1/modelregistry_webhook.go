@@ -59,7 +59,7 @@ func (r *ModelRegistry) Default() {
 	// But don't remove postgres config if auto-provisioning is enabled
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
 		// Check if auto-provisioning is enabled before removing the config
-		isAutoProvisioning := r.Spec.Postgres.Generate != nil && *r.Spec.Postgres.Generate
+		isAutoProvisioning := r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
 		if !isAutoProvisioning {
 			r.Spec.Postgres = nil
 		}
@@ -197,7 +197,7 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
 	hasPostgres := r.Spec.Postgres != nil
 	hasMySQL := r.Spec.MySQL != nil
-	hasAutoProvisioning := hasPostgres && r.Spec.Postgres.Generate != nil && *r.Spec.Postgres.Generate
+	hasAutoProvisioning := hasPostgres && r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
 
 	if !hasPostgres && !hasMySQL {
 		return nil, field.ErrorList{

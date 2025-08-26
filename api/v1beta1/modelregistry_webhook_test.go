@@ -87,7 +87,7 @@ func TestValidateDatabase(t *testing.T) {
 			name: "valid - postgres auto-provisioning",
 			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
 				Postgres: &v1beta1.PostgresConfig{
-					Generate: &trueValue,
+					GenerateDeployment: &trueValue,
 				},
 			}},
 			wantErr: false,
@@ -96,8 +96,8 @@ func TestValidateDatabase(t *testing.T) {
 			name: "invalid - postgres auto-provisioning with host",
 			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
 				Postgres: &v1beta1.PostgresConfig{
-					Generate: &trueValue,
-					Host:     "some-host",
+					GenerateDeployment: &trueValue,
+					Host:               "some-host",
 				},
 			}},
 			wantErr: true,

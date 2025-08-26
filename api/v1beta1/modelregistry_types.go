@@ -71,7 +71,7 @@ type PostgresConfig struct {
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
 
 	// Auto-provision a PostgreSQL database if true.
-	Generate *bool `json:"generate,omitempty"`
+	GenerateDeployment *bool `json:"generateDeployment,omitempty"`
 
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable

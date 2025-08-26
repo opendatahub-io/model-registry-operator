@@ -341,7 +341,7 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 
 	var err error
 
-	if registry.Spec.Postgres != nil && registry.Spec.Postgres.Generate != nil && *registry.Spec.Postgres.Generate {
+	if registry.Spec.Postgres != nil && registry.Spec.Postgres.GenerateDeployment != nil && *registry.Spec.Postgres.GenerateDeployment {
 		result, err = r.createOrUpdatePostgres(ctx, params, registry)
 		if err != nil {
 			return result, err

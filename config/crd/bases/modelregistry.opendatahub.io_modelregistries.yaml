@@ -551,7 +551,7 @@ spec:
                   database:
                     description: The database name.
                     type: string
-                  generate:
+                  generateDeployment:
                     description: Auto-provision a PostgreSQL database if true.
                     type: boolean
                   host:
@@ -1184,7 +1184,7 @@ spec:
                   database:
                     description: The database name.
                     type: string
-                  generate:
+                  generateDeployment:
                     description: Auto-provision a PostgreSQL database if true.
                     type: boolean
                   host:

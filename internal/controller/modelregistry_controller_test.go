@@ -305,7 +305,7 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				trueValue := true
 				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
-					Generate: &trueValue,
+					GenerateDeployment: &trueValue,
 				}
 
 				err = k8sClient.Create(ctx, modelRegistry)
