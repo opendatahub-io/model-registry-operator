@@ -18,6 +18,20 @@ spec:
       containers:
         - name: postgres
           image: quay.io/sclorg/postgresql-13-c9s:latest
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 26
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 5432
           env:
