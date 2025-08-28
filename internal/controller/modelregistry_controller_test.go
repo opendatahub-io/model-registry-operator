@@ -43,7 +43,6 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -432,14 +431,6 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			},
 		}
 
-		// mock istio proxy container
-		if modelRegistryReconciler.HasIstio {
-			mrPod.Spec.Containers = append(mrPod.Spec.Containers, corev1.Container{
-				Name:  "istio-proxy",
-				Image: "istio-proxy",
-			})
-		}
-
 		// mock oauth proxy container
 		if modelRegistry.Spec.OAuthProxy != nil {
 			image := modelRegistry.Spec.OAuthProxy.Image
@@ -512,48 +503,6 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			found := &appsv1.Deployment{}
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
-		if modelRegistryReconciler.CreateAuthResources {
-			By("Checking if the Auth resources were successfully created in the reconciliation")
-			authConfig := CreateAuthConfig()
-			Eventually(func() error {
-				return k8sClient.Get(ctx, typeNamespaceName, authConfig)
-			}, time.Minute, time.Second).Should(Succeed())
-
-			By("Mocking conditions in the AuthConfig to perform the tests")
-			err := unstructured.SetNestedMap(authConfig.Object, map[string]interface{}{
-				"conditions": []interface{}{
-					map[string]interface{}{
-						"type":   "Ready",
-						"status": "True",
-					},
-				}}, "status")
-			Expect(err).To(Not(HaveOccurred()))
-
-			By("Updating the AuthConfig to set the Ready condition to True")
-			err = k8sClient.Status().Update(ctx, authConfig)
-			Expect(err).To(Not(HaveOccurred()))
-
-			authConfigTwo := CreateAuthConfig()
-			Eventually(func() error {
-				return k8sClient.Get(ctx, typeNamespaceName, authConfigTwo)
-			}, time.Minute, time.Second).Should(Succeed())
-
-			Eventually(func() error {
-				if authConfig.Object["status"] == nil {
-					return fmt.Errorf("status not set")
-				}
-
-				return nil
-			}, time.Minute, time.Second).Should(Succeed())
-
-			Eventually(func() error {
-				_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: typeNamespaceName,
-				})
-
-				return err
-			}, time.Minute, time.Second).Should(Succeed())
-		}
 
 		if modelRegistry.Spec.OAuthProxy != nil && modelRegistry.Spec.OAuthProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
 			By("Checking if the Route was successfully created in the reconciliation")

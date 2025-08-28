@@ -1,9 +1,6 @@
 # Include images as env variables
 include ./config/overlays/odh/params.env
 
-# Include istio config as env variables
-include ./config/samples/istio/components/istio.env
-
 # Image URL to use all building/pushing image targets
 IMG_REGISTRY ?= "quay.io"
 IMG_ORG ?= "opendatahub"
@@ -225,14 +222,6 @@ certificates: certificates/clean
 	# generate TLS certs
 	scripts/generate_certs.sh $(or $(DOMAIN),$(shell oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'))
 	# create secrets from TLS certs
-	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-rest-credential \
-      --from-file=tls.key=certs/modelregistry-sample-rest.domain.key \
-      --from-file=tls.crt=certs/modelregistry-sample-rest.domain.crt \
-      --from-file=ca.crt=certs/domain.crt
-	$(KUBECTL) create secret -n istio-system generic modelregistry-sample-grpc-credential \
-      --from-file=tls.key=certs/modelregistry-sample-grpc.domain.key \
-      --from-file=tls.crt=certs/modelregistry-sample-grpc.domain.crt \
-      --from-file=ca.crt=certs/domain.crt
 	$(KUBECTL) create secret generic model-registry-db-credential \
       --from-file=tls.key=certs/model-registry-db.key \
       --from-file=tls.crt=certs/model-registry-db.crt \
@@ -247,7 +236,6 @@ certificates/clean:
 	mkdir -p certs
 	rm -f certs/*
 	# delete k8s secrets
-	$(KUBECTL) delete --ignore-not-found=true -n istio-system secrets modelregistry-sample-rest-credential modelregistry-sample-grpc-credential
 	$(KUBECTL) delete --ignore-not-found=true secrets model-registry-db-credential
 	# delete k8s configmap
 	$(KUBECTL) delete --ignore-not-found=true configmaps model-registry-db-credential
