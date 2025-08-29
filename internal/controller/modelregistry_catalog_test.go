@@ -68,8 +68,9 @@ var _ = Describe("ModelRegistry Catalog controller", func() {
 						Port: &gRPCPort,
 					},
 					Rest: v1beta1.RestSpec{
-						Port:  &restPort,
-						Image: "quay.io/opendatahub/model-registry:latest", // Required for catalog container
+						Port:             &restPort,
+						Image:            "quay.io/opendatahub/model-registry:latest",                // Required for catalog container
+						CatalogDataImage: "quay.io/opendatahub/odh-model-metadata-collection:latest", // Required for initContainer
 					},
 					MySQL: &v1beta1.MySQLConfig{
 						Host:     "model-registry-db",

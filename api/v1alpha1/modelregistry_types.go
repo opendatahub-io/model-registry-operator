@@ -173,6 +173,10 @@ type RestSpec struct {
 	// Optional image to support overriding the image deployed by the operator.
 	//+optional
 	Image string `json:"image,omitempty"`
+
+	// Optional catalog data image to support overriding the default catalog data source.
+	//+optional
+	CatalogDataImage string `json:"catalogDataImage,omitempty"`
 }
 
 type GrpcSpec struct {
