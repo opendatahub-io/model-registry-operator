@@ -117,6 +117,20 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 			r.Spec.Rest.Resources = nil
 		}
 	}
+
+	// check catalog data image against operator default catalog data image repo
+	if len(r.Spec.Rest.CatalogDataImage) != 0 {
+		defaultCatalogDataImage := config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage)
+		defaultCatalogDataImageRepo := strings.Split(defaultCatalogDataImage, tagSeparator)[0]
+
+		catalogDataImageRepo := strings.Split(r.Spec.Rest.CatalogDataImage, tagSeparator)[0]
+		if catalogDataImageRepo == defaultCatalogDataImageRepo {
+			modelregistrylog.V(4).Info("reset image", "catalog data repo", catalogDataImageRepo)
+			// remove image altogether as the MR repo matches operator repo,
+			// so that future operator version upgrades don't have to handle a hardcoded default
+			r.Spec.Rest.CatalogDataImage = emptyValue
+		}
+	}
 }
 
 // RuntimeDefaults sets default values from the operator environment, which could change at runtime.
@@ -135,6 +149,9 @@ func (r *ModelRegistry) RuntimeDefaults() {
 	}
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
+	}
+	if len(r.Spec.Rest.CatalogDataImage) == 0 {
+		r.Spec.Rest.CatalogDataImage = config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage)
 	}
 
 	// oauth proxy defaults
