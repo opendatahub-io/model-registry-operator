@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{.Name}}-catalog
+  name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
     component: model-catalog
-    app.kubernetes.io/name: {{.Name}}-catalog
+    app.kubernetes.io/name: {{.Name}}
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
@@ -38,7 +38,7 @@ spec:
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
-          secretName: {{.Name}}-catalog-oauth-proxy
+          secretName: {{.Name}}-oauth-proxy
           defaultMode: 0600
       - name: oauth-proxy-cookie-secret
         secret:
