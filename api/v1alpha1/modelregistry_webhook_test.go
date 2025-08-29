@@ -175,8 +175,9 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 			mrSpec: &v1alpha1.ModelRegistry{
 				Spec: v1alpha1.ModelRegistrySpec{
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
+						Resources:        config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:            config.DefaultRestImage,
+						CatalogDataImage: config.DefaultCatalogDataImage,
 					},
 					Grpc: v1alpha1.GrpcSpec{
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
@@ -274,8 +275,9 @@ func TestRuntimeDefaults(t *testing.T) {
 						Image:     config.DefaultGrpcImage,
 					},
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
+						Resources:        config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:            config.DefaultRestImage,
+						CatalogDataImage: config.DefaultCatalogDataImage,
 					},
 					// istio config is replaced with default oauth proxy config
 					OAuthProxy: &v1alpha1.OAuthProxyConfig{
@@ -312,8 +314,9 @@ func TestRuntimeDefaults(t *testing.T) {
 						Image:     config.DefaultGrpcImage,
 					},
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
+						Resources:        config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:            config.DefaultRestImage,
+						CatalogDataImage: config.DefaultCatalogDataImage,
 					},
 					OAuthProxy: &v1alpha1.OAuthProxyConfig{
 						TLSCertificateSecret: &v1alpha1.SecretKeyValue{

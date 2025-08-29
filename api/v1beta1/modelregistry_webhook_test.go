@@ -154,8 +154,9 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 			mrSpec: &v1beta1.ModelRegistry{
 				Spec: v1beta1.ModelRegistrySpec{
 					Rest: v1beta1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
+						Resources:        config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:            config.DefaultRestImage,
+						CatalogDataImage: config.DefaultCatalogDataImage,
 					},
 					Grpc: v1beta1.GrpcSpec{
 						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
@@ -212,8 +213,9 @@ func TestRuntimeDefaults(t *testing.T) {
 						Image:     config.DefaultGrpcImage,
 					},
 					Rest: v1beta1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
-						Image:     config.DefaultRestImage,
+						Resources:        config.MlmdRestResourceRequirements.DeepCopy(),
+						Image:            config.DefaultRestImage,
+						CatalogDataImage: config.DefaultCatalogDataImage,
 					},
 					OAuthProxy: &v1beta1.OAuthProxyConfig{
 						TLSCertificateSecret: &v1beta1.SecretKeyValue{
