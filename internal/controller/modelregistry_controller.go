@@ -20,21 +20,17 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
-	"strings"
 	"text/template"
 
 	networkingv1 "k8s.io/api/networking/v1"
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
-	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
-	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbac "k8s.io/api/rbac/v1"
@@ -43,7 +39,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	pkgbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
@@ -64,16 +59,13 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	ClientSet           *kubernetes.Clientset
-	Scheme              *runtime.Scheme
-	Recorder            record.EventRecorder
-	Log                 logr.Logger
-	Template            *template.Template
-	EnableWebhooks      bool
-	IsOpenShift         bool
-	HasIstio            bool
-	CreateAuthResources bool
-	EnableModelCatalog  bool
+	ClientSet      *kubernetes.Clientset
+	Scheme         *runtime.Scheme
+	Recorder       record.EventRecorder
+	Log            logr.Logger
+	Template       *template.Template
+	EnableWebhooks bool
+	IsOpenShift    bool
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -265,15 +257,6 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.GetRegistryForClusterRoleBinding),
 			pkgbuilder.WithPredicates(labelsPredicate))
 	}
-	if r.HasIstio {
-		if r.CreateAuthResources {
-			builder = builder.Owns(CreateAuthConfig()).
-				Owns(&security.AuthorizationPolicy{})
-		}
-		builder = builder.Owns(&networking.DestinationRule{}).
-			Owns(&networking.Gateway{}).
-			Owns(&networking.VirtualService{})
-	}
 	return builder.Complete(r)
 }
 
@@ -341,11 +324,6 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=authorino.kuadrant.io,resources=authconfigs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=security.istio.io,resources=authorizationpolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=gateways,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 // +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
@@ -355,6 +333,7 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) (OperationResult, error) {
 
 	//log := klog.FromContext(ctx)
+
 	var result, result2 OperationResult
 
 	var err error
@@ -416,21 +395,6 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	if r.HasIstio {
-		// TODO check registry type and convert on reconcile up top!!!
-		//if registry.Spec.Istio != nil {
-		//	log.V(1).Info("Istio config is deprecated, use OAuth Proxy instead")
-		//} else {
-		result2, err = r.deleteIstioConfig(ctx, params)
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-		//}
-	}
-
 	// create or update oauth proxy config if enabled, delete if disabled
 	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
 	if err != nil {
@@ -440,12 +404,9 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
-	result2, err = r.createOrUpdateCatalogConfig(ctx, params, registry)
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+	// Clean up old catalog resources from before it was moved to ModelCatalogReconciler
+	if err := r.deleteOldCatalogResources(ctx, params); err != nil {
+		return result, err
 	}
 
 	return result, nil
@@ -635,12 +596,12 @@ func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, par
 
 func (r *ModelRegistryReconciler) ensureSecretExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
 	result := ResourceUnchanged
-	var cm corev1.Secret
-	if err := r.Apply(params, templateName, &cm); err != nil {
+	var secret corev1.Secret
+	if err := r.Apply(params, templateName, &secret); err != nil {
 		return result, err
 	}
 
-	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &cm)
+	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
 	if err != nil {
 		return result, err
 	}
@@ -660,87 +621,13 @@ const (
 )
 
 func (r *ModelRegistryReconciler) createOrUpdate(ctx context.Context, currObj client.Object, newObj client.Object) (OperationResult, error) {
-	log := klog.FromContext(ctx)
-	result := ResourceUnchanged
-
-	key := client.ObjectKeyFromObject(newObj)
-	gvk := newObj.GetObjectKind().GroupVersionKind()
-	name := newObj.GetName()
-
-	if err := r.Client.Get(ctx, key, currObj); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// create object
-			result = ResourceCreated
-			log.Info("creating", "kind", gvk, "name", name)
-			// save last applied config in annotation similar to kubectl apply
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
-				return result, err
-			}
-			return result, r.Client.Create(ctx, newObj)
-		}
-		// get error
-		return result, err
-	}
-
-	// hack: envtest is missing typemeta for some reason, hence the ignores for apiVersion and kind!!!
-	// create a patch by comparing objects
-	patchResult, err := patch.DefaultPatchMaker.Calculate(currObj, newObj, patch.IgnoreStatusFields(),
-		patch.IgnoreField("apiVersion"), patch.IgnoreField("kind"))
-	if err != nil {
-		return result, err
-	}
-	if !patchResult.IsEmpty() {
-		// update object
-		result = ResourceUpdated
-		log.Info("updating", "kind", gvk, "name", name)
-		// update last applied config in annotation
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
-			return result, err
-		}
-		// set metadata.resourceVersion if present
-		if len(currObj.GetResourceVersion()) != 0 {
-			newObj.SetResourceVersion(currObj.GetResourceVersion())
-		}
-		return result, r.Client.Update(ctx, newObj)
-	}
-
-	return result, nil
+	resourceManager := &ResourceManager{Client: r.Client}
+	return resourceManager.CreateOrUpdate(ctx, currObj, newObj)
 }
 
 func (r *ModelRegistryReconciler) createIfNotExists(ctx context.Context, currObj client.Object, newObj client.Object) (OperationResult, error) {
-	log := klog.FromContext(ctx)
-	result := ResourceUnchanged
-
-	key := client.ObjectKeyFromObject(newObj)
-	gvk := newObj.GetObjectKind().GroupVersionKind()
-	name := newObj.GetName()
-
-	if err := r.Client.Get(ctx, key, currObj); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// create object
-			result = ResourceCreated
-			log.Info("creating", "kind", gvk, "name", name)
-			// save last applied config in annotation similar to kubectl apply
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
-				return result, err
-			}
-			return result, r.Client.Create(ctx, newObj)
-		}
-		// get error
-		return result, err
-	}
-	return result, nil
-}
-
-func (r *ModelRegistryReconciler) deleteFromTemplate(ctx context.Context, params *ModelRegistryParams, templateName string, obj client.Object) (OperationResult, error) {
-	if err := r.Apply(params, templateName, obj); err != nil {
-		return ResourceUnchanged, err
-	}
-	err := r.Client.Delete(ctx, obj)
-	if err != nil {
-		return ResourceUnchanged, client.IgnoreNotFound(err)
-	}
-	return ResourceUpdated, nil
+	resourceManager := &ResourceManager{Client: r.Client}
+	return resourceManager.CreateIfNotExists(ctx, currObj, newObj)
 }
 
 // finalizeMemcached will perform the required operations before delete the CR.
@@ -752,9 +639,6 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 
 	// delete cross-namespace resources
 	if err := r.Client.Delete(ctx, &userv1.Group{ObjectMeta: metav1.ObjectMeta{Name: registry.Name + "-users"}}); client.IgnoreNotFound(err) != nil {
-		return err
-	}
-	if err := r.deleteGatewayRoutes(ctx, registry.Name); err != nil {
 		return err
 	}
 
@@ -787,17 +671,12 @@ type ModelRegistryParams struct {
 }
 
 // Apply executes given template name with params
-func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object interface{}) error {
-	builder := strings.Builder{}
-	err := r.Template.ExecuteTemplate(&builder, templateName, params)
-	if err != nil {
-		return fmt.Errorf("error parsing templates %w", err)
+func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object any) error {
+	templateApplier := &TemplateApplier{
+		Template:    r.Template,
+		IsOpenShift: r.IsOpenShift,
 	}
-	err = yaml.UnmarshalStrict([]byte(builder.String()), object)
-	if err != nil {
-		return fmt.Errorf("error creating %T for model registry %s in namespace %s", object, params.Name, params.Namespace)
-	}
-	return nil
+	return templateApplier.Apply(params, templateName, object)
 }
 
 func (r *ModelRegistryReconciler) logResultAsEvent(registry *v1beta1.ModelRegistry, result OperationResult) {
@@ -829,4 +708,46 @@ func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, reg
 		}
 	}
 	return result, err
+}
+
+// deleteOldCatalogResources removes old catalog resources that were created before the ModelCatalogReconciler.
+func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context, params *ModelRegistryParams) error {
+	log := klog.FromContext(ctx)
+
+	deleteObject := func(name string, obj client.Object) error {
+		nsName := client.ObjectKey{
+			Namespace: params.Namespace,
+			Name:      name,
+		}
+		err := r.Client.Get(ctx, nsName, obj)
+		if err != nil {
+			return client.IgnoreNotFound(err)
+		}
+
+		return r.Client.Delete(ctx, obj)
+	}
+
+	// Delete old catalog deployment
+	if err := deleteObject(params.Name+"-catalog", &appsv1.Deployment{}); err != nil {
+		log.V(1).Info("Failed to delete old catalog deployment", "error", err)
+	}
+
+	// Delete old catalog service
+	if err := deleteObject(params.Name+"-catalog", &corev1.Service{}); err != nil {
+		log.V(1).Info("Failed to delete old catalog service", "error", err)
+	}
+
+	if r.IsOpenShift {
+		// Delete old catalog route
+		if err := deleteObject(params.Name+"-catalog-https", &routev1.Route{}); err != nil {
+			log.V(1).Info("Failed to delete old catalog route", "error", err)
+		}
+
+		// Delete old catalog network policy
+		if err := deleteObject(params.Name+"-catalog-https-route", &networkingv1.NetworkPolicy{}); err != nil {
+			log.V(1).Info("Failed to delete old catalog network policy", "error", err)
+		}
+	}
+
+	return nil
 }
