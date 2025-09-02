@@ -70,8 +70,17 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Create or update ConfigMap
+	// Create sources ConfigMap
 	result2, err := r.ensureConfigMapExists(ctx, params, "catalog-configmap.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create default catalog configmap
+	result2, err = r.ensureConfigMapExists(ctx, params, "catalog-default-catalog-configmap.yaml.tmpl")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
