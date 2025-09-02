@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: "model-catalog-sources"
+  name: default-model-catalog
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
@@ -13,10 +13,6 @@ metadata:
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
 data:
-  sources.yaml: |-
-    catalogs:
-      - name: Default Catalog
-        id: default_catalog
-        type: yaml
-        properties:
-          yamlCatalogPath: /default/default-catalog.yaml
+  default-catalog.yaml: |-
+      source: Default
+      models: []
