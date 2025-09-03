@@ -1,7 +1,7 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{.Name}}-https
+  name: {{.Name}}-http{{ if .Spec.OAuthProxy }}s{{ end }}
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
