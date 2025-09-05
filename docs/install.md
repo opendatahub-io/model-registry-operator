@@ -225,6 +225,10 @@ Model Registry currently requires MySQL database 8.0.3 or above to function corr
 > The `mysql_native_password` authentication plugin is required for the ML Metadata component to successfully connect to your database. `mysql_native_password` is disabled by default in MySQL 8.4 and later. If your database uses MySQL 8.4 or later, you must update your MySQL deployment to enable the `mysql_native_password` plugin. 
 > For more information about enabling the `mysql_native_password` plugin, see [Native Pluggable Authentication](https://dev.mysql.com/doc/refman/8.4/en/native-pluggable-authentication.html) in the MySQL documentation.
 
+> [!TIP]
+> If you are using the "OpenShift Container Platform (OCP) [MySQL template](https://github.com/sclorg/mysql-container/blob/master/8.0/root/usr/share/container-scripts/mysql/README.md)" from Developer > "+Add" > Developer Catalog > Database > MySQL, you will need to change `caching_sha2_password` to `mysql_native_password` for the user created during the template setup.
+> You can check for more details the following article: https://access.redhat.com/solutions/7128249.
+
 For "Development" or "NON-PRODUCTION" scenarios you can use following script to install MySQL database.
 
 Create `namespace` where you want to host the database
