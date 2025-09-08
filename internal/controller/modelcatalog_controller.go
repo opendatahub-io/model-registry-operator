@@ -388,8 +388,9 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
-			Port:  &restPort,
-			Image: config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Port:             &restPort,
+			Image:            config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
 		},
 		OAuthProxy: &v1beta1.OAuthProxyConfig{
 			Port:      &oauthPort,
