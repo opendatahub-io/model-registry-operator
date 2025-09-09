@@ -368,27 +368,6 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 		result = result2
 	}
 
-	// check if cluster is OpenShift for Route support
-	if r.IsOpenShift {
-		// create oauth proxy service route if enabled, delete if disabled
-		result2, err := r.createOrUpdateRoute(ctx, params, "https-route.yaml.tmpl")
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// create oauth proxy networkpolicy to ensure route is exposed
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, "proxy-network-policy.yaml.tmpl")
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-	}
-
 	return result, nil
 }
 
@@ -405,6 +384,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	// Create a default spec that's compatible with catalog templates
 	var restPort int32 = 8080
 	var oauthPort int32 = 8443
+	var routePort int32 = 443
 
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
@@ -412,9 +392,10 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 			Image: config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
 		},
 		OAuthProxy: &v1beta1.OAuthProxyConfig{
-			Port:   &oauthPort,
-			Image:  config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage),
-			Domain: config.GetDefaultDomain(),
+			Port:      &oauthPort,
+			RoutePort: &routePort,
+			Image:     config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage),
+			Domain:    config.GetDefaultDomain(),
 		},
 	}
 
