@@ -50,7 +50,7 @@ spec:
       serviceAccountName: {{.Name}}
       initContainers:
         - name: catalog-data-init
-          image: {{.Spec.Rest.CatalogDataImage}}
+          image: {{.CatalogDataImage}}
           command:
             - /bin/sh
             - -c

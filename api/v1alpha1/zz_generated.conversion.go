@@ -459,7 +459,6 @@ func autoConvert_v1alpha1_RestSpec_To_v1beta1_RestSpec(in *RestSpec, out *v1beta
 	out.ServiceRoute = in.ServiceRoute
 	out.Resources = (*v1.ResourceRequirements)(unsafe.Pointer(in.Resources))
 	out.Image = in.Image
-	out.CatalogDataImage = in.CatalogDataImage
 	return nil
 }
 
@@ -473,7 +472,6 @@ func autoConvert_v1beta1_RestSpec_To_v1alpha1_RestSpec(in *v1beta1.RestSpec, out
 	out.ServiceRoute = in.ServiceRoute
 	out.Resources = (*v1.ResourceRequirements)(unsafe.Pointer(in.Resources))
 	out.Image = in.Image
-	out.CatalogDataImage = in.CatalogDataImage
 	return nil
 }
 

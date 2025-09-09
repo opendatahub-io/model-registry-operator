@@ -684,10 +684,6 @@ spec:
               rest:
                 description: Configuration for REST endpoint
                 properties:
-                  catalogDataImage:
-                    description: Optional catalog data image to support overriding
-                      the default catalog data source.
-                    type: string
                   image:
                     description: Optional image to support overriding the image deployed
                       by the operator.
@@ -1320,10 +1316,6 @@ spec:
               rest:
                 description: Configuration for REST endpoint
                 properties:
-                  catalogDataImage:
-                    description: Optional catalog data image to support overriding
-                      the default catalog data source.
-                    type: string
                   image:
                     description: Optional image to support overriding the image deployed
                       by the operator.
