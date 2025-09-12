@@ -34,6 +34,8 @@ var _ = Describe("ModelCatalog controller", func() {
 			By("Setting the Image ENV VARs")
 			err := os.Setenv(config.RestImage, config.DefaultRestImage)
 			Expect(err).To(Not(HaveOccurred()))
+			err = os.Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
+			Expect(err).To(Not(HaveOccurred()))
 
 			namespaceName = fmt.Sprintf("model-catalog-test-%d", time.Now().UnixNano())
 
@@ -305,6 +307,7 @@ var _ = Describe("ModelCatalog controller", func() {
 
 			By("Removing the Image ENV VARs")
 			_ = os.Unsetenv(config.RestImage)
+			_ = os.Unsetenv(config.CatalogDataImage)
 		})
 	})
 })

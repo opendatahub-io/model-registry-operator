@@ -400,13 +400,15 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	}
 
 	catalogParams := struct {
-		Name      string
-		Namespace string
-		Spec      *v1beta1.ModelRegistrySpec
+		Name             string
+		Namespace        string
+		Spec             *v1beta1.ModelRegistrySpec
+		CatalogDataImage string
 	}{
-		Name:      params.Name,
-		Namespace: params.Namespace,
-		Spec:      defaultSpec,
+		Name:             params.Name,
+		Namespace:        params.Namespace,
+		Spec:             defaultSpec,
+		CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)

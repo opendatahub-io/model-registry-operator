@@ -35,9 +35,8 @@ spec:
       - name: sources
         configMap:
           name: model-catalog-sources
-      - name: default-catalog
-        configMap:
-          name: default-model-catalog
+      - name: catalog-data
+        emptyDir: {}
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
@@ -49,6 +48,21 @@ spec:
           defaultMode: 0600
       {{- end}}
       serviceAccountName: {{.Name}}
+      initContainers:
+        - name: catalog-data-init
+          image: {{.CatalogDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp /app/data/models-catalog.yaml /shared-data/default-catalog.yaml
+          volumeMounts:
+            - name: catalog-data
+              mountPath: /shared-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: catalog
           command:
@@ -94,8 +108,8 @@ spec:
           volumeMounts:
           - name: sources
             mountPath: /catalog
-          - name: default-catalog
-            mountPath: /default
+          - name: catalog-data
+            mountPath: /shared-data
         {{ if .Spec.OAuthProxy }}
         - name: oauth-proxy
           args:
