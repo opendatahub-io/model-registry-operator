@@ -117,7 +117,6 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 			r.Spec.Rest.Resources = nil
 		}
 	}
-
 }
 
 // RuntimeDefaults sets default values from the operator environment, which could change at runtime.
