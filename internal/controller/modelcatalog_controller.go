@@ -14,6 +14,7 @@ import (
 	rbac "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -21,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -50,6 +52,11 @@ type ModelCatalogParams struct {
 
 // Reconcile manages a single model catalog instance
 func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	// Note: We ignore req.Name and req.Namespace since all watched objects
+	// are mapped to the same fixed reconcile request for deduplication.
+	// This prevents reconcile storms from multiple objects trying to update
+	// the same shared resources.
+
 	// If disabled, just clean up any old resources.
 	if !r.Enabled {
 		return r.cleanupCatalogResources(ctx)
@@ -400,13 +407,15 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	}
 
 	catalogParams := struct {
-		Name      string
-		Namespace string
-		Spec      *v1beta1.ModelRegistrySpec
+		Name             string
+		Namespace        string
+		Spec             *v1beta1.ModelRegistrySpec
+		CatalogDataImage string
 	}{
-		Name:      params.Name,
-		Namespace: params.Namespace,
-		Spec:      defaultSpec,
+		Name:             params.Name,
+		Namespace:        params.Namespace,
+		Spec:             defaultSpec,
+		CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -468,14 +477,28 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	// Custom mapper that maps ALL watched objects to the same reconcile request
+	// This enables workqueue deduplication to prevent reconcile storms
+	mapToFixedCatalogRequest := handler.EnqueueRequestsFromMapFunc(
+		func(ctx context.Context, obj client.Object) []reconcile.Request {
+			return []reconcile.Request{{
+				NamespacedName: types.NamespacedName{
+					Name:      modelCatalogName,  // Always use "model-catalog"
+					Namespace: r.TargetNamespace, // Always use target namespace
+				},
+			}}
+		},
+	)
+
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		Named("modelcatalog").
-		Watches(&appsv1.Deployment{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
-		Watches(&corev1.ConfigMap{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
-		Watches(&corev1.Secret{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
-		Watches(&corev1.ServiceAccount{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
-		Watches(&corev1.Service{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
-		Watches(&rbac.ClusterRoleBinding{}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(labels)).
+		// All watched resources now map to the same reconcile request for deduplication
+		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.ConfigMap{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Build(r)
 	if err != nil {
 		return err
@@ -491,5 +514,5 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			"app.kubernetes.io/created-by": "model-registry-operator",
 		},
 	}}} // object identity only; it need not exist
-	return c.Watch(&source.Channel{Source: ch}, &handler.EnqueueRequestForObject{})
+	return c.Watch(&source.Channel{Source: ch}, mapToFixedCatalogRequest)
 }
