@@ -685,21 +685,23 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	}
 
 	catalogParams := struct {
-		Name             string
-		Namespace        string
-		Spec             *v1beta1.ModelRegistrySpec
-		CatalogDataImage string
-		PostgresUser     string
-		PostgresPassword string
-		PostgresDatabase string
+		Name               string
+		Namespace          string
+		Spec               *v1beta1.ModelRegistrySpec
+		CatalogDataImage   string
+		BenchmarkDataImage string
+		PostgresUser       string
+		PostgresPassword   string
+		PostgresDatabase   string
 	}{
-		Name:             params.Name,
-		Namespace:        params.Namespace,
-		Spec:             defaultSpec,
-		CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
-		PostgresUser:     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
-		PostgresPassword: config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
-		PostgresDatabase: config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+		Name:               params.Name,
+		Namespace:          params.Namespace,
+		Spec:               defaultSpec,
+		CatalogDataImage:   config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
+		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
+		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
