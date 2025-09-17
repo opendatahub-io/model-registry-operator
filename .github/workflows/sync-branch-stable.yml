@@ -7,6 +7,7 @@ on:
 jobs:
   sync-branches:
     runs-on: ubuntu-latest
+    if: github.repository == 'opendatahub-io/model-registry-operator'
     name: Syncing branch stable
     steps:
       - name: Checkout
