@@ -1,0 +1,30 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  annotations:
+    openshift.io/display-name: Model catalog User
+    openshift.io/description: Can access model catalog
+  labels:
+    app: {{.Name}}
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/managed-by: model-registry-operator
+    app.kubernetes.io/name: {{.Name}}
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - services
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - endpoints
+  verbs:
+  - get
