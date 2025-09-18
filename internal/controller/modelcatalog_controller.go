@@ -142,6 +142,24 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create or update ClusterRole for model-catalog access
+	result2, err = r.createOrUpdateClusterRole(ctx, params, "catalog-clusterrole.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update ClusterRoleBinding for system:authenticated
+	result2, err = r.createOrUpdateClusterRoleBinding(ctx, params, "catalog-clusterrolebinding.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Use result to determine if we need to requeue
 	if result != ResourceUnchanged {
 		return ctrl.Result{Requeue: true}, nil
@@ -181,6 +199,24 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	// Delete OAuth Proxy ClusterRoleBinding (cookie Secret is intentionally preserved)
 	result2, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete ClusterRole
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-clusterrole.yaml.tmpl", &rbac.ClusterRole{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete ClusterRoleBinding
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-clusterrolebinding.yaml.tmpl", &rbac.ClusterRoleBinding{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -342,6 +378,18 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
 
+func (r *ModelCatalogReconciler) createOrUpdateClusterRole(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var clusterRole rbac.ClusterRole
+	if err = r.Apply(params, templateName, &clusterRole); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&clusterRole.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &rbac.ClusterRole{}, &clusterRole)
+}
+
 func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
 	result := ResourceUnchanged
 	var secret corev1.Secret
@@ -477,6 +525,18 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	// Create more specific label predicate for ClusterRole watching to prevent performance overhead
+	catalogLabels, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"component":                    "model-catalog",
+			"app.kubernetes.io/created-by": "model-registry-operator",
+			"modelregistry.opendatahub.io/target-namespace": r.TargetNamespace,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
 	// Custom mapper that maps ALL watched objects to the same reconcile request
 	// This enables workqueue deduplication to prevent reconcile storms
 	mapToFixedCatalogRequest := handler.EnqueueRequestsFromMapFunc(
@@ -499,6 +559,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&rbac.ClusterRole{}, mapToFixedCatalogRequest, builder.WithPredicates(catalogLabels)).
 		Build(r)
 	if err != nil {
 		return err

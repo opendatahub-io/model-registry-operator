@@ -1,0 +1,42 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: model-catalog-user-{{.Namespace}}-{{.Name}}
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    modelregistry.opendatahub.io/target-namespace: {{.Namespace}}
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: model-catalog-user
+    app.kubernetes.io/component: model-catalog
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  annotations:
+    openshift.io/display-name: Model Catalog User ({{.Namespace}}/{{.Name}})
+    openshift.io/description: Can access Model Catalog service {{.Name}} in {{.Namespace}} namespace
+rules:
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - services
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resourceNames:
+  - {{.Name}}
+  resources:
+  - endpoints
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - services/proxy
+  resourceNames:
+  - {{.Name}}
+  verbs:
+  - get
