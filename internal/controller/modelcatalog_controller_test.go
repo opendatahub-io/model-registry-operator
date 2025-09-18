@@ -11,6 +11,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -112,6 +113,44 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(service.Labels["component"]).To(Equal("model-catalog"))
 				Expect(service.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+
+				By("Checking if the Role was created")
+				role := &rbac.Role{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, role)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(role.Labels["app"]).To(Equal(modelCatalogName))
+				Expect(role.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(role.Labels["app.kubernetes.io/managed-by"]).To(Equal("model-registry-operator"))
+				Expect(role.Labels["app.kubernetes.io/name"]).To(Equal(modelCatalogName))
+				Expect(role.Annotations["openshift.io/display-name"]).To(Equal("Model catalog User"))
+				Expect(role.Annotations["openshift.io/description"]).To(Equal("Can access model catalog"))
+				Expect(role.Rules).To(HaveLen(2))
+				Expect(role.Rules[0].APIGroups).To(Equal([]string{""}))
+				Expect(role.Rules[0].Resources).To(Equal([]string{"services"}))
+				Expect(role.Rules[0].ResourceNames).To(Equal([]string{"model-catalog"}))
+				Expect(role.Rules[0].Verbs).To(Equal([]string{"get"}))
+				Expect(role.Rules[1].APIGroups).To(Equal([]string{""}))
+				Expect(role.Rules[1].Resources).To(Equal([]string{"endpoints"}))
+				Expect(role.Rules[1].ResourceNames).To(Equal([]string{"model-catalog"}))
+				Expect(role.Rules[1].Verbs).To(Equal([]string{"get"}))
+
+				By("Checking if the RoleBinding was created")
+				roleBinding := &rbac.RoleBinding{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-authenticated",
+					Namespace: namespaceName,
+				}, roleBinding)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(roleBinding.RoleRef.APIGroup).To(Equal("rbac.authorization.k8s.io"))
+				Expect(roleBinding.RoleRef.Kind).To(Equal("Role"))
+				Expect(roleBinding.RoleRef.Name).To(Equal(modelCatalogName))
+				Expect(roleBinding.Subjects).To(HaveLen(1))
+				Expect(roleBinding.Subjects[0].APIGroup).To(Equal("rbac.authorization.k8s.io"))
+				Expect(roleBinding.Subjects[0].Kind).To(Equal("Group"))
+				Expect(roleBinding.Subjects[0].Name).To(Equal("system:authenticated"))
 			})
 
 			It("Should handle subsequent calls idempotently", func() {
@@ -188,6 +227,24 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, service)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				role := &rbac.Role{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName,
+						Namespace: namespaceName,
+					}, role)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				roleBinding := &rbac.RoleBinding{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-authenticated",
+						Namespace: namespaceName,
+					}, roleBinding)
 					return errors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
@@ -287,6 +344,24 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, service)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				role := &rbac.Role{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName,
+						Namespace: namespaceName,
+					}, role)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				roleBinding := &rbac.RoleBinding{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-authenticated",
+						Namespace: namespaceName,
+					}, roleBinding)
 					return errors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
