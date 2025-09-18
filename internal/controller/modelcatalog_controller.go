@@ -113,6 +113,24 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create or update role
+	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update rolebinding
+	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	if r.IsOpenShift {
 		// Create or update Route
 		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl")
@@ -172,6 +190,24 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	// Delete ServiceAccount
 	result2, err = r.deleteFromTemplate(ctx, params, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete RoleBinding
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-rolebinding.yaml.tmpl", &rbac.RoleBinding{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete Role
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-role.yaml.tmpl", &rbac.Role{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -358,6 +394,30 @@ func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params 
 	return result, nil
 }
 
+func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var role rbac.Role
+	if err = r.Apply(params, templateName, &role); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&role.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &rbac.Role{}, &role)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+	result = ResourceUnchanged
+	var roleBinding rbac.RoleBinding
+	if err = r.Apply(params, templateName, &roleBinding); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&roleBinding.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
+}
+
 func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
 	result = ResourceUnchanged
 
@@ -499,6 +559,8 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Build(r)
 	if err != nil {
 		return err
