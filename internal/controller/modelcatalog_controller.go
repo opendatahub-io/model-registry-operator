@@ -86,15 +86,6 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
-	// Create default catalog configmap
-	result2, err = r.ensureConfigMapExists(ctx, params, "catalog-default-catalog-configmap.yaml.tmpl")
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
 	// Create or update Deployment
 	result2, err = r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl")
 	if err != nil {
