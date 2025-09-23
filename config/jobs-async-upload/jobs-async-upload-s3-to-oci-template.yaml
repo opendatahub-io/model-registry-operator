@@ -12,13 +12,13 @@ parameters:
     value: quay.io/opendatahub/model-registry-job-async-upload:latest
   - name: MODEL_SYNC_MODEL_ID
     description: The RegisteredModel ID in the Model Registry
-    required: true
+    required: false
   - name: MODEL_SYNC_MODEL_VERSION_ID
     description: The ModelVersion ID in the Model Registry
-    required: true
+    required: false
   - name: MODEL_SYNC_MODEL_ARTIFACT_ID
     description: The ModelArtifact ID in the Model Registry
-    required: true
+    required: false
   - name: MODEL_SYNC_REGISTRY_SERVER_ADDRESS
     description: The address of the Model Registry, ref. the MR py client documentation
     required: true
@@ -38,6 +38,10 @@ parameters:
   - name: MODEL_SYNC_SOURCE_AWS_KEY
     description: The path in the S3 bucket
     required: true
+  - name: MODEL_SYNC_MODEL_UPLOAD_INTENT
+    description: The upload intent for the model sync operation
+    required: false
+    value: "update_artifact"
 objects:
   - apiVersion: batch/v1
     kind: Job
@@ -117,3 +121,5 @@ objects:
                   value: "/opt/creds/source"
                 - name: MODEL_SYNC_SOURCE_AWS_KEY
                   value: "${MODEL_SYNC_SOURCE_AWS_KEY}"
+                - name: MODEL_SYNC_MODEL_UPLOAD_INTENT
+                  value: "${MODEL_SYNC_MODEL_UPLOAD_INTENT}"
