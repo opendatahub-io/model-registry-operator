@@ -42,6 +42,9 @@ parameters:
     description: The upload intent for the model sync operation
     required: false
     value: "update_artifact"
+  - name: MODEL_METADATA_CONFIGMAP
+    description: "Name of the ConfigMap containing model metadata (required for create_model and create_version intents)"
+    required: false
 objects:
   - apiVersion: batch/v1
     kind: Job
@@ -80,6 +83,10 @@ objects:
             - name: destination-credentials
               secret:
                 secretName: ${DESTINATION_CONNECTION}
+            - name: model-metadata
+              configMap:
+                name: ${MODEL_METADATA_CONFIGMAP}
+                optional: true
           restartPolicy: Never
           containers:
             - name: async-upload
@@ -104,6 +111,9 @@ objects:
                 - name: destination-credentials
                   readOnly: true
                   mountPath: "/opt/creds/destination"
+                - name: model-metadata
+                  readOnly: true
+                  mountPath: "/etc/model-metadata"
               env:
                 - name: MODEL_SYNC_REGISTRY_SERVER_ADDRESS
                   value: "${MODEL_SYNC_REGISTRY_SERVER_ADDRESS}"
@@ -123,3 +133,5 @@ objects:
                   value: "${MODEL_SYNC_SOURCE_AWS_KEY}"
                 - name: MODEL_SYNC_MODEL_UPLOAD_INTENT
                   value: "${MODEL_SYNC_MODEL_UPLOAD_INTENT}"
+                - name: MODEL_SYNC_METADATA_CONFIGMAP_PATH
+                  value: "/etc/model-metadata"

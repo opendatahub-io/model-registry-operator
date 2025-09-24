@@ -23,31 +23,61 @@ oc process --local \
 
 ### Create Model
 
+**Note**: The `create_model` intent requires a ConfigMap containing model metadata.
+
 ```sh
-oc process --local \
-  -f jobs-async-upload-s3-to-oci-template.yaml \
+# First create the ConfigMap
+oc process --local -f configmap-create-model-template.yaml \
+  -p CONFIGMAP_NAME="my-model-metadata" \
+  -p REGISTERED_MODEL_NAME="my-model" \
+  -p MODEL_VERSION_NAME="1.0.0" \
+  -p MODEL_ARTIFACT_NAME="my-artifact" \
+  | oc apply -f -
+
+# Then create the upload job
+oc process --local -f jobs-async-upload-s3-to-oci-template.yaml \
   -p MODEL_SYNC_MODEL_UPLOAD_INTENT=create_model \
-  -p MODEL_SYNC_REGISTRY_SERVER_ADDRESS=https://... \
+  -p MODEL_METADATA_CONFIGMAP="my-model-metadata" \
+  -p MODEL_SYNC_REGISTRY_SERVER_ADDRESS=https://your-registry.com \
   -p MODEL_SYNC_REGISTRY_PORT=443 \
   -p SOURCE_CONNECTION=my-s3-credentials \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_SOURCE_AWS_KEY=path/in/bucket \
-  -o yaml
+  | oc apply -f -
 ```
 
 ### Create Version
 
-```sh
+**Note**: The `create_version` intent requires a ConfigMap containing model metadata.
+
+```bash
+# Basic usage for adding a new version to an existing model
 oc process --local \
-  -f jobs-async-upload-s3-to-oci-template.yaml \
-  -p MODEL_SYNC_MODEL_UPLOAD_INTENT=create_version \
-  -p MODEL_SYNC_MODEL_ID=1 \
-  -p MODEL_SYNC_REGISTRY_SERVER_ADDRESS=https://... \
-  -p MODEL_SYNC_REGISTRY_PORT=443 \
-  -p SOURCE_CONNECTION=my-s3-credentials \
-  -p DESTINATION_CONNECTION=my-oci-credentials \
-  -p MODEL_SYNC_SOURCE_AWS_KEY=path/in/bucket \
-  -o yaml
+  -f configmap-create-version-template.yaml \
+  -p CONFIGMAP_NAME="sentiment-model-v2-metadata" \
+  -p MODEL_VERSION_NAME="2.0.0" \
+  -p MODEL_VERSION_DESCRIPTION="Improved model with better accuracy and faster inference" \
+  -p MODEL_VERSION_AUTHOR="john-doe" \
+  -p MODEL_ARTIFACT_NAME="sentiment-model-v2" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.11" \
+  | oc apply -f -
+
+# Advanced usage with detailed metadata
+oc process --local \
+  -f configmap-create-version-template.yaml \
+  -p CONFIGMAP_NAME="optimized-model-v2-metadata" \
+  -p MODEL_VERSION_NAME="2.1.0" \
+  -p MODEL_VERSION_DESCRIPTION="Optimized version with quantization and pruning" \
+  -p MODEL_VERSION_AUTHOR="ai-optimization-team" \
+  -p MODEL_VERSION_CUSTOM_PROPERTIES='{"accuracy": 0.97, "f1_score": 0.95, "model_compression": "quantized", "speedup_factor": 2.3}' \
+  -p MODEL_ARTIFACT_NAME="distilbert-sentiment-optimized" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.11" \
+  -p MODEL_ARTIFACT_SOURCE_KIND="HuggingFace" \
+  -p MODEL_ARTIFACT_SOURCE_ID="distilbert-base-uncased" \
+  -p MODEL_ARTIFACT_CUSTOM_PROPERTIES='{"model_size_mb": 265, "inference_time_ms": 85, "compression_ratio": 0.6}' \
+  | oc apply -f -
 ```
 
 ## Getting IDs
@@ -79,4 +109,74 @@ oc process --local \
   -p MODEL_SYNC_DESTINATION_OCI_URI="default-route-openshift-image-registry.apps.rosa.CLUSTER-NAME.d4bs.p3.openshiftapps.com/minio-manual/model2:latest" \
   -p MODEL_SYNC_DESTINATION_OCI_REGISTRY="default-route-openshift-image-registry.apps.rosa.CLUSTER-NAME.d4bs.p3.openshiftapps.com" \
   -o yaml > job.yaml
+```
+
+### More configmap examples
+
+```bash
+# Basic usage with minimal required fields
+oc process --local \
+  -f configmap-create-model-template.yaml \
+  -p CONFIGMAP_NAME="my-sentiment-model-metadata" \
+  -p REGISTERED_MODEL_NAME="sentiment-analyzer" \
+  -p REGISTERED_MODEL_DESCRIPTION="A machine learning model for sentiment analysis" \
+  -p REGISTERED_MODEL_OWNER="data-science-team" \
+  -p MODEL_VERSION_NAME="1.0.0" \
+  -p MODEL_ARTIFACT_NAME="sentiment-model-v1" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.8" \
+  | oc apply -f -
+
+# Advanced usage with custom properties
+oc process --local \
+  -f configmap-create-model-template.yaml \
+  -p CONFIGMAP_NAME="advanced-model-metadata" \
+  -p REGISTERED_MODEL_NAME="advanced-sentiment-analyzer" \
+  -p REGISTERED_MODEL_DESCRIPTION="Advanced sentiment analysis with transformer architecture" \
+  -p REGISTERED_MODEL_OWNER="ml-engineering-team" \
+  -p REGISTERED_MODEL_CUSTOM_PROPERTIES='{"project": "nlp-research", "cost_center": "engineering", "team": "ml-ops"}' \
+  -p MODEL_VERSION_NAME="1.0.0" \
+  -p MODEL_VERSION_DESCRIPTION="Initial production release with BERT architecture" \
+  -p MODEL_VERSION_AUTHOR="jane-smith" \
+  -p MODEL_VERSION_CUSTOM_PROPERTIES='{"accuracy": 0.95, "f1_score": 0.93, "training_dataset": "sentiment-corpus-v1.2"}' \
+  -p MODEL_ARTIFACT_NAME="bert-sentiment-v1" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.8" \
+  -p MODEL_ARTIFACT_SOURCE_KIND="HuggingFace" \
+  -p MODEL_ARTIFACT_SOURCE_ID="bert-base-uncased" \
+  -p MODEL_ARTIFACT_SOURCE_NAME="BERT Base Uncased" \
+  -p MODEL_ARTIFACT_CUSTOM_PROPERTIES='{"model_size_mb": 438, "inference_time_ms": 120, "supported_languages": ["en", "es", "fr"]}' \
+  | oc apply -f -
+```
+
+### Generate ConfigMap for create_version Intent
+
+```bash
+# Basic usage for adding a new version to an existing model
+oc process --local \
+  -f configmap-create-version-template.yaml \
+  -p CONFIGMAP_NAME="sentiment-model-v2-metadata" \
+  -p MODEL_VERSION_NAME="2.0.0" \
+  -p MODEL_VERSION_DESCRIPTION="Improved model with better accuracy and faster inference" \
+  -p MODEL_VERSION_AUTHOR="john-doe" \
+  -p MODEL_ARTIFACT_NAME="sentiment-model-v2" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.11" \
+  | oc apply -f -
+
+# Advanced usage with detailed metadata
+oc process --local \
+  -f configmap-create-version-template.yaml \
+  -p CONFIGMAP_NAME="optimized-model-v2-metadata" \
+  -p MODEL_VERSION_NAME="2.1.0" \
+  -p MODEL_VERSION_DESCRIPTION="Optimized version with quantization and pruning" \
+  -p MODEL_VERSION_AUTHOR="ai-optimization-team" \
+  -p MODEL_VERSION_CUSTOM_PROPERTIES='{"accuracy": 0.97, "f1_score": 0.95, "model_compression": "quantized", "speedup_factor": 2.3}' \
+  -p MODEL_ARTIFACT_NAME="distilbert-sentiment-optimized" \
+  -p MODEL_ARTIFACT_FORMAT_NAME="tensorflow" \
+  -p MODEL_ARTIFACT_FORMAT_VERSION="2.11" \
+  -p MODEL_ARTIFACT_SOURCE_KIND="HuggingFace" \
+  -p MODEL_ARTIFACT_SOURCE_ID="distilbert-base-uncased" \
+  -p MODEL_ARTIFACT_CUSTOM_PROPERTIES='{"model_size_mb": 265, "inference_time_ms": 85, "compression_ratio": 0.6}' \
+  | oc apply -f -
 ```
