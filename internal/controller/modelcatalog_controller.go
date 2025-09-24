@@ -122,6 +122,42 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create or update PostgreSQL Deployment
+	result2, err = r.createOrUpdatePostgresDeployment(ctx, params, "catalog-postgres-deployment.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update PostgreSQL Service
+	result2, err = r.createOrUpdatePostgresService(ctx, params, "catalog-postgres-service.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update PostgreSQL Secret
+	result2, err = r.createOrUpdatePostgresSecret(ctx, params, "catalog-postgres-secret.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update PostgreSQL PVC
+	result2, err = r.createOrUpdatePostgresPVC(ctx, params, "catalog-postgres-pvc.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	if r.IsOpenShift {
 		// Create or update Route
 		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl")
@@ -208,6 +244,42 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	// Delete OAuth Proxy ClusterRoleBinding (cookie Secret is intentionally preserved)
 	result2, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete PostgreSQL Deployment
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete PostgreSQL Service
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete PostgreSQL Secret
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete PostgreSQL PVC
+	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -429,6 +501,54 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 	return result, nil
 }
 
+func (r *ModelCatalogReconciler) createOrUpdatePostgresDeployment(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	var deployment appsv1.Deployment
+	err := r.Apply(params, templateName, &deployment)
+	if err != nil {
+		return ResourceUnchanged, err
+	}
+
+	r.applyLabels(&deployment.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdatePostgresService(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	var service corev1.Service
+	err := r.Apply(params, templateName, &service)
+	if err != nil {
+		return ResourceUnchanged, err
+	}
+
+	r.applyLabels(&service.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &corev1.Service{}, &service)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	var secret corev1.Secret
+	err := r.Apply(params, templateName, &secret)
+	if err != nil {
+		return ResourceUnchanged, err
+	}
+
+	r.applyLabels(&secret.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &corev1.Secret{}, &secret)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	var pvc corev1.PersistentVolumeClaim
+	err := r.Apply(params, templateName, &pvc)
+	if err != nil {
+		return ResourceUnchanged, err
+	}
+
+	r.applyLabels(&pvc.ObjectMeta)
+
+	return r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc)
+}
+
 // Apply executes given template name with params
 func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName string, object any) error {
 	// Ensure templateApplier is initialized
@@ -462,11 +582,17 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		Namespace        string
 		Spec             *v1beta1.ModelRegistrySpec
 		CatalogDataImage string
+		PostgresUser     string
+		PostgresPassword string
+		PostgresDatabase string
 	}{
 		Name:             params.Name,
 		Namespace:        params.Namespace,
 		Spec:             defaultSpec,
 		CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		PostgresUser:     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+		PostgresPassword: config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
+		PostgresDatabase: config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)

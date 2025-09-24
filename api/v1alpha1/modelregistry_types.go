@@ -71,6 +71,11 @@ type PostgresConfig struct {
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
 
+	//+kubebuilder:default=false
+	// True if skipping database instance creation during Model Catalog
+	// initialization. By default, it is false.
+	SkipModelCatalogDBCreation bool `json:"skipModelCatalogDBCreation,omitempty"`
+
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable
 	// PostgreSQL sslmode setup. Values can be disable, allow, prefer,

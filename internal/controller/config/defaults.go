@@ -59,6 +59,16 @@ const (
 	EnableWebhooks      = "ENABLE_WEBHOOKS"
 	DefaultDomain       = "DEFAULT_DOMAIN"
 	EnableModelCatalog  = "ENABLE_MODEL_CATALOG"
+
+	// PostgreSQL config env variables
+	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
+	CatalogPostgresPassword = "CATALOG_POSTGRES_PASSWORD"
+	CatalogPostgresDatabase = "CATALOG_POSTGRES_DATABASE"
+
+	// Default PostgreSQL values
+	DefaultCatalogPostgresUser     = "catalog_user"
+	DefaultCatalogPostgresPassword = "catalog_password_change_me"
+	DefaultCatalogPostgresDatabase = "model_catalog"
 )
 
 var (
