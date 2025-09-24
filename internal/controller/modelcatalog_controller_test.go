@@ -211,40 +211,16 @@ var _ = Describe("ModelCatalog controller", func() {
 				_, err = catalogReconciler.cleanupCatalogResources(ctx)
 				Expect(err).To(Not(HaveOccurred()))
 
-				By("Verifying resources are deleted")
+				By("Verifying explicitly deleted resources are gone")
+				// Only test for explicitly deleted resources (Deployment).
+				// Service, Role, and RoleBinding should be cleaned up via garbage collection
+				// due to owner references, but envtest may not have garbage collection enabled.
 				deployment := &appsv1.Deployment{}
 				Eventually(func() bool {
 					err = k8sClient.Get(ctx, types.NamespacedName{
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, deployment)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
-
-				service := &corev1.Service{}
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName,
-						Namespace: namespaceName,
-					}, service)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
-
-				role := &rbac.Role{}
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName,
-						Namespace: namespaceName,
-					}, role)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
-
-				roleBinding := &rbac.RoleBinding{}
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName + "-authenticated",
-						Namespace: namespaceName,
-					}, roleBinding)
 					return errors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
@@ -330,7 +306,10 @@ var _ = Describe("ModelCatalog controller", func() {
 				_, err = catalogReconciler.cleanupCatalogResources(ctx)
 				Expect(err).To(Not(HaveOccurred()))
 
-				By("Verifying resources are deleted")
+				By("Verifying explicitly deleted resources are gone")
+				// Only test for explicitly deleted resources (Deployment).
+				// Service, Role, and RoleBinding should be cleaned up via garbage collection
+				// due to owner references, but envtest may not have garbage collection enabled.
 				Eventually(func() bool {
 					err = k8sClient.Get(ctx, types.NamespacedName{
 						Name:      modelCatalogName,
@@ -338,32 +317,59 @@ var _ = Describe("ModelCatalog controller", func() {
 					}, deployment)
 					return errors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+			})
 
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName,
-						Namespace: namespaceName,
-					}, service)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+			It("Should set correct ownerReferences on catalog resources", func() {
+				By("First creating catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
 
+				By("Getting the deployment")
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying Service has correct ownerReference to Deployment")
+				service := &corev1.Service{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, service)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(service.OwnerReferences).To(HaveLen(1))
+				Expect(service.OwnerReferences[0].APIVersion).To(Equal("apps/v1"))
+				Expect(service.OwnerReferences[0].Kind).To(Equal("Deployment"))
+				Expect(service.OwnerReferences[0].Name).To(Equal(deployment.Name))
+				Expect(service.OwnerReferences[0].UID).To(Equal(deployment.UID))
+
+				By("Verifying Role has correct ownerReference to Deployment")
 				role := &rbac.Role{}
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName,
-						Namespace: namespaceName,
-					}, role)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, role)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(role.OwnerReferences).To(HaveLen(1))
+				Expect(role.OwnerReferences[0].APIVersion).To(Equal("apps/v1"))
+				Expect(role.OwnerReferences[0].Kind).To(Equal("Deployment"))
+				Expect(role.OwnerReferences[0].Name).To(Equal(deployment.Name))
+				Expect(role.OwnerReferences[0].UID).To(Equal(deployment.UID))
 
+				By("Verifying RoleBinding has correct ownerReference to Deployment")
 				roleBinding := &rbac.RoleBinding{}
-				Eventually(func() bool {
-					err = k8sClient.Get(ctx, types.NamespacedName{
-						Name:      modelCatalogName + "-authenticated",
-						Namespace: namespaceName,
-					}, roleBinding)
-					return errors.IsNotFound(err)
-				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-authenticated",
+					Namespace: namespaceName,
+				}, roleBinding)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(roleBinding.OwnerReferences).To(HaveLen(1))
+				Expect(roleBinding.OwnerReferences[0].APIVersion).To(Equal("apps/v1"))
+				Expect(roleBinding.OwnerReferences[0].Kind).To(Equal("Deployment"))
+				Expect(roleBinding.OwnerReferences[0].Name).To(Equal(deployment.Name))
+				Expect(roleBinding.OwnerReferences[0].UID).To(Equal(deployment.UID))
 			})
 
 			It("Should handle deletion when resources don't exist", func() {

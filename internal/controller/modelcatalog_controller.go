@@ -13,7 +13,9 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -21,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	klog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -66,13 +69,21 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 }
 
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
+	log := klog.FromContext(ctx)
+
 	params := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
 	}
 
+	// Fetch the info from the platform's default-modelregistry CR to use an owner.
+	crOwner, err := r.fetchDefaultModelRegistry(ctx)
+	if err != nil {
+		log.Error(err, "unable to retrieve platform model registry CRD")
+	}
+
 	// Create or update ServiceAccount
-	result, err := r.createOrUpdateServiceAccount(ctx, params, "catalog-serviceaccount.yaml.tmpl")
+	result, err := r.createOrUpdateServiceAccount(ctx, params, "catalog-serviceaccount.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -87,7 +98,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Deployment
-	result2, err = r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl")
+	result2, deployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -95,8 +106,16 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Use deployment as owner for the remaining resources
+	deploymentOwner := &metav1.OwnerReference{
+		APIVersion: deployment.APIVersion,
+		Kind:       deployment.Kind,
+		Name:       deployment.Name,
+		UID:        deployment.UID,
+	}
+
 	// Create or update Service
-	result2, err = r.createOrUpdateService(ctx, params, "catalog-service.yaml.tmpl")
+	result2, err = r.createOrUpdateService(ctx, params, "catalog-service.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -105,7 +124,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update role
-	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl")
+	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -114,7 +133,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update rolebinding
-	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl")
+	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -124,7 +143,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.IsOpenShift {
 		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl")
+		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -133,7 +152,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 
 		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, "catalog-network-policy.yaml.tmpl")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, "catalog-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -164,14 +183,17 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		Namespace: r.TargetNamespace,
 	}
 
-	// Delete Deployment
+	// Delete the main resources - Kubernetes will automatically clean up owned resources
+	// via garbage collection due to the owner references we've set up
+
+	// Delete Deployment (this will cascade delete Service, Role, RoleBinding, Route, NetworkPolicy)
 	result, err := r.deleteFromTemplate(ctx, params, "catalog-deployment.yaml.tmpl", &appsv1.Deployment{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	// Delete Service
-	result2, err := r.deleteFromTemplate(ctx, params, "catalog-service.yaml.tmpl", &corev1.Service{})
+	// Delete ServiceAccount (both ServiceAccount and Deployment are owned by default-modelregistry)
+	result2, err := r.deleteFromTemplate(ctx, params, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -179,34 +201,8 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
-	// Delete ServiceAccount
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	// Delete RoleBinding
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-rolebinding.yaml.tmpl", &rbac.RoleBinding{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	// Delete Role
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-role.yaml.tmpl", &rbac.Role{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	// Delete OAuth Proxy ClusterRoleBinding (cookie Secret is intentionally preserved)
+	// Delete OAuth Proxy ClusterRoleBinding
+	// This resource doesn't have an owner reference as it's cluster-scoped
 	result2, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -216,24 +212,6 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	}
 
 	if r.IsOpenShift {
-		// Delete Route
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-route.yaml.tmpl", &routev1.Route{})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// Delete NetworkPolicy
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
 		// Delete OAuth Proxy Route
 		result2, err = r.deleteFromTemplate(ctx, params, "https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
@@ -262,23 +240,39 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, *appsv1.Deployment, error) {
 	result := ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err := r.Apply(params, templateName, &deployment); err != nil {
-		return result, err
+		return result, nil, err
 	}
 
 	r.applyLabels(&deployment.ObjectMeta)
+	r.applyOwnerReference(&deployment.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
-	return result, nil
+
+	// Fetch the deployment to get the updated metadata (including UID)
+	var actualDeployment appsv1.Deployment
+	err = r.Client.Get(ctx, types.NamespacedName{
+		Name:      deployment.Name,
+		Namespace: deployment.Namespace,
+	}, &actualDeployment)
+	if err != nil {
+		return result, nil, err
+	}
+
+	// Ensure APIVersion and Kind are set for proper owner references. Mostly for the tests.
+	actualDeployment.APIVersion = "apps/v1"
+	actualDeployment.Kind = "Deployment"
+
+	return result, &actualDeployment, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var service corev1.Service
 	if err := r.Apply(params, templateName, &service); err != nil {
@@ -286,6 +280,7 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 	}
 
 	r.applyLabels(&service.ObjectMeta)
+	r.applyOwnerReference(&service.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &corev1.Service{}, &service)
 	if err != nil {
@@ -294,7 +289,7 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var route routev1.Route
 	if err := r.Apply(params, templateName, &route); err != nil {
@@ -302,6 +297,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params
 	}
 
 	r.applyLabels(&route.ObjectMeta)
+	r.applyOwnerReference(&route.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &routev1.Route{}, &route)
 	if err != nil {
@@ -310,7 +306,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var networkPolicy networkingv1.NetworkPolicy
 	if err := r.Apply(params, templateName, &networkPolicy); err != nil {
@@ -318,6 +314,7 @@ func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context
 	}
 
 	r.applyLabels(&networkPolicy.ObjectMeta)
+	r.applyOwnerReference(&networkPolicy.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &networkPolicy)
 	if err != nil {
@@ -342,7 +339,7 @@ func (r *ModelCatalogReconciler) ensureConfigMapExists(ctx context.Context, para
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var sa corev1.ServiceAccount
 	if err = r.Apply(params, templateName, &sa); err != nil {
@@ -350,6 +347,7 @@ func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Contex
 	}
 
 	r.applyLabels(&sa.ObjectMeta)
+	r.applyOwnerReference(&sa.ObjectMeta, owner)
 
 	if result, err = r.createOrUpdate(ctx, &corev1.ServiceAccount{}, &sa); err != nil {
 		return result, err
@@ -385,7 +383,7 @@ func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params 
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var role rbac.Role
 	if err = r.Apply(params, templateName, &role); err != nil {
@@ -393,11 +391,12 @@ func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params 
 	}
 
 	r.applyLabels(&role.ObjectMeta)
+	r.applyOwnerReference(&role.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.Role{}, &role)
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var roleBinding rbac.RoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
@@ -405,6 +404,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, 
 	}
 
 	r.applyLabels(&roleBinding.ObjectMeta)
+	r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
 }
@@ -505,6 +505,42 @@ func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta) {
 	}
 	meta.Labels["component"] = modelCatalogName
 	meta.Labels["app.kubernetes.io/created-by"] = "model-registry-operator"
+}
+
+// applyOwnerReference sets the owner reference using the provided owner metadata.
+// This ensures that catalog resources are managed by the modelregistries.components.platform.opendatahub.io resource.
+func (*ModelCatalogReconciler) applyOwnerReference(meta *metav1.ObjectMeta, owner *metav1.OwnerReference) {
+	if owner != nil {
+		// Set owner references (replace any existing ones for this resource type)
+		meta.OwnerReferences = []metav1.OwnerReference{*owner}
+	}
+}
+
+// fetchDefaultModelRegistry retrieves the default-modelregistry resource from modelregistries.components.platform.opendatahub.io.
+// This resource is used as the owner reference for catalog deployment and service account resources.
+// Returns the OwnerReference of the resource, or an error if not found.
+func (r *ModelCatalogReconciler) fetchDefaultModelRegistry(ctx context.Context) (*metav1.OwnerReference, error) {
+	modelRegistry := &unstructured.Unstructured{}
+	modelRegistry.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "components.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "ModelRegistry",
+	})
+
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      "default-modelregistry",
+		Namespace: r.TargetNamespace,
+	}, modelRegistry)
+	if err != nil {
+		return nil, err
+	}
+
+	return &metav1.OwnerReference{
+		APIVersion: modelRegistry.GetAPIVersion(),
+		Kind:       modelRegistry.GetKind(),
+		Name:       modelRegistry.GetName(),
+		UID:        modelRegistry.GetUID(),
+	}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

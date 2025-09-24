@@ -77,6 +77,14 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - components.platform.opendatahub.io
+  resources:
+  - modelregistries
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - config.openshift.io
   resources:
   - ingresses
