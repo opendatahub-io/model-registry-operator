@@ -5,7 +5,6 @@ import (
 	"text/template"
 
 	"github.com/go-logr/logr"
-	"github.com/google/martian/log"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
@@ -528,7 +527,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresService(ctx context.Conte
 }
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
-	var secret corev1.Secret\
+	var secret corev1.Secret
 	err := r.Apply(params, templateName, &secret)
 	if err != nil {
 		return ResourceUnchanged, err
