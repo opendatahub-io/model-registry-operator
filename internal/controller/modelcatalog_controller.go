@@ -57,29 +57,43 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// This prevents reconcile storms from multiple objects trying to update
 	// the same shared resources.
 
+	log := r.Log.WithValues("reconcileID", req.NamespacedName)
+	log.Info("Starting model catalog reconcile")
+
 	// If disabled, just clean up any old resources.
 	if !r.Enabled {
+		log.Info("Model catalog is disabled, cleaning up resources")
 		return r.cleanupCatalogResources(ctx)
 	}
 
+	log.Info("Model catalog is enabled, ensuring resources")
 	return r.ensureCatalogResources(ctx)
 }
 
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
+	log := r.Log.WithValues("namespace", r.TargetNamespace, "name", modelCatalogName)
+	log.Info("Starting ensureCatalogResources", "enabled", r.Enabled, "isOpenShift", r.IsOpenShift)
+
 	params := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
 	}
 
+	log.Info("Model catalog parameters", "name", params.Name, "namespace", params.Namespace)
+
 	// Create or update ServiceAccount
+	log.Info("Creating or updating ServiceAccount")
 	result, err := r.createOrUpdateServiceAccount(ctx, params, "catalog-serviceaccount.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update ServiceAccount")
 		return ctrl.Result{}, err
 	}
 
 	// Create sources ConfigMap
+	log.Info("Creating or updating ConfigMap")
 	result2, err := r.ensureConfigMapExists(ctx, params, "catalog-configmap.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update ConfigMap")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
@@ -87,8 +101,10 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Deployment
+	log.Info("Creating or updating Deployment")
 	result2, err = r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update Deployment")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
@@ -96,8 +112,10 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Service
+	log.Info("Creating or updating Service")
 	result2, err = r.createOrUpdateService(ctx, params, "catalog-service.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update Service")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
@@ -105,8 +123,10 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update role
+	log.Info("Creating or updating Role")
 	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update Role")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
@@ -114,49 +134,76 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update rolebinding
+	log.Info("Creating or updating RoleBinding")
 	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update RoleBinding")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
 		result = result2
 	}
 
+	// Create or update PostgreSQL resources
+	log.Info("Starting PostgreSQL resources creation")
+
 	// Create or update PostgreSQL Deployment
+	log.Info("Creating or updating PostgreSQL Deployment")
 	result2, err = r.createOrUpdatePostgresDeployment(ctx, params, "catalog-postgres-deployment.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update PostgreSQL Deployment")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
+		log.Info("PostgreSQL Deployment was updated", "result", result2)
 		result = result2
+	} else {
+		log.Info("PostgreSQL Deployment unchanged")
 	}
 
 	// Create or update PostgreSQL Service
+	log.Info("Creating or updating PostgreSQL Service")
 	result2, err = r.createOrUpdatePostgresService(ctx, params, "catalog-postgres-service.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update PostgreSQL Service")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
+		log.Info("PostgreSQL Service was updated", "result", result2)
 		result = result2
+	} else {
+		log.Info("PostgreSQL Service unchanged")
 	}
 
 	// Create or update PostgreSQL Secret
+	log.Info("Creating or updating PostgreSQL Secret")
 	result2, err = r.createOrUpdatePostgresSecret(ctx, params, "catalog-postgres-secret.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update PostgreSQL Secret")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
+		log.Info("PostgreSQL Secret was updated", "result", result2)
 		result = result2
+	} else {
+		log.Info("PostgreSQL Secret unchanged")
 	}
 
 	// Create or update PostgreSQL PVC
+	log.Info("Creating or updating PostgreSQL PVC")
 	result2, err = r.createOrUpdatePostgresPVC(ctx, params, "catalog-postgres-pvc.yaml.tmpl")
 	if err != nil {
+		log.Error(err, "Failed to create or update PostgreSQL PVC")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
+		log.Info("PostgreSQL PVC was updated", "result", result2)
 		result = result2
+	} else {
+		log.Info("PostgreSQL PVC unchanged")
 	}
+
+	log.Info("PostgreSQL resources creation completed successfully")
 
 	if r.IsOpenShift {
 		// Create or update Route
@@ -189,8 +236,11 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	// Use result to determine if we need to requeue
 	if result != ResourceUnchanged {
+		log.Info("Resources were updated, requeuing reconcile", "result", result)
 		return ctrl.Result{Requeue: true}, nil
 	}
+
+	log.Info("Model catalog reconcile completed successfully - no changes needed")
 	return ctrl.Result{}, nil
 }
 
@@ -502,57 +552,80 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 }
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresDeployment(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	log := r.Log.WithValues("template", templateName, "name", params.Name+"-postgres", "namespace", params.Namespace)
+
 	var deployment appsv1.Deployment
+	log.Info("Applying PostgreSQL deployment template")
 	err := r.Apply(params, templateName, &deployment)
 	if err != nil {
+		log.Error(err, "Failed to apply PostgreSQL deployment template")
 		return ResourceUnchanged, err
 	}
 
 	r.applyLabels(&deployment.ObjectMeta)
+	log.Info("Creating or updating PostgreSQL deployment resource")
 
 	return r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresService(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	log := r.Log.WithValues("template", templateName, "name", params.Name+"-postgres", "namespace", params.Namespace)
+
 	var service corev1.Service
+	log.Info("Applying PostgreSQL service template")
 	err := r.Apply(params, templateName, &service)
 	if err != nil {
+		log.Error(err, "Failed to apply PostgreSQL service template")
 		return ResourceUnchanged, err
 	}
 
 	r.applyLabels(&service.ObjectMeta)
+	log.Info("Creating or updating PostgreSQL service resource")
 
 	return r.createOrUpdate(ctx, &corev1.Service{}, &service)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	log := r.Log.WithValues("template", templateName, "name", params.Name+"-postgres", "namespace", params.Namespace)
+
 	var secret corev1.Secret
+	log.Info("Applying PostgreSQL secret template")
 	err := r.Apply(params, templateName, &secret)
 	if err != nil {
+		log.Error(err, "Failed to apply PostgreSQL secret template")
 		return ResourceUnchanged, err
 	}
 
 	r.applyLabels(&secret.ObjectMeta)
+	log.Info("Creating or updating PostgreSQL secret resource")
 
 	return r.createOrUpdate(ctx, &corev1.Secret{}, &secret)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	log := r.Log.WithValues("template", templateName, "name", params.Name+"-postgres", "namespace", params.Namespace)
+
 	var pvc corev1.PersistentVolumeClaim
+	log.Info("Applying PostgreSQL PVC template")
 	err := r.Apply(params, templateName, &pvc)
 	if err != nil {
+		log.Error(err, "Failed to apply PostgreSQL PVC template")
 		return ResourceUnchanged, err
 	}
 
 	r.applyLabels(&pvc.ObjectMeta)
+	log.Info("Creating or updating PostgreSQL PVC resource")
 
 	return r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc)
 }
 
 // Apply executes given template name with params
 func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName string, object any) error {
+	log := r.Log.WithValues("template", templateName, "name", params.Name, "namespace", params.Namespace)
+
 	// Ensure templateApplier is initialized
 	if r.templateApplier == nil {
+		log.Info("Initializing template applier")
 		r.templateApplier = &TemplateApplier{
 			Template:    r.Template,
 			IsOpenShift: r.IsOpenShift,
@@ -564,6 +637,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	var oauthPort int32 = 8443
 	var routePort int32 = 443
 
+	log.Info("Creating default spec for template processing")
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
 			Port:  &restPort,
@@ -595,7 +669,15 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresDatabase: config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 	}
 
-	return r.templateApplier.Apply(catalogParams, templateName, object)
+	log.Info("Applying template", "postgresUser", catalogParams.PostgresUser, "postgresDatabase", catalogParams.PostgresDatabase)
+	err := r.templateApplier.Apply(catalogParams, templateName, object)
+	if err != nil {
+		log.Error(err, "Failed to apply template", "template", templateName)
+		return err
+	}
+
+	log.Info("Template applied successfully")
+	return nil
 }
 
 func (r *ModelCatalogReconciler) createOrUpdate(ctx context.Context, currObj client.Object, newObj client.Object) (OperationResult, error) {
@@ -635,6 +717,9 @@ func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	log := r.Log.WithValues("enabled", r.Enabled, "targetNamespace", r.TargetNamespace, "isOpenShift", r.IsOpenShift)
+	log.Info("Setting up ModelCatalogReconciler")
+
 	// Initialize shared utilities
 	r.templateApplier = &TemplateApplier{
 		Template:    r.Template,
@@ -684,6 +769,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	// Enqueue a one-time event so Reconcile runs at startup
+	log.Info("Enqueuing initial reconcile event")
 	ch := make(chan event.GenericEvent, 1)
 	ch <- event.GenericEvent{Object: &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
 		Name:      modelCatalogName,
@@ -693,5 +779,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			"app.kubernetes.io/created-by": "model-registry-operator",
 		},
 	}}} // object identity only; it need not exist
+
+	log.Info("ModelCatalogReconciler setup completed successfully")
 	return c.Watch(&source.Channel{Source: ch}, mapToFixedCatalogRequest)
 }

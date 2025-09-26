@@ -90,7 +90,7 @@ spec:
           - name: DEFAULT_DOMAIN
             value: ""
           - name: ENABLE_MODEL_CATALOG
-            value: ""
+            value: "true"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
