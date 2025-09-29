@@ -32,17 +32,17 @@ spec:
     spec:
       containers:
       - env:
-        - name: POSTGRES_USER
+        - name: POSTGRESQL_USER
           valueFrom:
             secretKeyRef:
               key: database-user
               name: {{.Name}}-postgres
-        - name: POSTGRES_PASSWORD
+        - name: POSTGRESQL_PASSWORD
           valueFrom:
             secretKeyRef:
               key: database-password
               name: {{.Name}}-postgres
-        - name: POSTGRES_DB
+        - name: POSTGRESQL_DATABASE
           valueFrom:
             secretKeyRef:
               key: database-name
@@ -56,7 +56,7 @@ spec:
             command:
               - bash
               - "-c"
-              - "/usr/bin/pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+              - "/usr/bin/pg_isready -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE"
           initialDelaySeconds: 30
           timeoutSeconds: 2
         name: postgresql
@@ -68,7 +68,7 @@ spec:
             command:
               - bash
               - "-c"
-              - "psql -w -U $POSTGRES_USER -d $POSTGRES_DB -c 'SELECT 1'"
+              - "psql -w -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE -c 'SELECT 1'"
           initialDelaySeconds: 10
           timeoutSeconds: 5
         securityContext:
