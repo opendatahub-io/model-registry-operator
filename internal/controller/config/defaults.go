@@ -47,7 +47,7 @@ const (
 	OAuthProxyImage         = "OAUTH_PROXY_IMAGE"
 	CatalogDataImage        = "CATALOG_DATA_IMAGE"
 	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage        = "quay.io/opendatahub/model-registry:v0.3.1"
 	DefaultOAuthProxyImage  = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultCatalogDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	RouteDisabled           = "disabled"
