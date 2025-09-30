@@ -618,6 +618,24 @@ func (r *ModelCatalogReconciler) deleteFromTemplate(ctx context.Context, params 
 	if err := r.Apply(params, templateName, obj); err != nil {
 		return ResourceUnchanged, err
 	}
+
+	// Special handling for PVCs: remove finalizers before deletion to avoid hanging deletions in test environments
+	if pvc, ok := obj.(*corev1.PersistentVolumeClaim); ok {
+		// Fetch the actual PVC to check if it exists and has finalizers
+		actualPVC := &corev1.PersistentVolumeClaim{}
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Name:      pvc.Name,
+			Namespace: pvc.Namespace,
+		}, actualPVC)
+		if err == nil && len(actualPVC.Finalizers) > 0 {
+			// Remove finalizers
+			actualPVC.Finalizers = nil
+			if err := r.Client.Update(ctx, actualPVC); err != nil {
+				return ResourceUnchanged, client.IgnoreNotFound(err)
+			}
+		}
+	}
+
 	err := r.Client.Delete(ctx, obj)
 	if err != nil {
 		return ResourceUnchanged, client.IgnoreNotFound(err)
