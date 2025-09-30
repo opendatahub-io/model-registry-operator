@@ -508,7 +508,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresDeployment(ctx context.Co
 		return ResourceUnchanged, err
 	}
 
-	r.applyLabels(&deployment.ObjectMeta)
+	r.applyPostgresLabels(&deployment.ObjectMeta)
 
 	return r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 }
@@ -520,7 +520,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresService(ctx context.Conte
 		return ResourceUnchanged, err
 	}
 
-	r.applyLabels(&service.ObjectMeta)
+	r.applyPostgresLabels(&service.ObjectMeta)
 
 	return r.createOrUpdate(ctx, &corev1.Service{}, &service)
 }
@@ -532,7 +532,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 		return ResourceUnchanged, err
 	}
 
-	r.applyLabels(&secret.ObjectMeta)
+	r.applyPostgresLabels(&secret.ObjectMeta)
 
 	return r.createOrUpdate(ctx, &corev1.Secret{}, &secret)
 }
@@ -544,7 +544,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, 
 		return ResourceUnchanged, err
 	}
 
-	r.applyLabels(&pvc.ObjectMeta)
+	r.applyPostgresLabels(&pvc.ObjectMeta)
 
 	return r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc)
 }
@@ -630,6 +630,14 @@ func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta) {
 		meta.Labels = map[string]string{}
 	}
 	meta.Labels["component"] = modelCatalogName
+	meta.Labels["app.kubernetes.io/created-by"] = "model-registry-operator"
+}
+
+func (*ModelCatalogReconciler) applyPostgresLabels(meta *metav1.ObjectMeta) {
+	if meta.Labels == nil {
+		meta.Labels = map[string]string{}
+	}
+	meta.Labels["component"] = "model-catalog-postgres"
 	meta.Labels["app.kubernetes.io/created-by"] = "model-registry-operator"
 }
 
