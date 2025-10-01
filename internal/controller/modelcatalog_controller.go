@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"reflect"
 	"text/template"
 
+	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -490,18 +492,66 @@ func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, 
 
 func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
-	var secret corev1.Secret
-	if err := r.Apply(params, templateName, &secret); err != nil {
+	var newSecret corev1.Secret
+	if err := r.Apply(params, templateName, &newSecret); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&secret.ObjectMeta, labelName)
-	r.applyOwnerReference(&secret.ObjectMeta, owner)
+	r.applyLabels(&newSecret.ObjectMeta, labelName)
+	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
 
-	result, err := r.createOrUpdate(ctx, &corev1.Secret{}, &secret)
-	if err != nil {
+	// Check if Secret already exists
+	var existingSecret corev1.Secret
+	key := client.ObjectKeyFromObject(&newSecret)
+
+	if err := r.Client.Get(ctx, key, &existingSecret); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// Secret doesn't exist, create it
+			result = ResourceCreated
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
+				return result, err
+			}
+			return result, r.Client.Create(ctx, &newSecret)
+		}
 		return result, err
 	}
+
+	// Secret exists, check if data has changed
+	dataChanged := !reflect.DeepEqual(existingSecret.Data, newSecret.Data)
+
+	// Check if other mutable fields have changed
+	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
+	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
+	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
+
+	// If data has changed, we need to delete and recreate the Secret
+	if dataChanged {
+		// Delete the existing Secret
+		if err := r.Client.Delete(ctx, &existingSecret); err != nil {
+			return result, err
+		}
+
+		// Create the new Secret with updated data
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
+			return result, err
+		}
+		return result, r.Client.Create(ctx, &newSecret)
+	}
+
+	// If only metadata changed, update in place
+	if labelsChanged || annotationsChanged || ownerRefsChanged {
+		existingSecret.Labels = newSecret.Labels
+		existingSecret.Annotations = newSecret.Annotations
+		existingSecret.OwnerReferences = newSecret.OwnerReferences
+
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingSecret); err != nil {
+			return result, err
+		}
+		return result, r.Client.Update(ctx, &existingSecret)
+	}
+
 	return result, nil
 }
 
@@ -527,18 +577,59 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 
 func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
-	var pvc corev1.PersistentVolumeClaim
-	if err := r.Apply(params, templateName, &pvc); err != nil {
+	var newPVC corev1.PersistentVolumeClaim
+	if err := r.Apply(params, templateName, &newPVC); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&pvc.ObjectMeta, modelCatalogPostgresName)
-	r.applyOwnerReference(&pvc.ObjectMeta, owner)
+	r.applyLabels(&newPVC.ObjectMeta, modelCatalogPostgresName)
+	r.applyOwnerReference(&newPVC.ObjectMeta, owner)
 
-	result, err := r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc)
-	if err != nil {
+	// Check if PVC already exists
+	var existingPVC corev1.PersistentVolumeClaim
+	key := client.ObjectKeyFromObject(&newPVC)
+
+	if err := r.Client.Get(ctx, key, &existingPVC); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// PVC doesn't exist, create it
+			result = ResourceCreated
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newPVC); err != nil {
+				return result, err
+			}
+			return result, r.Client.Create(ctx, &newPVC)
+		}
 		return result, err
 	}
+
+	// PVC exists, only update mutable fields
+	updated := false
+
+	// Update labels if they changed
+	if !reflect.DeepEqual(existingPVC.Labels, newPVC.Labels) {
+		existingPVC.Labels = newPVC.Labels
+		updated = true
+	}
+
+	// Update owner references if they changed
+	if !reflect.DeepEqual(existingPVC.OwnerReferences, newPVC.OwnerReferences) {
+		existingPVC.OwnerReferences = newPVC.OwnerReferences
+		updated = true
+	}
+
+	// Update storage size if it increased (storage can only be increased, not decreased)
+	if newPVC.Spec.Resources.Requests.Storage().Cmp(*existingPVC.Spec.Resources.Requests.Storage()) > 0 {
+		existingPVC.Spec.Resources.Requests = newPVC.Spec.Resources.Requests
+		updated = true
+	}
+
+	if updated {
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingPVC); err != nil {
+			return result, err
+		}
+		return result, r.Client.Update(ctx, &existingPVC)
+	}
+
 	return result, nil
 }
 
