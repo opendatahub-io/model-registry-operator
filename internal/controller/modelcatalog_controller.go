@@ -79,6 +79,9 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		Namespace: r.TargetNamespace,
 	}
 
+	// Check if we should skip catalog DB creation
+	skipDBCreation := config.GetStringConfigWithDefault(config.SkipModelCatalogDBCreation, "false") == "true"
+
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
 	crOwner, err := r.fetchDefaultModelRegistry(ctx)
 	if err != nil {
@@ -144,46 +147,51 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
-	// Create or update PostgreSQL Deployment
-	result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-postgres-deployment.yaml.tmpl", modelCatalogPostgresName, crOwner)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+	// Create PostgreSQL resources only if not skipping DB creation
+	if !skipDBCreation {
+		// Create or update PostgreSQL Deployment
+		result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-postgres-deployment.yaml.tmpl", modelCatalogPostgresName, crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Use postgres deployment as owner for the remaining resources
-	postgresDeploymentOwner := &metav1.OwnerReference{
-		APIVersion: postgresDeployment.APIVersion,
-		Kind:       postgresDeployment.Kind,
-		Name:       postgresDeployment.Name,
-		UID:        postgresDeployment.UID,
-	}
-	result2, err = r.createOrUpdateService(ctx, params, "catalog-postgres-service.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+		// Use postgres deployment as owner for the remaining resources
+		postgresDeploymentOwner := &metav1.OwnerReference{
+			APIVersion: postgresDeployment.APIVersion,
+			Kind:       postgresDeployment.Kind,
+			Name:       postgresDeployment.Name,
+			UID:        postgresDeployment.UID,
+		}
+		result2, err = r.createOrUpdateService(ctx, params, "catalog-postgres-service.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Create or update PostgreSQL Secret
-	result2, err = r.createOrUpdateSecret(ctx, params, "catalog-postgres-secret.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+		// Create or update PostgreSQL Secret
+		result2, err = r.createOrUpdateSecret(ctx, params, "catalog-postgres-secret.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Create or update PostgreSQL PVC
-	result2, err = r.createOrUpdatePostgresPVC(ctx, params, "catalog-postgres-pvc.yaml.tmpl", postgresDeploymentOwner)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+		// Create or update PostgreSQL PVC
+		result2, err = r.createOrUpdatePostgresPVC(ctx, params, "catalog-postgres-pvc.yaml.tmpl", postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+	} else {
+		log.Info("Skipping catalog DB creation as configured")
 	}
 
 	if r.IsOpenShift {
@@ -228,6 +236,9 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		Namespace: r.TargetNamespace,
 	}
 
+	// Check if we should skip catalog DB creation
+	skipDBCreation := config.GetStringConfigWithDefault(config.SkipModelCatalogDBCreation, "false") == "true"
+
 	// Delete the main resources - Kubernetes will automatically clean up owned resources
 	// via garbage collection due to the owner references we've set up
 
@@ -256,40 +267,43 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
-	// Delete PostgreSQL Deployment
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+	// Delete PostgreSQL resources only if they were created (not skipping DB creation)
+	if !skipDBCreation {
+		// Delete PostgreSQL Deployment
+		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Delete PostgreSQL Service
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+		// Delete PostgreSQL Service
+		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Delete PostgreSQL Secret
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
+		// Delete PostgreSQL Secret
+		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 
-	// Delete PostgreSQL PVC
-	result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+		// Delete PostgreSQL PVC
+		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	if r.IsOpenShift {
