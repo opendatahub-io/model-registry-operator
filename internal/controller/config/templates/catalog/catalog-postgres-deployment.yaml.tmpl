@@ -74,6 +74,13 @@ spec:
         securityContext:
           capabilities: {}
           privileged: false
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
         terminationMessagePath: /dev/termination-log
         volumeMounts:
         - mountPath: /var/lib/postgresql/data

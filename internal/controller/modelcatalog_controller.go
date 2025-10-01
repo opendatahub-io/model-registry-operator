@@ -674,9 +674,17 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	labels, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"component":                    modelCatalogName,
-			"app.kubernetes.io/created-by": "model-registry-operator",
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "component",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{modelCatalogName, modelCatalogPostgresName},
+			},
+			{
+				Key:      "app.kubernetes.io/created-by",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{"model-registry-operator"},
+			},
 		},
 	})
 	if err != nil {
@@ -704,6 +712,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.PersistentVolumeClaim{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
