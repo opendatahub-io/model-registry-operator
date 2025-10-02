@@ -194,7 +194,8 @@ func main() {
 	}
 
 	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
-	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
+	skipDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
+	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipDBCreation)
 
 	if err = (&controller.ModelCatalogReconciler{
 		Client:          client,
@@ -205,6 +206,7 @@ func main() {
 		IsOpenShift:     isOpenShift,
 		TargetNamespace: config.GetRegistriesNamespace(),
 		Enabled:         enableModelCatalog,
+		SkipDBCreation:  skipDBCreation,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)

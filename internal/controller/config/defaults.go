@@ -106,6 +106,13 @@ func GetStringConfigWithDefault(configName, value string) string {
 	return viper.GetString(configName)
 }
 
+func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
+	if !viper.IsSet(configName) || len(viper.GetString(configName)) == 0 {
+		return defaultValue
+	}
+	return viper.GetString(configName) == "true"
+}
+
 func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
 		"randBytes": randBytes,

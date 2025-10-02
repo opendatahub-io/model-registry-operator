@@ -44,6 +44,7 @@ type ModelCatalogReconciler struct {
 	IsOpenShift     bool
 	TargetNamespace string
 	Enabled         bool
+	SkipDBCreation  bool
 
 	// embedded utilities for shared functionality
 	templateApplier *TemplateApplier
@@ -54,6 +55,7 @@ type ModelCatalogReconciler struct {
 type ModelCatalogParams struct {
 	Name      string
 	Namespace string
+	Component string
 }
 
 // Reconcile manages a single model catalog instance
@@ -74,13 +76,11 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
-	params := &ModelCatalogParams{
+	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
+		Component: modelCatalogName,
 	}
-
-	// Check if we should skip catalog DB creation
-	skipDBCreation := config.GetStringConfigWithDefault(config.SkipModelCatalogDBCreation, "false") == "true"
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
 	crOwner, err := r.fetchDefaultModelRegistry(ctx)
@@ -89,13 +89,13 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update ServiceAccount
-	result, err := r.createOrUpdateServiceAccount(ctx, params, "catalog-serviceaccount.yaml.tmpl", crOwner)
+	result, err := r.createOrUpdateServiceAccount(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Create sources ConfigMap
-	result2, err := r.ensureConfigMapExists(ctx, params, "catalog-configmap.yaml.tmpl")
+	result2, err := r.ensureConfigMapExists(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -104,7 +104,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Deployment
-	result2, deployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl", modelCatalogName, crOwner)
+	result2, deployment, err := r.createOrUpdateDeployment(ctx, catalogParams, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -121,7 +121,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Service
-	result2, err = r.createOrUpdateService(ctx, params, "catalog-service.yaml.tmpl", modelCatalogName, deploymentOwner)
+	result2, err = r.createOrUpdateService(ctx, catalogParams, "catalog-service.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -130,7 +130,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update role
-	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl", modelCatalogName, deploymentOwner)
+	result2, err = r.createOrUpdateRole(ctx, catalogParams, "catalog-role.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -139,7 +139,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update rolebinding
-	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl", modelCatalogName, deploymentOwner)
+	result2, err = r.createOrUpdateRoleBinding(ctx, catalogParams, "catalog-rolebinding.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -147,10 +147,33 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	postgresParams := &ModelCatalogParams{
+		Name:      modelCatalogName,
+		Namespace: r.TargetNamespace,
+		Component: modelCatalogPostgresName,
+	}
+
 	// Create PostgreSQL resources only if not skipping DB creation
-	if !skipDBCreation {
+	if !r.SkipDBCreation {
+		result2, err := r.createOrUpdateSecret(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Create or update PostgreSQL PVC
+		result2, err = r.createOrUpdatePostgresPVC(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
 		// Create or update PostgreSQL Deployment
-		result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-postgres-deployment.yaml.tmpl", modelCatalogPostgresName, crOwner)
+		result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", crOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -165,25 +188,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			Name:       postgresDeployment.Name,
 			UID:        postgresDeployment.UID,
 		}
-		result2, err = r.createOrUpdateService(ctx, params, "catalog-postgres-service.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// Create or update PostgreSQL Secret
-		result2, err = r.createOrUpdateSecret(ctx, params, "catalog-postgres-secret.yaml.tmpl", modelCatalogPostgresName, postgresDeploymentOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// Create or update PostgreSQL PVC
-		result2, err = r.createOrUpdatePostgresPVC(ctx, params, "catalog-postgres-pvc.yaml.tmpl", postgresDeploymentOwner)
+		result2, err = r.createOrUpdateService(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", postgresDeploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -196,7 +201,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.IsOpenShift {
 		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -205,7 +210,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 
 		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, "catalog-network-policy.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -215,7 +220,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, params)
+	result2, err = r.createOrUpdateOAuthConfig(ctx, catalogParams)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -231,25 +236,23 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 }
 
 func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (ctrl.Result, error) {
-	params := &ModelCatalogParams{
+	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
+		Component: modelCatalogName,
 	}
-
-	// Check if we should skip catalog DB creation
-	skipDBCreation := config.GetStringConfigWithDefault(config.SkipModelCatalogDBCreation, "false") == "true"
 
 	// Delete the main resources - Kubernetes will automatically clean up owned resources
 	// via garbage collection due to the owner references we've set up
 
 	// Delete Deployment (this will cascade delete Service, Role, RoleBinding, Route, NetworkPolicy)
-	result, err := r.deleteFromTemplate(ctx, params, "catalog-deployment.yaml.tmpl", &appsv1.Deployment{})
+	result, err := r.deleteFromTemplate(ctx, catalogParams, "catalog-deployment.yaml.tmpl", &appsv1.Deployment{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Delete ServiceAccount (both ServiceAccount and Deployment are owned by default-modelregistry)
-	result2, err := r.deleteFromTemplate(ctx, params, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
+	result2, err := r.deleteFromTemplate(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -259,7 +262,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	// Delete OAuth Proxy ClusterRoleBinding
 	// This resource doesn't have an owner reference as it's cluster-scoped
-	result2, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
+	result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -267,10 +270,16 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
+	postgresParams := &ModelCatalogParams{
+		Name:      modelCatalogName,
+		Namespace: r.TargetNamespace,
+		Component: modelCatalogPostgresName,
+	}
+
 	// Delete PostgreSQL resources only if they were created (not skipping DB creation)
-	if !skipDBCreation {
+	if !r.SkipDBCreation {
 		// Delete PostgreSQL Deployment
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -279,16 +288,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 
 		// Delete PostgreSQL Service
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// Delete PostgreSQL Secret
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -297,7 +297,16 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 
 		// Delete PostgreSQL PVC
-		result2, err = r.deleteFromTemplate(ctx, params, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Delete PostgreSQL Secret last
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -308,7 +317,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	if r.IsOpenShift {
 		// Delete OAuth Proxy Route
-		result2, err = r.deleteFromTemplate(ctx, params, "https-route.yaml.tmpl", &routev1.Route{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -317,7 +326,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 
 		// Delete OAuth Proxy NetworkPolicy
-		result2, err = r.deleteFromTemplate(ctx, params, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -335,14 +344,14 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (OperationResult, *appsv1.Deployment, error) {
+func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, *appsv1.Deployment, error) {
 	result := ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err := r.Apply(params, templateName, &deployment); err != nil {
 		return result, nil, err
 	}
 
-	r.applyLabels(&deployment.ObjectMeta, labelName)
+	r.applyLabels(&deployment.ObjectMeta, params)
 	r.applyOwnerReference(&deployment.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
@@ -367,14 +376,14 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 	return result, &actualDeployment, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var service corev1.Service
 	if err := r.Apply(params, templateName, &service); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&service.ObjectMeta, labelName)
+	r.applyLabels(&service.ObjectMeta, params)
 	r.applyOwnerReference(&service.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &corev1.Service{}, &service)
@@ -391,7 +400,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params
 		return result, err
 	}
 
-	r.applyLabels(&route.ObjectMeta, modelCatalogName)
+	r.applyLabels(&route.ObjectMeta, params)
 	r.applyOwnerReference(&route.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &routev1.Route{}, &route)
@@ -408,7 +417,7 @@ func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context
 		return result, err
 	}
 
-	r.applyLabels(&networkPolicy.ObjectMeta, modelCatalogName)
+	r.applyLabels(&networkPolicy.ObjectMeta, params)
 	r.applyOwnerReference(&networkPolicy.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &networkPolicy)
@@ -425,7 +434,7 @@ func (r *ModelCatalogReconciler) ensureConfigMapExists(ctx context.Context, para
 		return result, err
 	}
 
-	r.applyLabels(&cm.ObjectMeta, modelCatalogName)
+	r.applyLabels(&cm.ObjectMeta, params)
 
 	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
 	if err != nil {
@@ -441,7 +450,7 @@ func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Contex
 		return result, err
 	}
 
-	r.applyLabels(&sa.ObjectMeta, modelCatalogName)
+	r.applyLabels(&sa.ObjectMeta, params)
 	r.applyOwnerReference(&sa.ObjectMeta, owner)
 
 	if result, err = r.createOrUpdate(ctx, &corev1.ServiceAccount{}, &sa); err != nil {
@@ -457,19 +466,19 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 		return result, err
 	}
 
-	r.applyLabels(&roleBinding.ObjectMeta, modelCatalogName)
+	r.applyLabels(&roleBinding.ObjectMeta, params)
 
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
 
-func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
 	result := ResourceUnchanged
 	var secret corev1.Secret
 	if err := r.Apply(params, templateName, &secret); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&secret.ObjectMeta, labelName)
+	r.applyLabels(&secret.ObjectMeta, params)
 
 	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
 	if err != nil {
@@ -478,40 +487,40 @@ func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params 
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var role rbac.Role
 	if err = r.Apply(params, templateName, &role); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&role.ObjectMeta, labelName)
+	r.applyLabels(&role.ObjectMeta, params)
 	r.applyOwnerReference(&role.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.Role{}, &role)
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var roleBinding rbac.RoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&roleBinding.ObjectMeta, labelName)
+	r.applyLabels(&roleBinding.ObjectMeta, params)
 	r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, params *ModelCatalogParams, templateName string, labelName string, owner *metav1.OwnerReference) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var newSecret corev1.Secret
 	if err := r.Apply(params, templateName, &newSecret); err != nil {
 		return result, err
 	}
 
-	r.applyLabels(&newSecret.ObjectMeta, labelName)
+	r.applyLabels(&newSecret.ObjectMeta, params)
 	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
 
 	// Check if Secret already exists
@@ -578,7 +587,7 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 		return result, err
 	}
 
-	result2, err := r.ensureSecretExists(ctx, params, "proxy-cookie-secret.yaml.tmpl", modelCatalogName)
+	result2, err := r.ensureSecretExists(ctx, params, "proxy-cookie-secret.yaml.tmpl")
 	if err != nil {
 		return result2, err
 	}
@@ -596,7 +605,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, 
 		return result, err
 	}
 
-	r.applyLabels(&newPVC.ObjectMeta, modelCatalogPostgresName)
+	r.applyLabels(&newPVC.ObjectMeta, params)
 	r.applyOwnerReference(&newPVC.ObjectMeta, owner)
 
 	// Check if PVC already exists
@@ -723,11 +732,11 @@ func (r *ModelCatalogReconciler) deleteFromTemplate(ctx context.Context, params 
 	return ResourceUpdated, nil
 }
 
-func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta, component string) {
+func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta, params *ModelCatalogParams) {
 	if meta.Labels == nil {
 		meta.Labels = map[string]string{}
 	}
-	meta.Labels["component"] = component
+	meta.Labels["component"] = params.Component
 	meta.Labels["app.kubernetes.io/created-by"] = "model-registry-operator"
 }
 
