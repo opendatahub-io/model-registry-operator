@@ -2,9 +2,9 @@
 apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
-  name: jobs-async-upload-s3-to-oci-template
+  name: jobs-async-upload-uri-to-oci-template
   annotations:
-    description: "Example OpenShift template for the Model Registry jobs/async-upload going from S3 to OCI (KServe ModelCar)"
+    description: "Example OpenShift template for the Model Registry jobs/async-upload going from URI to OCI (KServe ModelCar)"
 parameters:
   - name: JOB_IMAGE
     description: The container image for the Job
@@ -31,12 +31,12 @@ parameters:
     value: "jobs-async-upload"
   - name: SOURCE_CONNECTION
     description: "Name of the Connection resource for the Source (e.g.: S3, URI ('https://', 'hf://', 'http://'))"
-    required: true
+    required: false
   - name: DESTINATION_CONNECTION
     description: "Name of the Connection resource for the Sink destination (e.g.: OCI)"
     required: true
-  - name: MODEL_SYNC_SOURCE_AWS_KEY
-    description: The path in the S3 bucket
+  - name: MODEL_SYNC_SOURCE_URI
+    description: The URI to download the model from
     required: true
   - name: MODEL_SYNC_DESTINATION_OCI_URI
     description: The OCI URI for the destination
@@ -139,10 +139,10 @@ objects:
                   value: "${MODEL_SYNC_MODEL_VERSION_ID}"
                 - name: MODEL_SYNC_MODEL_ARTIFACT_ID
                   value: "${MODEL_SYNC_MODEL_ARTIFACT_ID}"
-                - name: MODEL_SYNC_SOURCE_S3_CREDENTIALS_PATH
+                - name: MODEL_SYNC_SOURCE_URI_CREDENTIALS_PATH
                   value: "/opt/creds/source"
-                - name: MODEL_SYNC_SOURCE_AWS_KEY
-                  value: "${MODEL_SYNC_SOURCE_AWS_KEY}"
+                - name: MODEL_SYNC_SOURCE_URI
+                  value: "${MODEL_SYNC_SOURCE_URI}"
                 - name: MODEL_SYNC_DESTINATION_OCI_CREDENTIALS_PATH
                   value: "/opt/creds/destination"
                 - name: MODEL_SYNC_MODEL_UPLOAD_INTENT

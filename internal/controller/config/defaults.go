@@ -42,23 +42,36 @@ import (
 var templateFS embed.FS
 
 const (
-	GrpcImage               = "GRPC_IMAGE"
-	RestImage               = "REST_IMAGE"
-	OAuthProxyImage         = "OAUTH_PROXY_IMAGE"
-	CatalogDataImage        = "CATALOG_DATA_IMAGE"
-	DefaultGrpcImage        = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage        = "quay.io/opendatahub/model-registry:latest"
-	DefaultOAuthProxyImage  = "quay.io/openshift/origin-oauth-proxy:latest"
-	DefaultCatalogDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
-	RouteDisabled           = "disabled"
-	RouteEnabled            = "enabled"
-	DefaultIstioIngressName = "ingressgateway"
+	GrpcImage                 = "GRPC_IMAGE"
+	RestImage                 = "REST_IMAGE"
+	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
+	CatalogDataImage          = "CATALOG_DATA_IMAGE"
+	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
+	DefaultGrpcImage          = "quay.io/opendatahub/mlmd-grpc-server:latest"
+	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
+	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
+	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	DefaultBenchmarkDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	RouteDisabled             = "disabled"
+	RouteEnabled              = "enabled"
+	DefaultIstioIngressName   = "ingressgateway"
 
 	// config env variables
-	RegistriesNamespace = "REGISTRIES_NAMESPACE"
-	EnableWebhooks      = "ENABLE_WEBHOOKS"
-	DefaultDomain       = "DEFAULT_DOMAIN"
-	EnableModelCatalog  = "ENABLE_MODEL_CATALOG"
+	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
+	EnableWebhooks             = "ENABLE_WEBHOOKS"
+	DefaultDomain              = "DEFAULT_DOMAIN"
+	EnableModelCatalog         = "ENABLE_MODEL_CATALOG"
+	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
+
+	// PostgreSQL config env variables
+	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
+	CatalogPostgresPassword = "CATALOG_POSTGRES_PASSWORD"
+	CatalogPostgresDatabase = "CATALOG_POSTGRES_DATABASE"
+
+	// Default PostgreSQL values
+	DefaultCatalogPostgresUser     = "catalog_user"
+	DefaultCatalogPostgresPassword = "catalog_password_change_me"
+	DefaultCatalogPostgresDatabase = "model_catalog"
 )
 
 var (
@@ -93,6 +106,13 @@ func GetStringConfigWithDefault(configName, value string) string {
 		return value
 	}
 	return viper.GetString(configName)
+}
+
+func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
+	if !viper.IsSet(configName) || len(viper.GetString(configName)) == 0 {
+		return defaultValue
+	}
+	return viper.GetString(configName) == "true"
 }
 
 func ParseTemplates() (*template.Template, error) {
