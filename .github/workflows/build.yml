@@ -39,3 +39,8 @@ jobs:
           fi
       - name: Controller tests
         run: make test
+      - name: Validate kustomize build
+        run: |
+          echo "Testing kustomize build to catch configuration errors..."
+          kustomize build config/overlays/odh/ > /dev/null
+          echo "✅ Kustomize build successful"
