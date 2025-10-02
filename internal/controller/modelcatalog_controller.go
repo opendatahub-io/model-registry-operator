@@ -37,14 +37,14 @@ const modelCatalogPostgresName = "model-catalog-postgres"
 // ModelCatalogReconciler reconciles a single model catalog instance
 type ModelCatalogReconciler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	Recorder        record.EventRecorder
-	Log             logr.Logger
-	Template        *template.Template
-	IsOpenShift     bool
-	TargetNamespace string
-	Enabled         bool
-	SkipDBCreation  bool
+	Scheme                *runtime.Scheme
+	Recorder              record.EventRecorder
+	Log                   logr.Logger
+	Template              *template.Template
+	IsOpenShift           bool
+	TargetNamespace       string
+	Enabled               bool
+	SkipCatalogDBCreation bool
 
 	// embedded utilities for shared functionality
 	templateApplier *TemplateApplier
@@ -154,7 +154,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create PostgreSQL resources only if not skipping DB creation
-	if !r.SkipDBCreation {
+	if !r.SkipCatalogDBCreation {
 		result2, err := r.createOrUpdateSecret(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", crOwner)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -277,7 +277,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	}
 
 	// Delete PostgreSQL resources only if they were created (not skipping DB creation)
-	if !r.SkipDBCreation {
+	if !r.SkipCatalogDBCreation {
 		// Delete PostgreSQL Deployment
 		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
 		if err != nil {
