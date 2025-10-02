@@ -91,6 +91,8 @@ spec:
             value: ""
           - name: ENABLE_MODEL_CATALOG
             value: ""
+          - name: SKIP_MODEL_CATALOG_DB_CREATION
+            value: ""
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

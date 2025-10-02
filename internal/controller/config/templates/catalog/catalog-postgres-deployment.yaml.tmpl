@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}-postgres
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}-postgres
+    component: model-catalog-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  annotations:
+    template.alpha.openshift.io/wait-for-ready: "true"
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{.Name}}-postgres
+      component: model-catalog-postgres
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: {{.Name}}-postgres
+        component: model-catalog-postgres
+        sidecar.istio.io/inject: "false"
+    spec:
+      containers:
+      - env:
+        - name: POSTGRESQL_USER
+          valueFrom:
+            secretKeyRef:
+              key: database-user
+              name: {{.Name}}-postgres
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: database-password
+              name: {{.Name}}-postgres
+        - name: POSTGRESQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              key: database-name
+              name: {{.Name}}-postgres
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        image: quay.io/sclorg/postgresql-16-c10s:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+              - bash
+              - "-c"
+              - "/usr/bin/pg_isready -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE"
+          initialDelaySeconds: 30
+          timeoutSeconds: 2
+        name: postgresql
+        ports:
+        - containerPort: 5432
+          protocol: TCP
+        readinessProbe:
+          exec:
+            command:
+              - bash
+              - "-c"
+              - "psql -w -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE -c 'SELECT 1'"
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+        securityContext:
+          capabilities: {}
+          privileged: false
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        terminationMessagePath: /dev/termination-log
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: {{.Name}}-postgres-data
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      volumes:
+      - name: {{.Name}}-postgres-data
+        persistentVolumeClaim:
+          claimName: {{.Name}}-postgres

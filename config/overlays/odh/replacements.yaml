@@ -79,6 +79,16 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=ENABLE_MODEL_CATALOG].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.SKIP_MODEL_CATALOG_DB_CREATION
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=SKIP_MODEL_CATALOG_DB_CREATION].value
 # Metrics service name replacements for auth proxy serving cert
 - source:
     kind: Service
