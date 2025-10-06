@@ -2,17 +2,20 @@ package config_test
 
 import (
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-logr/logr"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	rbac "k8s.io/api/rbac/v1"
 )
 
@@ -88,6 +91,202 @@ func TestParseTemplates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestKubeRBACProxyTemplates(t *testing.T) {
+	// parse all templates
+	templates, err := config.ParseTemplates()
+	if err != nil {
+		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow()
+	}
+	reconciler := controller.ModelRegistryReconciler{
+		Log:         logr.Logger{},
+		Template:    templates,
+		IsOpenShift: true,
+	}
+
+	httpsPort := int32(8443)
+	routePort := int32(443)
+
+	params := controller.ModelRegistryParams{
+		Name:      "test-registry",
+		Namespace: "test-namespace",
+		Spec: &v1beta1.ModelRegistrySpec{
+			KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+				Port:      &httpsPort,
+				RoutePort: &routePort,
+				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
+				Domain:    "example.com",
+			},
+		},
+	}
+
+	t.Run("kube-rbac-proxy-config.yaml.tmpl", func(t *testing.T) {
+		var result corev1.ConfigMap
+		err := reconciler.Apply(&params, "kube-rbac-proxy-config.yaml.tmpl", &result)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		if result.Name != "test-registry-kube-rbac-proxy-config" {
+			t.Errorf("ConfigMap name = %v, want test-registry-kube-rbac-proxy-config", result.Name)
+		}
+
+		if result.Namespace != params.Namespace {
+			t.Errorf("ConfigMap namespace = %v, want %v", result.Namespace, params.Namespace)
+		}
+
+		// Check that SAR configuration is present
+		configData, exists := result.Data["config-file.yaml"]
+		if !exists {
+			t.Errorf("ConfigMap should contain config-file.yaml data")
+		}
+
+		if !strings.Contains(configData, "authorization:") {
+			t.Errorf("Config should contain authorization section")
+		}
+
+		if !strings.Contains(configData, "resourceAttributes:") {
+			t.Errorf("Config should contain resourceAttributes section")
+		}
+	})
+
+	t.Run("kube-rbac-proxy-role-binding.yaml.tmpl", func(t *testing.T) {
+		var result rbac.ClusterRoleBinding
+		err := reconciler.Apply(&params, "kube-rbac-proxy-role-binding.yaml.tmpl", &result)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		if result.Name != "test-registry-kube-rbac-proxy" {
+			t.Errorf("ClusterRoleBinding name = %v, want test-registry-kube-rbac-proxy", result.Name)
+		}
+
+		if result.RoleRef.Name != "system:auth-delegator" {
+			t.Errorf("RoleRef name = %v, want system:auth-delegator", result.RoleRef.Name)
+		}
+
+		if len(result.Subjects) != 1 || result.Subjects[0].Name != "test-registry" {
+			t.Errorf("Subject should be test-registry ServiceAccount")
+		}
+	})
+}
+
+func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
+	// parse all templates
+	templates, err := config.ParseTemplates()
+	if err != nil {
+		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow()
+	}
+	reconciler := controller.ModelRegistryReconciler{
+		Log:         logr.Logger{},
+		Template:    templates,
+		IsOpenShift: true,
+	}
+
+	httpsPort := int32(8443)
+	restPort := int32(8080)
+	routePort := int32(443)
+
+	params := controller.ModelRegistryParams{
+		Name:      "test-registry",
+		Namespace: "test-namespace",
+		Spec: &v1beta1.ModelRegistrySpec{
+			Rest: v1beta1.RestSpec{
+				Port:  &restPort,
+				Image: "quay.io/opendatahub/model-registry:latest",
+			},
+			KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+				Port:      &httpsPort,
+				RoutePort: &routePort,
+				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
+				Domain:    "example.com",
+			},
+		},
+	}
+
+	t.Run("deployment.yaml.tmpl with kube-rbac-proxy", func(t *testing.T) {
+		var result appsv1.Deployment
+		err := reconciler.Apply(&params, "deployment.yaml.tmpl", &result)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		if result.Name != "test-registry" {
+			t.Errorf("Deployment name = %v, want test-registry", result.Name)
+		}
+
+		if result.Namespace != params.Namespace {
+			t.Errorf("Deployment namespace = %v, want %v", result.Namespace, params.Namespace)
+		}
+
+		// Check that kube-rbac-proxy container is present
+		var kubeRBACProxyContainer *corev1.Container
+		for _, container := range result.Spec.Template.Spec.Containers {
+			if container.Name == "kube-rbac-proxy" {
+				kubeRBACProxyContainer = &container
+				break
+			}
+		}
+
+		if kubeRBACProxyContainer == nil {
+			t.Errorf("kube-rbac-proxy container should be present in deployment")
+		}
+
+		// Check kube-rbac-proxy specific arguments
+		expectedArgs := []string{
+			"--secure-listen-address=0.0.0.0:8443",
+			"--upstream=http://127.0.0.1:8080/",
+			"--config-file=/etc/kube-rbac-proxy/config-file.yaml",
+		}
+
+		for _, expectedArg := range expectedArgs {
+			found := false
+			for _, arg := range kubeRBACProxyContainer.Args {
+				if arg == expectedArg {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Expected argument %s not found in kube-rbac-proxy container args: %v", expectedArg, kubeRBACProxyContainer.Args)
+			}
+		}
+
+		// Check that oauth-proxy specific args are NOT present
+		for _, arg := range kubeRBACProxyContainer.Args {
+			if strings.Contains(arg, "--provider=openshift") {
+				t.Errorf("Should not contain oauth-proxy specific arg: %s", arg)
+			}
+			if strings.Contains(arg, "--cookie-secret") {
+				t.Errorf("Should not contain oauth-proxy specific arg: %s", arg)
+			}
+		}
+
+		// Check that OAuth proxy container is NOT present
+		for _, container := range result.Spec.Template.Spec.Containers {
+			if container.Name == "oauth-proxy" {
+				t.Errorf("oauth-proxy container should not be present when using KubeRBACProxy")
+			}
+		}
+
+		// Check that kube-rbac-proxy config volume is mounted
+		foundConfigMount := false
+		for _, mount := range kubeRBACProxyContainer.VolumeMounts {
+			if mount.MountPath == "/etc/kube-rbac-proxy" {
+				foundConfigMount = true
+				break
+			}
+		}
+		if !foundConfigMount {
+			t.Errorf("kube-rbac-proxy config volume mount not found")
+		}
+	})
 }
 
 func TestSetRegistriesNamespace(t *testing.T) {

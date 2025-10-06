@@ -20,7 +20,9 @@ spec:
           network.openshift.io/policy-group: ingress
     ports:
       - protocol: TCP
-        port: {{.Spec.OAuthProxy.Port}}
+        {{- if .Spec.KubeRBACProxy}}
+        port: {{.Spec.KubeRBACProxy.Port}}
+        {{- end}}
   podSelector:
     matchLabels:
       app: {{.Name}}

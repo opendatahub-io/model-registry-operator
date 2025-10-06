@@ -383,8 +383,17 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
+	// cleanup oauth proxy config as it's not used anymore
+	result2, err = r.deleteOAuthConfig(ctx, params, registry)
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// create or update kube-rbac-proxy config if enabled, delete if disabled
+	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err
 	}

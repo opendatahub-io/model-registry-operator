@@ -20,8 +20,8 @@ spec:
           network.openshift.io/policy-group: ingress
     ports:
       - protocol: TCP
-        {{- if .Spec.OAuthProxy }}
-        port: {{.Spec.OAuthProxy.Port}}
+        {{- if .Spec.KubeRBACProxy }}
+        port: {{.Spec.KubeRBACProxy.Port}}
         {{- else }}
         port: 8443
         {{- end }}

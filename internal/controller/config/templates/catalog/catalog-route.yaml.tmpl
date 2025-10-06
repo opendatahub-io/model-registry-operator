@@ -1,7 +1,7 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{.Name}}-http{{ if .Spec.OAuthProxy }}s{{ end }}
+  name: {{.Name}}-http{{ if .Spec.KubeRBACProxy }}s{{ end }}
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
@@ -16,8 +16,8 @@ spec:
   to:
     kind: Service
     name: {{.Name}}
-  {{- if .Spec.OAuthProxy}}
-  host: {{.Name}}.{{.Spec.OAuthProxy.Domain}}
+  {{- if .Spec.KubeRBACProxy}}
+  host: {{.Name}}.{{.Spec.KubeRBACProxy.Domain}}
   port:
     targetPort: https-api
   tls:

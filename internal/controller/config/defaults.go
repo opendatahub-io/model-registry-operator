@@ -36,7 +36,9 @@ import (
 )
 
 //go:embed templates/*.yaml.tmpl
+//go:embed templates/proxy/*.yaml.tmpl
 //go:embed templates/oauth-proxy/*.yaml.tmpl
+//go:embed templates/kube-rbac-proxy/*.yaml.tmpl
 //go:embed templates/catalog/*.yaml.tmpl
 var templateFS embed.FS
 
@@ -44,11 +46,13 @@ const (
 	GrpcImage                 = "GRPC_IMAGE"
 	RestImage                 = "REST_IMAGE"
 	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
+	KubeRBACProxyImage        = "KUBE_RBAC_PROXY_IMAGE"
 	CatalogDataImage          = "CATALOG_DATA_IMAGE"
 	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
 	DefaultGrpcImage          = "quay.io/opendatahub/mlmd-grpc-server:latest"
 	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
+	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
 	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	DefaultBenchmarkDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	RouteDisabled             = "disabled"
@@ -120,7 +124,9 @@ func ParseTemplates() (*template.Template, error) {
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
+		"templates/proxy/*.yaml.tmpl",
 		"templates/oauth-proxy/*.yaml.tmpl",
+		"templates/kube-rbac-proxy/*.yaml.tmpl",
 		"templates/catalog/*.yaml.tmpl",
 	)
 	if err != nil {

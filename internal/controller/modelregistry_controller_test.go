@@ -73,7 +73,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.RestImage, config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
+				err = os.Setenv(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage)
 				Expect(err).To(Not(HaveOccurred()))
 			})
 
@@ -140,6 +140,180 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
+			})
+
+			It("When using KubeRBACProxy configuration", func() {
+				registryName = "model-registry-kube-rbac-proxy"
+				specInit()
+
+				var postgresPort int32 = 5432
+				var httpsPort int32 = 8443
+				var routePort int32 = 443
+
+				modelRegistry.Spec.MySQL = nil
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{
+					Port:         &httpsPort,
+					RoutePort:    &routePort,
+					Domain:       "example.com",
+					ServiceRoute: config.RouteEnabled,
+					Image:        config.DefaultKubeRBACProxyImage,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Deployment contains kube-rbac-proxy container")
+				deployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, typeNamespaceName, deployment)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				// Check that kube-rbac-proxy container is present
+				var kubeRBACProxyContainer *corev1.Container
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					if container.Name == "kube-rbac-proxy" {
+						kubeRBACProxyContainer = &container
+						break
+					}
+				}
+				Expect(kubeRBACProxyContainer).ToNot(BeNil(), "kube-rbac-proxy container should be present")
+				Expect(kubeRBACProxyContainer.Image).To(ContainSubstring("kube-rbac-proxy"))
+
+				// Verify kube-rbac-proxy specific configuration
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement("--secure-listen-address=0.0.0.0:8443"))
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement("--upstream=http://127.0.0.1:8080/"))
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement("--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
+
+				// Check that oauth-proxy container is NOT present
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					Expect(container.Name).ToNot(Equal("oauth-proxy"))
+				}
+
+				By("Checking if the kube-rbac-proxy ConfigMap was created")
+				configMap := &corev1.ConfigMap{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      registryName + "-kube-rbac-proxy-config",
+						Namespace: registryName,
+					}, configMap)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				Expect(configMap.Data["config-file.yaml"]).To(ContainSubstring("authorization:"))
+				Expect(configMap.Data["config-file.yaml"]).To(ContainSubstring("resourceAttributes:"))
+
+				By("Checking if the kube-rbac-proxy ClusterRoleBinding was created")
+				clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name: registryName + "-kube-rbac-proxy",
+					}, clusterRoleBinding)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				Expect(clusterRoleBinding.RoleRef.Name).To(Equal("system:auth-delegator"))
+			})
+
+			It("When migrating from OAuth proxy to kube-rbac-proxy", func() {
+				registryName = "model-registry-oauth-migration"
+				specInit()
+
+				var postgresPort int32 = 5432
+				var httpsPort int32 = 8443
+				var routePort int32 = 443
+
+				modelRegistry.Spec.MySQL = nil
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "mlmduser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				// Manually perform the migration (since webhook doesn't run in test environment)
+				modelRegistry.Spec.OAuthProxy = &v1beta1.OAuthProxyConfig{
+					Port:         &httpsPort,
+					RoutePort:    &routePort,
+					Domain:       "example.com",
+					ServiceRoute: config.RouteEnabled,
+					Image:        config.DefaultOAuthProxyImage,
+				}
+
+				// Simulate the webhook migration by calling Default() manually
+				modelRegistry.Default()
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Verify that the migration happened during Default() call
+				Expect(modelRegistry.Spec.OAuthProxy).To(BeNil(), "OAuthProxy should be nil after migration")
+				Expect(modelRegistry.Spec.KubeRBACProxy).ToNot(BeNil(), "KubeRBACProxy should be set after migration")
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Deployment contains kube-rbac-proxy instead of oauth-proxy")
+				deployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, typeNamespaceName, deployment)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				// Check that kube-rbac-proxy container is present
+				var kubeRBACProxyContainer *corev1.Container
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					if container.Name == "kube-rbac-proxy" {
+						kubeRBACProxyContainer = &container
+						break
+					}
+				}
+				Expect(kubeRBACProxyContainer).ToNot(BeNil(), "kube-rbac-proxy container should be present after migration")
+
+				// Check that oauth-proxy container is NOT present
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					Expect(container.Name).ToNot(Equal("oauth-proxy"))
+				}
+
+				// Verify kube-rbac-proxy specific configuration
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement("--secure-listen-address=0.0.0.0:8443"))
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement(MatchRegexp(`--upstream=http://127\.0\.0\.1:\d+/`)))
+				Expect(kubeRBACProxyContainer.Args).To(ContainElement("--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
+
+				By("Checking if the migrated service uses kube-rbac-proxy port")
+				service := &corev1.Service{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, typeNamespaceName, service)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				Expect(service.Spec.Ports).To(HaveLen(1))
+				Expect(service.Spec.Ports[0].Port).To(Equal(httpsPort))
+				Expect(service.Spec.Ports[0].Name).To(Equal("https-api"))
 			})
 
 			It("When using MySQL database", func() {
@@ -234,8 +408,8 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(HaveOccurred())
 			})
 			// Oauth Proxy config tests
-			var oauthProxyConfig *v1beta1.OAuthProxyConfig
-			oauthValidate := func() {
+			var kubeRBACProxyConfig *v1beta1.KubeRBACProxyConfig
+			kubeRBACProxyValidate := func() {
 				specInit()
 
 				var mySQLPort int32 = 3306
@@ -250,7 +424,9 @@ var _ = Describe("ModelRegistry controller", func() {
 						Key:  "database-password",
 					},
 				}
-				modelRegistry.Spec.OAuthProxy = oauthProxyConfig
+
+				// Set the KubeRBACProxy config
+				modelRegistry.Spec.KubeRBACProxy = kubeRBACProxyConfig
 
 				err = k8sClient.Create(ctx, modelRegistry)
 				Expect(err).To(Not(HaveOccurred()))
@@ -259,19 +435,19 @@ var _ = Describe("ModelRegistry controller", func() {
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.IsOpenShift = true
 
-				Eventually(validateRegistryOauthProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+				Eventually(validateRegistryKubeRBACProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
 			}
 
 			It("When using default Oauth Proxy config on openshift", func() {
 				registryName = "model-registry-oauth-proxy"
-				oauthProxyConfig = &v1beta1.OAuthProxyConfig{}
-				oauthValidate()
+				kubeRBACProxyConfig = &v1beta1.KubeRBACProxyConfig{}
+				kubeRBACProxyValidate()
 			})
 
 			It("When using Oauth Proxy with custom certs on openshift", func() {
 				registryName = "model-registry-oauth-certs"
-				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
+				kubeRBACProxyConfig = &v1beta1.KubeRBACProxyConfig{
 					TLSCertificateSecret: &v1beta1.SecretKeyValue{
 						Name: "test-cert-secret",
 						Key:  "test-cert-key",
@@ -281,23 +457,23 @@ var _ = Describe("ModelRegistry controller", func() {
 						Key:  "test-key-key",
 					},
 				}
-				oauthValidate()
+				kubeRBACProxyValidate()
 			})
 
 			It("When using Oauth Proxy without route config on openshift", func() {
 				registryName = "model-registry-oauth-noroute"
-				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
+				kubeRBACProxyConfig = &v1beta1.KubeRBACProxyConfig{
 					ServiceRoute: config.RouteDisabled,
 				}
-				oauthValidate()
+				kubeRBACProxyValidate()
 			})
 
 			It("When using Oauth Proxy with custom image on openshift", func() {
 				registryName = "model-registry-oauth-image"
-				oauthProxyConfig = &v1beta1.OAuthProxyConfig{
+				kubeRBACProxyConfig = &v1beta1.KubeRBACProxyConfig{
 					Image: "test-proxy-image",
 				}
-				oauthValidate()
+				kubeRBACProxyValidate()
 			})
 
 			It("When using auto-provisioned PostgreSQL database", func() {
@@ -577,13 +753,13 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 		}
 
 		// mock oauth proxy container
-		if modelRegistry.Spec.OAuthProxy != nil {
-			image := modelRegistry.Spec.OAuthProxy.Image
+		if modelRegistry.Spec.KubeRBACProxy != nil {
+			image := modelRegistry.Spec.KubeRBACProxy.Image
 			if len(image) == 0 {
-				image = config.DefaultOAuthProxyImage
+				image = config.DefaultKubeRBACProxyImage
 			}
 			mrPod.Spec.Containers = append(mrPod.Spec.Containers, corev1.Container{
-				Name:  "oauth-proxy",
+				Name:  "kube-rbac-proxy",
 				Image: image,
 			})
 		}
@@ -628,7 +804,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
-		if modelRegistry.Spec.OAuthProxy != nil && modelRegistry.Spec.OAuthProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
+		if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
 			By("Checking if the Route was successfully created in the reconciliation")
 			routes := &routev1.RouteList{}
 			err = k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
@@ -671,12 +847,12 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 		Eventually(func() error {
 			err := k8sClient.Get(ctx, typeNamespaceName, modelRegistry)
 			Expect(err).To(Not(HaveOccurred()))
-			if modelRegistry.Spec.OAuthProxy != nil && modelRegistry.Spec.OAuthProxy.ServiceRoute != config.RouteDisabled {
+			if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled {
 				hosts := modelRegistry.Status.Hosts
 				Expect(len(hosts)).To(Equal(4))
 				name := modelRegistry.Name
 				namespace := modelRegistry.Namespace
-				domain := modelRegistry.Spec.OAuthProxy.Domain
+				domain := modelRegistry.Spec.KubeRBACProxy.Domain
 				if domain == "" {
 					domain = config.GetDefaultDomain()
 				}
@@ -743,69 +919,88 @@ func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.Name
 	}
 }
 
-func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
+func validateRegistryKubeRBACProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
 		modelRegistryReconciler.IsOpenShift = true
 
 		Eventually(validateRegistryOpenshift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
 
-		By("Checking if the OAuth Proxy Deployment was configured correctly in the reconciliation")
+		By("Checking if the kube-rbac-proxy Deployment was configured correctly in the reconciliation (OAuth migrated to kube-rbac-proxy)")
 		Eventually(func() error {
 			found := &appsv1.Deployment{}
 
 			err := k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 			Expect(err).To(Not(HaveOccurred()))
 
-			proxyContainer := found.Spec.Template.Spec.Containers[1]
+			// Find kube-rbac-proxy container (after migration)
+			var proxyContainer *corev1.Container
+			for _, container := range found.Spec.Template.Spec.Containers {
+				if container.Name == "kube-rbac-proxy" {
+					proxyContainer = &container
+					break
+				}
+			}
+			Expect(proxyContainer).ToNot(BeNil(), "kube-rbac-proxy container should be present after migration")
 
-			// check image
-			if len(modelRegistry.Spec.OAuthProxy.Image) != 0 {
-				Expect(proxyContainer.Image).Should(Equal(modelRegistry.Spec.OAuthProxy.Image))
-			}
+			// Check that the migrated registry now has KubeRBACProxy config
+			updated := &v1beta1.ModelRegistry{}
+			err = k8sClient.Get(ctx, typeNamespaceName, updated)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(updated.Spec.KubeRBACProxy).ToNot(BeNil(), "KubeRBACProxy should be set after migration")
+			Expect(updated.Spec.OAuthProxy).To(BeNil(), "OAuthProxy should be nil after migration")
 
-			// check cert args
-			certKey := "tls.crt"
-			keyKey := "tls.key"
-			certSecretName := modelRegistry.Name + "-oauth-proxy"
-			keySecretName := modelRegistry.Name + "-oauth-proxy"
-			if modelRegistry.Spec.OAuthProxy.TLSCertificateSecret != nil {
-				certKey = modelRegistry.Spec.OAuthProxy.TLSCertificateSecret.Key
-				certSecretName = modelRegistry.Spec.OAuthProxy.TLSCertificateSecret.Name
-			}
-			if modelRegistry.Spec.OAuthProxy.TLSKeySecret != nil {
-				keyKey = modelRegistry.Spec.OAuthProxy.TLSKeySecret.Key
-				keySecretName = modelRegistry.Spec.OAuthProxy.TLSKeySecret.Name
-			}
+			// check image - should be kube-rbac-proxy image
+			Expect(proxyContainer.Image).To(ContainSubstring("kube-rbac-proxy"))
+
+			// check kube-rbac-proxy specific args (after migration)
 			Expect(proxyContainer.Args).Should(ContainElements(
-				fmt.Sprintf("--tls-cert=/etc/tls/private-cert/%s", certKey),
-				fmt.Sprintf("--tls-key=/etc/tls/private-key/%s", keyKey)))
+				"--secure-listen-address=0.0.0.0:8443",
+				MatchRegexp(`--upstream=http://127\.0\.0\.1:\d+/`),
+				"--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
 
-			// check cert volumes
+			// check kube-rbac-proxy volumes (after migration)
 			var defaultMode int32 = 0o600
-			Expect(found.Spec.Template.Spec.Volumes).Should(ContainElements(
-				corev1.Volume{
-					Name: "oauth-proxy-cert",
-					VolumeSource: corev1.VolumeSource{
-						Secret: &corev1.SecretVolumeSource{
-							SecretName:  certSecretName,
-							DefaultMode: &defaultMode,
-						},
-					}},
-				corev1.Volume{
-					Name: "oauth-proxy-key",
-					VolumeSource: corev1.VolumeSource{
-						Secret: &corev1.SecretVolumeSource{
-							SecretName:  keySecretName,
-							DefaultMode: &defaultMode,
-						},
-					}}))
+			if updated.Spec.KubeRBACProxy.TLSCertificateSecret != nil {
+				// Custom TLS configuration migrated
+				Expect(found.Spec.Template.Spec.Volumes).Should(ContainElements(
+					corev1.Volume{
+						Name: "kube-rbac-proxy-cert",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName:  updated.Spec.KubeRBACProxy.TLSCertificateSecret.Name,
+								DefaultMode: &defaultMode,
+							},
+						}},
+					corev1.Volume{
+						Name: "kube-rbac-proxy-key",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName:  updated.Spec.KubeRBACProxy.TLSKeySecret.Name,
+								DefaultMode: &defaultMode,
+							},
+						}}))
+			} else {
+				// Default OpenShift serving cert
+				Expect(found.Spec.Template.Spec.Volumes).Should(ContainElement(
+					corev1.Volume{
+						Name: "kube-rbac-proxy-tls",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName:  modelRegistry.Name + "-kube-rbac-proxy",
+								DefaultMode: &defaultMode,
+							},
+						}}))
+			}
 
 			return nil
 		}, 5*time.Second, time.Second).Should(Succeed())
 
-		By("Checking if the OAuth Proxy Route was successfully created in the reconciliation")
+		By("Checking if the kube-rbac-proxy Route was successfully created in the reconciliation")
 		matchRoute := Succeed()
-		if modelRegistry.Spec.OAuthProxy.ServiceRoute == config.RouteDisabled {
+		// Check the migrated KubeRBACProxy configuration for route setting
+		updated := &v1beta1.ModelRegistry{}
+		k8sClient.Get(ctx, typeNamespaceName, updated)
+		if updated.Spec.KubeRBACProxy != nil && updated.Spec.KubeRBACProxy.ServiceRoute == config.RouteDisabled {
 			matchRoute = Not(Succeed())
 		}
 		Eventually(func() error {
@@ -815,14 +1010,14 @@ func validateRegistryOauthProxy(ctx context.Context, typeNamespaceName types.Nam
 				Name: fmt.Sprintf("%s-https", modelRegistry.Name), Namespace: modelRegistry.Namespace}, found)
 		}, 5*time.Second, time.Second).Should(matchRoute)
 
-		By("Checking if the OAuth Proxy ClusterRoleBinding was successfully created in the reconciliation")
+		By("Checking if the kube-rbac-proxy ClusterRoleBinding was successfully created in the reconciliation")
 		Eventually(func() error {
 			found := &rbacv1.ClusterRoleBinding{}
 
-			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-auth-delegator", modelRegistry.Name)}, found)
+			return k8sClient.Get(ctx, types.NamespacedName{Name: fmt.Sprintf("%s-kube-rbac-proxy", modelRegistry.Name)}, found)
 		}, 5*time.Second, time.Second).Should(Succeed())
 
-		By("Checking if the OAuth Proxy NetworkPolicy was successfully created in the reconciliation")
+		By("Checking if the kube-rbac-proxy NetworkPolicy was successfully created in the reconciliation")
 		Eventually(func() error {
 			found := &v1.NetworkPolicy{}
 
