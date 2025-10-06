@@ -125,6 +125,9 @@ func TestValidateDatabase(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
+	httpsPort := int32(8443)
+	httpsRoutePort := int32(443)
+
 	tests := []struct {
 		name       string
 		mrSpec     *v1beta1.ModelRegistry
@@ -146,6 +149,73 @@ func TestDefault(t *testing.T) {
 					},
 					Postgres: nil,
 					MySQL:    nil,
+				},
+			},
+		},
+		{
+			name: "migrate oauth proxy to kube-rbac-proxy",
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+					OAuthProxy: &v1beta1.OAuthProxyConfig{
+						Port:         &httpsPort,
+						RoutePort:    &httpsRoutePort,
+						Domain:       "example.com",
+						ServiceRoute: config.RouteEnabled,
+					},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:         &httpsPort,
+						RoutePort:    &httpsRoutePort,
+						Domain:       "example.com",
+						ServiceRoute: config.RouteEnabled,
+						// Image is not copied here because it is set to the operator default
+					},
+					// OAuthProxy should be removed after migration
+				},
+			},
+		},
+		{
+			name: "don't migrate when kube-rbac-proxy already exists",
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+					OAuthProxy: &v1beta1.OAuthProxyConfig{
+						Port:   &httpsPort,
+						Domain: "example.com",
+					},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:   &httpsPort,
+						Domain: "different.com",
+					},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					// OAuthProxy should remain unchanged
+					OAuthProxy: &v1beta1.OAuthProxyConfig{
+						Port:         &httpsPort,
+						Domain:       "example.com",
+						ServiceRoute: config.RouteEnabled,
+					},
+					// KubeRBACProxy should remain unchanged
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:   &httpsPort,
+						Domain: "different.com",
+					},
 				},
 			},
 		},

@@ -245,6 +245,55 @@ type OAuthProxyConfig struct {
 	Image string `json:"image,omitempty"`
 }
 
+// KubeRBACProxyConfig specifies the kube-rbac-proxy configuration options
+type KubeRBACProxyConfig struct {
+	//+kubebuilder:default=8443
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for kube-rbac-proxy connections, defaults to 8443
+	Port *int32 `json:"port,omitempty"`
+
+	// This parameter specifies the Kubernetes Secret name and key of the proxy public key certificate.
+	// If this option is not set, the operator uses OpenShift Serving Certificate by default in OpenShift clusters.
+	// In non-OpenShift clusters, a secret named `<modelregistry-name>-kube-rbac-proxy` MUST be provided with data keys
+	// `tls.crt` and `tls.key` for the certificate and secret key respectively.
+	//+optional
+	TLSCertificateSecret *SecretKeyValue `json:"tlsCertificateSecret,omitempty"`
+	// This parameter specifies the optional Kubernetes Secret name and key used for the
+	// proxy private key if `TLSCertificateSecret` is set.
+	//+optional
+	TLSKeySecret *SecretKeyValue `json:"tlsKeySecret,omitempty"`
+
+	//+kubebuilder:validation:Enum=disabled;enabled
+	//+kubebuilder:default=enabled
+
+	// Create an OpenShift Route for REST proxy Service, enabled by default
+	ServiceRoute string `json:"serviceRoute,omitempty"`
+
+	//+optional
+	//+kubebuilder:validation:MaxLength=253
+	//+kubebuilder:validation:Pattern=`^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$`
+
+	// Domain name for Route configuration.
+	// Must follow DNS952 subdomain conventions.
+	// If not provided, it is set automatically using model registry operator env variable DEFAULT_DOMAIN.
+	// If the env variable is not set, it is set to the OpenShift `cluster` ingress domain in an OpenShift cluster.
+	Domain string `json:"domain,omitempty"`
+
+	//+kubebuilder:default=443
+	//+kubebuilder:validation:Minimum=0
+	//+kubebuilder:validation:Maximum=65535
+
+	// Listen port for kube-rbac-proxy Route connections, defaults to 443 in OpenShift router default configuration
+	RoutePort *int32 `json:"routePort,omitempty"`
+
+	// Optional image to support overriding the image deployed by the operator.
+	//+optional
+	Image string `json:"image,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!(has(self.oauthProxy) && has(self.kubeRBACProxy))",message="Cannot use both oauthProxy and kubeRBACProxy"
 // ModelRegistrySpec defines the desired state of ModelRegistry.
 // One of `postgres` or `mysql` database configurations MUST be provided!
 type ModelRegistrySpec struct {
@@ -283,6 +332,10 @@ type ModelRegistrySpec struct {
 	// OpenShift OAuth proxy configuration options
 	//+optional
 	OAuthProxy *OAuthProxyConfig `json:"oauthProxy,omitempty"`
+
+	// kube-rbac-proxy configuration options
+	//+optional
+	KubeRBACProxy *KubeRBACProxyConfig `json:"kubeRBACProxy,omitempty"`
 }
 
 // ModelRegistryStatus defines the observed state of ModelRegistry

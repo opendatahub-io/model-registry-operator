@@ -314,6 +314,7 @@ func autoConvert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1b
 	out.EnableDatabaseUpgrade = (*bool)(unsafe.Pointer(in.EnableDatabaseUpgrade))
 	out.DowngradeDbSchemaVersion = (*int64)(unsafe.Pointer(in.DowngradeDbSchemaVersion))
 	out.OAuthProxy = (*OAuthProxyConfig)(unsafe.Pointer(in.OAuthProxy))
+	// WARNING: in.KubeRBACProxy requires manual conversion: does not exist in peer-type
 	return nil
 }
 
