@@ -61,8 +61,9 @@ type PostgresConfig struct {
 	// Password to be used if required by the PostgreSQL server.
 	PasswordSecret *SecretKeyValue `json:"passwordSecret,omitempty"`
 
+	//+kubebuilder:required
 	// The database name.
-	Database string `json:"database,omitempty"`
+	Database string `json:"database"`
 
 	//+kubebuilder:default=false
 	// True if skipping database instance creation during ML Metadata

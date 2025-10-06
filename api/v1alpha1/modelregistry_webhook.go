@@ -242,27 +242,7 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
-	hasPostgres := r.Spec.Postgres != nil
-	hasMySQL := r.Spec.MySQL != nil
-	hasAutoProvisioning := hasPostgres && r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
-
-	if !hasPostgres && !hasMySQL {
-		return nil, field.ErrorList{
-			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
-			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
-		}
-	}
-
-	if hasAutoProvisioning {
-		// When auto-provisioning is enabled, host/hostAddress should not be set (they will be auto-generated)
-		if len(r.Spec.Postgres.Host) > 0 || len(r.Spec.Postgres.HostAddress) > 0 {
-			return nil, field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("postgres").Child("host"), r.Spec.Postgres.Host, "host should not be set when auto-provisioning is enabled"),
-			}
-		}
-		// Note: database and username CAN be set when auto-provisioning - they specify the desired values
-	}
-
+	// No validation for deprecated v1alpha1 API
 	return nil, nil
 }
 
