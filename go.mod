@@ -1,8 +1,6 @@
 module github.com/opendatahub-io/model-registry-operator
 
-go 1.23.0
-
-toolchain go1.23.10
+go 1.24.4
 
 require (
 	github.com/banzaicloud/k8s-objectmatcher v1.8.0
