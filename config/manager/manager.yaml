@@ -81,6 +81,8 @@ spec:
             value: quay.io/openshift/origin-oauth-proxy:latest
           - name: CATALOG_DATA_IMAGE
             value: quay.io/opendatahub/odh-model-metadata-collection:latest
+          - name: BENCHMARK_DATA_IMAGE
+            value: quay.io/opendatahub/odh-model-metadata-collection:latest
           - name: ENABLE_WEBHOOKS
             value: "false"
           - name: CREATE_AUTH_RESOURCES
@@ -90,6 +92,8 @@ spec:
           - name: DEFAULT_DOMAIN
             value: ""
           - name: ENABLE_MODEL_CATALOG
+            value: ""
+          - name: SKIP_MODEL_CATALOG_DB_CREATION
             value: ""
         securityContext:
           allowPrivilegeEscalation: false

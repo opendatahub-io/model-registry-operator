@@ -37,6 +37,8 @@ spec:
           name: model-catalog-sources
       - name: catalog-data
         emptyDir: {}
+      - name: benchmark-data
+        emptyDir: {}
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
@@ -58,6 +60,20 @@ spec:
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: benchmark-data-init
+          image: {{.BenchmarkDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp -r /app/benchmarks/* /shared-benchmark-data/ || true
+          volumeMounts:
+            - name: benchmark-data
+              mountPath: /shared-benchmark-data
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -110,6 +126,8 @@ spec:
             mountPath: /catalog
           - name: catalog-data
             mountPath: /shared-data
+          - name: benchmark-data
+            mountPath: /shared-benchmark-data
         {{ if .Spec.OAuthProxy }}
         - name: oauth-proxy
           args:

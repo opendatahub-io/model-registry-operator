@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"reflect"
 	"text/template"
 
+	"github.com/banzaicloud/k8s-objectmatcher/patch"
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -30,17 +32,19 @@ import (
 )
 
 const modelCatalogName = "model-catalog"
+const modelCatalogPostgresName = "model-catalog-postgres"
 
 // ModelCatalogReconciler reconciles a single model catalog instance
 type ModelCatalogReconciler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	Recorder        record.EventRecorder
-	Log             logr.Logger
-	Template        *template.Template
-	IsOpenShift     bool
-	TargetNamespace string
-	Enabled         bool
+	Scheme                *runtime.Scheme
+	Recorder              record.EventRecorder
+	Log                   logr.Logger
+	Template              *template.Template
+	IsOpenShift           bool
+	TargetNamespace       string
+	Enabled               bool
+	SkipCatalogDBCreation bool
 
 	// embedded utilities for shared functionality
 	templateApplier *TemplateApplier
@@ -51,6 +55,7 @@ type ModelCatalogReconciler struct {
 type ModelCatalogParams struct {
 	Name      string
 	Namespace string
+	Component string
 }
 
 // Reconcile manages a single model catalog instance
@@ -71,9 +76,10 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
-	params := &ModelCatalogParams{
+	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
+		Component: modelCatalogName,
 	}
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
@@ -83,13 +89,13 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update ServiceAccount
-	result, err := r.createOrUpdateServiceAccount(ctx, params, "catalog-serviceaccount.yaml.tmpl", crOwner)
+	result, err := r.createOrUpdateServiceAccount(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Create sources ConfigMap
-	result2, err := r.ensureConfigMapExists(ctx, params, "catalog-configmap.yaml.tmpl")
+	result2, err := r.ensureConfigMapExists(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -98,7 +104,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Deployment
-	result2, deployment, err := r.createOrUpdateDeployment(ctx, params, "catalog-deployment.yaml.tmpl", crOwner)
+	result2, deployment, err := r.createOrUpdateDeployment(ctx, catalogParams, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -115,7 +121,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update Service
-	result2, err = r.createOrUpdateService(ctx, params, "catalog-service.yaml.tmpl", deploymentOwner)
+	result2, err = r.createOrUpdateService(ctx, catalogParams, "catalog-service.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -124,7 +130,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update role
-	result2, err = r.createOrUpdateRole(ctx, params, "catalog-role.yaml.tmpl", deploymentOwner)
+	result2, err = r.createOrUpdateRole(ctx, catalogParams, "catalog-role.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -133,7 +139,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// Create or update rolebinding
-	result2, err = r.createOrUpdateRoleBinding(ctx, params, "catalog-rolebinding.yaml.tmpl", deploymentOwner)
+	result2, err = r.createOrUpdateRoleBinding(ctx, catalogParams, "catalog-rolebinding.yaml.tmpl", deploymentOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -141,9 +147,61 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	postgresParams := &ModelCatalogParams{
+		Name:      modelCatalogName,
+		Namespace: r.TargetNamespace,
+		Component: modelCatalogPostgresName,
+	}
+
+	// Create PostgreSQL resources only if not skipping DB creation
+	if !r.SkipCatalogDBCreation {
+		result2, err := r.createOrUpdateSecret(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Create or update PostgreSQL PVC
+		result2, err = r.createOrUpdatePostgresPVC(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Create or update PostgreSQL Deployment
+		result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Use postgres deployment as owner for the remaining resources
+		postgresDeploymentOwner := &metav1.OwnerReference{
+			APIVersion: postgresDeployment.APIVersion,
+			Kind:       postgresDeployment.Kind,
+			Name:       postgresDeployment.Name,
+			UID:        postgresDeployment.UID,
+		}
+		result2, err = r.createOrUpdateService(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+	} else {
+		log.Info("Skipping catalog DB creation as configured")
+	}
+
 	if r.IsOpenShift {
 		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, params, "catalog-route.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -152,7 +210,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 
 		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, "catalog-network-policy.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -162,7 +220,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, params)
+	result2, err = r.createOrUpdateOAuthConfig(ctx, catalogParams)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -178,22 +236,23 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 }
 
 func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (ctrl.Result, error) {
-	params := &ModelCatalogParams{
+	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
+		Component: modelCatalogName,
 	}
 
 	// Delete the main resources - Kubernetes will automatically clean up owned resources
 	// via garbage collection due to the owner references we've set up
 
 	// Delete Deployment (this will cascade delete Service, Role, RoleBinding, Route, NetworkPolicy)
-	result, err := r.deleteFromTemplate(ctx, params, "catalog-deployment.yaml.tmpl", &appsv1.Deployment{})
+	result, err := r.deleteFromTemplate(ctx, catalogParams, "catalog-deployment.yaml.tmpl", &appsv1.Deployment{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	// Delete ServiceAccount (both ServiceAccount and Deployment are owned by default-modelregistry)
-	result2, err := r.deleteFromTemplate(ctx, params, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
+	result2, err := r.deleteFromTemplate(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -203,7 +262,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	// Delete OAuth Proxy ClusterRoleBinding
 	// This resource doesn't have an owner reference as it's cluster-scoped
-	result2, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
+	result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -211,9 +270,54 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
+	postgresParams := &ModelCatalogParams{
+		Name:      modelCatalogName,
+		Namespace: r.TargetNamespace,
+		Component: modelCatalogPostgresName,
+	}
+
+	// Delete PostgreSQL resources only if they were created (not skipping DB creation)
+	if !r.SkipCatalogDBCreation {
+		// Delete PostgreSQL Deployment
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", &appsv1.Deployment{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Delete PostgreSQL Service
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Delete PostgreSQL PVC
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Delete PostgreSQL Secret last
+		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", &corev1.Secret{})
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+	}
+
 	if r.IsOpenShift {
 		// Delete OAuth Proxy Route
-		result2, err = r.deleteFromTemplate(ctx, params, "https-route.yaml.tmpl", &routev1.Route{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -222,7 +326,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 
 		// Delete OAuth Proxy NetworkPolicy
-		result2, err = r.deleteFromTemplate(ctx, params, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -247,7 +351,7 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 		return result, nil, err
 	}
 
-	r.applyLabels(&deployment.ObjectMeta)
+	r.applyLabels(&deployment.ObjectMeta, params)
 	r.applyOwnerReference(&deployment.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
@@ -279,7 +383,7 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 		return result, err
 	}
 
-	r.applyLabels(&service.ObjectMeta)
+	r.applyLabels(&service.ObjectMeta, params)
 	r.applyOwnerReference(&service.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &corev1.Service{}, &service)
@@ -296,7 +400,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params
 		return result, err
 	}
 
-	r.applyLabels(&route.ObjectMeta)
+	r.applyLabels(&route.ObjectMeta, params)
 	r.applyOwnerReference(&route.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &routev1.Route{}, &route)
@@ -313,7 +417,7 @@ func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context
 		return result, err
 	}
 
-	r.applyLabels(&networkPolicy.ObjectMeta)
+	r.applyLabels(&networkPolicy.ObjectMeta, params)
 	r.applyOwnerReference(&networkPolicy.ObjectMeta, owner)
 
 	result, err := r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &networkPolicy)
@@ -330,7 +434,7 @@ func (r *ModelCatalogReconciler) ensureConfigMapExists(ctx context.Context, para
 		return result, err
 	}
 
-	r.applyLabels(&cm.ObjectMeta)
+	r.applyLabels(&cm.ObjectMeta, params)
 
 	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
 	if err != nil {
@@ -346,7 +450,7 @@ func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Contex
 		return result, err
 	}
 
-	r.applyLabels(&sa.ObjectMeta)
+	r.applyLabels(&sa.ObjectMeta, params)
 	r.applyOwnerReference(&sa.ObjectMeta, owner)
 
 	if result, err = r.createOrUpdate(ctx, &corev1.ServiceAccount{}, &sa); err != nil {
@@ -362,7 +466,7 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 		return result, err
 	}
 
-	r.applyLabels(&roleBinding.ObjectMeta)
+	r.applyLabels(&roleBinding.ObjectMeta, params)
 
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
@@ -374,7 +478,7 @@ func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params 
 		return result, err
 	}
 
-	r.applyLabels(&secret.ObjectMeta)
+	r.applyLabels(&secret.ObjectMeta, params)
 
 	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
 	if err != nil {
@@ -390,7 +494,7 @@ func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params 
 		return result, err
 	}
 
-	r.applyLabels(&role.ObjectMeta)
+	r.applyLabels(&role.ObjectMeta, params)
 	r.applyOwnerReference(&role.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.Role{}, &role)
@@ -403,10 +507,75 @@ func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, 
 		return result, err
 	}
 
-	r.applyLabels(&roleBinding.ObjectMeta)
+	r.applyLabels(&roleBinding.ObjectMeta, params)
 	r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
 
 	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
+	result := ResourceUnchanged
+	var newSecret corev1.Secret
+	if err := r.Apply(params, templateName, &newSecret); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&newSecret.ObjectMeta, params)
+	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
+
+	// Check if Secret already exists
+	var existingSecret corev1.Secret
+	key := client.ObjectKeyFromObject(&newSecret)
+
+	if err := r.Client.Get(ctx, key, &existingSecret); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// Secret doesn't exist, create it
+			result = ResourceCreated
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
+				return result, err
+			}
+			return result, r.Client.Create(ctx, &newSecret)
+		}
+		return result, err
+	}
+
+	// Secret exists, check if data has changed
+	dataChanged := !reflect.DeepEqual(existingSecret.Data, newSecret.Data)
+
+	// Check if other mutable fields have changed
+	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
+	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
+	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
+
+	// If data has changed, we need to delete and recreate the Secret
+	if dataChanged {
+		// Delete the existing Secret
+		if err := r.Client.Delete(ctx, &existingSecret); err != nil {
+			return result, err
+		}
+
+		// Create the new Secret with updated data
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
+			return result, err
+		}
+		return result, r.Client.Create(ctx, &newSecret)
+	}
+
+	// If only metadata changed, update in place
+	if labelsChanged || annotationsChanged || ownerRefsChanged {
+		existingSecret.Labels = newSecret.Labels
+		existingSecret.Annotations = newSecret.Annotations
+		existingSecret.OwnerReferences = newSecret.OwnerReferences
+
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingSecret); err != nil {
+			return result, err
+		}
+		return result, r.Client.Update(ctx, &existingSecret)
+	}
+
+	return result, nil
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
@@ -424,6 +593,64 @@ func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, 
 	}
 	if result2 != ResourceUnchanged {
 		result = result2
+	}
+
+	return result, nil
+}
+
+func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
+	result := ResourceUnchanged
+	var newPVC corev1.PersistentVolumeClaim
+	if err := r.Apply(params, templateName, &newPVC); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&newPVC.ObjectMeta, params)
+	r.applyOwnerReference(&newPVC.ObjectMeta, owner)
+
+	// Check if PVC already exists
+	var existingPVC corev1.PersistentVolumeClaim
+	key := client.ObjectKeyFromObject(&newPVC)
+
+	if err := r.Client.Get(ctx, key, &existingPVC); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			// PVC doesn't exist, create it
+			result = ResourceCreated
+			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newPVC); err != nil {
+				return result, err
+			}
+			return result, r.Client.Create(ctx, &newPVC)
+		}
+		return result, err
+	}
+
+	// PVC exists, only update mutable fields
+	updated := false
+
+	// Update labels if they changed
+	if !reflect.DeepEqual(existingPVC.Labels, newPVC.Labels) {
+		existingPVC.Labels = newPVC.Labels
+		updated = true
+	}
+
+	// Update owner references if they changed
+	if !reflect.DeepEqual(existingPVC.OwnerReferences, newPVC.OwnerReferences) {
+		existingPVC.OwnerReferences = newPVC.OwnerReferences
+		updated = true
+	}
+
+	// Update storage size if it increased (storage can only be increased, not decreased)
+	if newPVC.Spec.Resources.Requests.Storage().Cmp(*existingPVC.Spec.Resources.Requests.Storage()) > 0 {
+		existingPVC.Spec.Resources.Requests = newPVC.Spec.Resources.Requests
+		updated = true
+	}
+
+	if updated {
+		result = ResourceUpdated
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingPVC); err != nil {
+			return result, err
+		}
+		return result, r.Client.Update(ctx, &existingPVC)
 	}
 
 	return result, nil
@@ -458,15 +685,23 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	}
 
 	catalogParams := struct {
-		Name             string
-		Namespace        string
-		Spec             *v1beta1.ModelRegistrySpec
-		CatalogDataImage string
+		Name               string
+		Namespace          string
+		Spec               *v1beta1.ModelRegistrySpec
+		CatalogDataImage   string
+		BenchmarkDataImage string
+		PostgresUser       string
+		PostgresPassword   string
+		PostgresDatabase   string
 	}{
-		Name:             params.Name,
-		Namespace:        params.Namespace,
-		Spec:             defaultSpec,
-		CatalogDataImage: config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		Name:               params.Name,
+		Namespace:          params.Namespace,
+		Spec:               defaultSpec,
+		CatalogDataImage:   config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
+		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
+		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -499,11 +734,11 @@ func (r *ModelCatalogReconciler) deleteFromTemplate(ctx context.Context, params 
 	return ResourceUpdated, nil
 }
 
-func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta) {
+func (*ModelCatalogReconciler) applyLabels(meta *metav1.ObjectMeta, params *ModelCatalogParams) {
 	if meta.Labels == nil {
 		meta.Labels = map[string]string{}
 	}
-	meta.Labels["component"] = modelCatalogName
+	meta.Labels["component"] = params.Component
 	meta.Labels["app.kubernetes.io/created-by"] = "model-registry-operator"
 }
 
@@ -555,9 +790,17 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	labels, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			"component":                    modelCatalogName,
-			"app.kubernetes.io/created-by": "model-registry-operator",
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      "component",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{modelCatalogName, modelCatalogPostgresName},
+			},
+			{
+				Key:      "app.kubernetes.io/created-by",
+				Operator: metav1.LabelSelectorOpIn,
+				Values:   []string{"model-registry-operator"},
+			},
 		},
 	})
 	if err != nil {
@@ -585,6 +828,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&corev1.PersistentVolumeClaim{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).

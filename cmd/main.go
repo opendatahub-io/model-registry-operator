@@ -194,17 +194,19 @@ func main() {
 	}
 
 	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
-	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
+	skipCatalogDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
+	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipCatalogDBCreation)
 
 	if err = (&controller.ModelCatalogReconciler{
-		Client:          client,
-		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("modelcatalog-controller"),
-		Log:             ctrl.Log.WithName("modelcatalog-controller"),
-		Template:        template,
-		IsOpenShift:     isOpenShift,
-		TargetNamespace: config.GetRegistriesNamespace(),
-		Enabled:         enableModelCatalog,
+		Client:                client,
+		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorderFor("modelcatalog-controller"),
+		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
+		Template:              template,
+		IsOpenShift:           isOpenShift,
+		TargetNamespace:       config.GetRegistriesNamespace(),
+		Enabled:               enableModelCatalog,
+		SkipCatalogDBCreation: skipCatalogDBCreation,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)
