@@ -8,7 +8,6 @@ rules:
   - ""
   resources:
   - configmaps
-  - secrets
   verbs:
   - create
   - get
@@ -34,6 +33,8 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  - secrets
   - serviceaccounts
   - services
   verbs:

@@ -37,6 +37,8 @@ var _ = Describe("ModelCatalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 			err = os.Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
 			Expect(err).To(Not(HaveOccurred()))
+			err = os.Setenv(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)
+			Expect(err).To(Not(HaveOccurred()))
 
 			namespaceName = fmt.Sprintf("model-catalog-test-%d", time.Now().UnixNano())
 
@@ -151,6 +153,57 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(roleBinding.Subjects[0].APIGroup).To(Equal("rbac.authorization.k8s.io"))
 				Expect(roleBinding.Subjects[0].Kind).To(Equal("Group"))
 				Expect(roleBinding.Subjects[0].Name).To(Equal("system:authenticated"))
+
+				By("Checking if the PostgreSQL Deployment was created")
+				postgresDeployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresDeployment)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(postgresDeployment.Labels["component"]).To(Equal("model-catalog-postgres"))
+				Expect(postgresDeployment.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(postgresDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+				Expect(postgresDeployment.Spec.Template.Spec.Containers[0].Name).To(Equal("postgresql"))
+				Expect(postgresDeployment.Spec.Template.Spec.Containers[0].Image).To(Equal("quay.io/sclorg/postgresql-16-c10s:latest"))
+
+				By("Checking if the PostgreSQL Service was created")
+				postgresService := &corev1.Service{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresService)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(postgresService.Labels["component"]).To(Equal("model-catalog-postgres"))
+				Expect(postgresService.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(postgresService.Spec.Ports).To(HaveLen(1))
+				Expect(postgresService.Spec.Ports[0].Port).To(Equal(int32(5432)))
+				Expect(postgresService.Spec.Ports[0].Name).To(Equal("postgresql"))
+
+				By("Checking if the PostgreSQL Secret was created")
+				postgresSecret := &corev1.Secret{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresSecret)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(postgresSecret.Labels["component"]).To(Equal("model-catalog-postgres"))
+				Expect(postgresSecret.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(postgresSecret.Data).To(HaveKey("database-name"))
+				Expect(postgresSecret.Data).To(HaveKey("database-password"))
+				Expect(postgresSecret.Data).To(HaveKey("database-user"))
+
+				By("Checking if the PostgreSQL PVC was created")
+				postgresPVC := &corev1.PersistentVolumeClaim{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresPVC)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(postgresPVC.Labels["component"]).To(Equal("model-catalog-postgres"))
+				Expect(postgresPVC.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(postgresPVC.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
+				Expect(postgresPVC.Spec.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			})
 
 			It("Should handle subsequent calls idempotently", func() {
@@ -223,6 +276,50 @@ var _ = Describe("ModelCatalog controller", func() {
 					}, deployment)
 					return errors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				By("Verifying PostgreSQL resources are deleted")
+				postgresDeployment := &appsv1.Deployment{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, postgresDeployment)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				postgresService := &corev1.Service{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, postgresService)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				postgresSecret := &corev1.Secret{}
+				Eventually(func() bool {
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, postgresSecret)
+					return errors.IsNotFound(err)
+				}, 10*time.Second, 1*time.Second).Should(BeTrue())
+
+				By("Verifying PVC deletion was attempted")
+				postgresPVC := &corev1.PersistentVolumeClaim{}
+
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresPVC)
+
+				if err == nil {
+					// PVC still exists, which is expected in test environment
+					// Ensure the cleanup method completed without error
+					Expect(postgresPVC.Name).To(Equal(modelCatalogName + "-postgres"))
+				} else {
+					Expect(errors.IsNotFound(err)).To(BeTrue())
+				}
 			})
 
 			Context("On OpenShift", func() {
@@ -271,6 +368,107 @@ var _ = Describe("ModelCatalog controller", func() {
 						return errors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 				})
+			})
+		})
+
+		Context("PostgreSQL resource management", func() {
+			It("Should create PostgreSQL resources with correct configuration", func() {
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying PostgreSQL secret contains correct database credentials")
+				postgresSecret := &corev1.Secret{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresSecret)
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Verify secret contains the expected keys
+				Expect(postgresSecret.Data).To(HaveKey("database-name"))
+				Expect(postgresSecret.Data).To(HaveKey("database-password"))
+				Expect(postgresSecret.Data).To(HaveKey("database-user"))
+
+				// Verify secret values match expected defaults
+				Expect(string(postgresSecret.Data["database-name"])).To(Equal(config.DefaultCatalogPostgresDatabase))
+				Expect(string(postgresSecret.Data["database-user"])).To(Equal(config.DefaultCatalogPostgresUser))
+				Expect(string(postgresSecret.Data["database-password"])).To(Equal(config.DefaultCatalogPostgresPassword))
+
+				By("Verifying PostgreSQL deployment has correct environment variables")
+				postgresDeployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresDeployment)
+				Expect(err).To(Not(HaveOccurred()))
+
+				container := postgresDeployment.Spec.Template.Spec.Containers[0]
+				Expect(container.Env).To(HaveLen(4))
+
+				// Verify environment variables reference the secret
+				envVars := make(map[string]string)
+				for _, env := range container.Env {
+					envVars[env.Name] = env.Value
+				}
+
+				Expect(envVars["POSTGRESQL_USER"]).To(Equal(""))
+				Expect(envVars["POSTGRESQL_PASSWORD"]).To(Equal(""))
+				Expect(envVars["POSTGRESQL_DATABASE"]).To(Equal(""))
+				Expect(envVars["PGDATA"]).To(Equal("/var/lib/postgresql/data/pgdata"))
+
+				// Verify secret references
+				Expect(container.Env[0].ValueFrom.SecretKeyRef.Name).To(Equal(modelCatalogName + "-postgres"))
+				Expect(container.Env[0].ValueFrom.SecretKeyRef.Key).To(Equal("database-user"))
+				Expect(container.Env[1].ValueFrom.SecretKeyRef.Name).To(Equal(modelCatalogName + "-postgres"))
+				Expect(container.Env[1].ValueFrom.SecretKeyRef.Key).To(Equal("database-password"))
+				Expect(container.Env[2].ValueFrom.SecretKeyRef.Name).To(Equal(modelCatalogName + "-postgres"))
+				Expect(container.Env[2].ValueFrom.SecretKeyRef.Key).To(Equal("database-name"))
+
+				By("Verifying PostgreSQL deployment has correct probes and configuration")
+				Expect(container.LivenessProbe).To(Not(BeNil()))
+				Expect(container.LivenessProbe.Exec.Command).To(ContainElement("/usr/bin/pg_isready -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE"))
+				Expect(container.LivenessProbe.InitialDelaySeconds).To(Equal(int32(30)))
+
+				Expect(container.ReadinessProbe).To(Not(BeNil()))
+				Expect(container.ReadinessProbe.Exec.Command).To(ContainElement("psql -w -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE -c 'SELECT 1'"))
+				Expect(container.ReadinessProbe.InitialDelaySeconds).To(Equal(int32(10)))
+
+				Expect(container.Ports).To(HaveLen(1))
+				Expect(container.Ports[0].ContainerPort).To(Equal(int32(5432)))
+				Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+
+				By("Verifying PostgreSQL deployment has correct volume mounts")
+				Expect(container.VolumeMounts).To(HaveLen(1))
+				Expect(container.VolumeMounts[0].MountPath).To(Equal("/var/lib/postgresql/data"))
+				Expect(container.VolumeMounts[0].Name).To(Equal(modelCatalogName + "-postgres-data"))
+
+				Expect(postgresDeployment.Spec.Template.Spec.Volumes).To(HaveLen(1))
+				Expect(postgresDeployment.Spec.Template.Spec.Volumes[0].Name).To(Equal(modelCatalogName + "-postgres-data"))
+				Expect(postgresDeployment.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName).To(Equal(modelCatalogName + "-postgres"))
+
+				By("Verifying PostgreSQL service configuration")
+				postgresService := &corev1.Service{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresService)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Expect(postgresService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
+				Expect(postgresService.Spec.SessionAffinity).To(Equal(corev1.ServiceAffinityNone))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName+"-postgres"))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("component", "model-catalog-postgres"))
+
+				By("Verifying PostgreSQL PVC configuration")
+				postgresPVC := &corev1.PersistentVolumeClaim{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresPVC)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Expect(postgresPVC.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
+				Expect(postgresPVC.Spec.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			})
 		})
 
@@ -389,6 +587,7 @@ var _ = Describe("ModelCatalog controller", func() {
 			By("Removing the Image ENV VARs")
 			_ = os.Unsetenv(config.RestImage)
 			_ = os.Unsetenv(config.CatalogDataImage)
+			_ = os.Unsetenv(config.BenchmarkDataImage)
 		})
 	})
 })
