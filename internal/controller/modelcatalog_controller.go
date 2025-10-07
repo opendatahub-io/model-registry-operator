@@ -84,6 +84,8 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
+	log.Info("Reconciling catalog")
+
 	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
@@ -676,15 +678,8 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	}
 
 	// Secret exists, check if data has changed
-	dataChanged := !reflect.DeepEqual(existingSecret.Data, newSecret.Data)
-
-	// Check if other mutable fields have changed
-	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
-	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
-	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
-
 	// If data has changed, we need to delete and recreate the Secret
-	if dataChanged {
+	if !reflect.DeepEqual(existingSecret.Data, newSecret.Data) {
 		// Delete the existing Secret
 		if err := r.Client.Delete(ctx, &existingSecret); err != nil {
 			return result, err
@@ -697,6 +692,14 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 		}
 		return result, r.Client.Create(ctx, &newSecret)
 	}
+
+	// Check if other mutable fields have changed
+	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
+	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
+
+	// Ignore changes to the last-applied annotation added later
+	delete(existingSecret.Annotations, patch.LastAppliedConfig)
+	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
 
 	// If only metadata changed, update in place
 	if labelsChanged || annotationsChanged || ownerRefsChanged {
