@@ -189,10 +189,6 @@ func TestDefault(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
 				Spec: v1beta1.ModelRegistrySpec{
 					Rest: v1beta1.RestSpec{},
-					OAuthProxy: &v1beta1.OAuthProxyConfig{
-						Port:   &httpsPort,
-						Domain: "example.com",
-					},
 					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 						Port:   &httpsPort,
 						Domain: "different.com",
@@ -205,16 +201,11 @@ func TestDefault(t *testing.T) {
 					Rest: v1beta1.RestSpec{
 						ServiceRoute: config.RouteDisabled,
 					},
-					// OAuthProxy should remain unchanged
-					OAuthProxy: &v1beta1.OAuthProxyConfig{
-						Port:         &httpsPort,
-						Domain:       "example.com",
-						ServiceRoute: config.RouteEnabled,
-					},
 					// KubeRBACProxy should remain unchanged
 					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
-						Port:   &httpsPort,
-						Domain: "different.com",
+						Port:         &httpsPort,
+						Domain:       "different.com",
+						ServiceRoute: config.RouteEnabled,
 					},
 				},
 			},
@@ -305,18 +296,8 @@ func TestRuntimeDefaults(t *testing.T) {
 						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
-					OAuthProxy: &v1beta1.OAuthProxyConfig{
-						TLSCertificateSecret: &v1beta1.SecretKeyValue{
-							Name: "default-oauth-proxy",
-							Key:  "tls.crt",
-						},
-						TLSKeySecret: &v1beta1.SecretKeyValue{
-							Name: "default-oauth-proxy",
-							Key:  "tls.key",
-						},
-						Domain: domain,
-						Image:  config.DefaultOAuthProxyImage,
-					},
+					// No runtime defaults for oauth proxy config
+					OAuthProxy: &v1beta1.OAuthProxyConfig{},
 				},
 			},
 		},
