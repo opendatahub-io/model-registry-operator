@@ -551,9 +551,6 @@ spec:
                   database:
                     description: The database name.
                     type: string
-                  generateDeployment:
-                    description: Auto-provision a PostgreSQL database if true.
-                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string

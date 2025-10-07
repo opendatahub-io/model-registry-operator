@@ -55,6 +55,7 @@ type PostgresConfig struct {
 	// Port number to connect to at the server host.
 	Port *int32 `json:"port,omitempty"`
 
+	//+kubebuilder:required
 	// PostgreSQL username to connect as.
 	Username string `json:"username,omitempty"`
 
@@ -69,9 +70,6 @@ type PostgresConfig struct {
 	// True if skipping database instance creation during ML Metadata
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
-
-	// Auto-provision a PostgreSQL database if true.
-	GenerateDeployment *bool `json:"generateDeployment,omitempty"`
 
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable

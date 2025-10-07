@@ -60,13 +60,8 @@ func (r *ModelRegistry) Default() {
 	}
 
 	// Fixes default database configs that get set for some reason in Kind cluster
-	// But don't remove postgres config if auto-provisioning is enabled
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
-		// Check if auto-provisioning is enabled before removing the config
-		isAutoProvisioning := r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
-		if !isAutoProvisioning {
-			r.Spec.Postgres = nil
-		}
+		r.Spec.Postgres = nil
 	}
 	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
 		r.Spec.MySQL = nil
@@ -242,7 +237,12 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
-	// No validation for deprecated v1alpha1 API
+	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
+		return nil, field.ErrorList{
+			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
+			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
+		}
+	}
 	return nil, nil
 }
 
