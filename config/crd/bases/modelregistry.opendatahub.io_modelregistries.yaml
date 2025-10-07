@@ -681,6 +681,8 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
+                required:
+                - database
                 type: object
               rest:
                 description: Configuration for REST endpoint
@@ -1315,6 +1317,13 @@ spec:
                     description: PostgreSQL username to connect as.
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: GenerateDeployment must be set to true if host/hostAddress
+                    are not provided
+                  rule: 'has(self.generateDeployment) && self.generateDeployment ?
+                    true : (size(self.host) > 0 || size(self.hostAddress) > 0)'
+                - message: Username must be set if database is specified
+                  rule: 'size(self.database) > 0 ? size(self.username) > 0 : true'
               rest:
                 description: Configuration for REST endpoint
                 properties:
