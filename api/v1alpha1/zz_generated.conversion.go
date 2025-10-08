@@ -112,11 +112,6 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}); err != nil {
 		return err
 	}
-	if err := s.AddGeneratedConversionFunc((*v1beta1.PostgresConfig)(nil), (*PostgresConfig)(nil), func(a, b interface{}, scope conversion.Scope) error {
-		return Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(a.(*v1beta1.PostgresConfig), b.(*PostgresConfig), scope)
-	}); err != nil {
-		return err
-	}
 	if err := s.AddGeneratedConversionFunc((*RestSpec)(nil), (*v1beta1.RestSpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1alpha1_RestSpec_To_v1beta1_RestSpec(a.(*RestSpec), b.(*v1beta1.RestSpec), scope)
 	}); err != nil {
@@ -144,6 +139,11 @@ func RegisterConversions(s *runtime.Scheme) error {
 	}
 	if err := s.AddConversionFunc((*v1beta1.ModelRegistrySpec)(nil), (*ModelRegistrySpec)(nil), func(a, b interface{}, scope conversion.Scope) error {
 		return Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(a.(*v1beta1.ModelRegistrySpec), b.(*ModelRegistrySpec), scope)
+	}); err != nil {
+		return err
+	}
+	if err := s.AddConversionFunc((*v1beta1.PostgresConfig)(nil), (*PostgresConfig)(nil), func(a, b interface{}, scope conversion.Scope) error {
+		return Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(a.(*v1beta1.PostgresConfig), b.(*PostgresConfig), scope)
 	}); err != nil {
 		return err
 	}
