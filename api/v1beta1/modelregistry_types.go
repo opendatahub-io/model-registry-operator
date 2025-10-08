@@ -44,7 +44,7 @@ type SecretKeyValue struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="has(self.generateDeployment) && self.generateDeployment ? true : (size(self.host) > 0 || size(self.hostAddress) > 0)",message="GenerateDeployment must be set to true if host/hostAddress are not provided"
-// +kubebuilder:validation:XValidation:rule="size(self.database) > 0 ? size(self.username) > 0 : true",message="Username must be set if database is specified"
+// +kubebuilder:validation:XValidation:rule="has(self.database) && size(self.database) > 0 ? has(self.username) && size(self.username) > 0 : true",message="Username must be set if database is specified"
 type PostgresConfig struct {
 	// Name of host to connect to.
 	Host string `json:"host,omitempty"`

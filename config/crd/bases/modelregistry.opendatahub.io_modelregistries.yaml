@@ -1320,7 +1320,8 @@ spec:
                   rule: 'has(self.generateDeployment) && self.generateDeployment ?
                     true : (size(self.host) > 0 || size(self.hostAddress) > 0)'
                 - message: Username must be set if database is specified
-                  rule: 'size(self.database) > 0 ? size(self.username) > 0 : true'
+                  rule: 'has(self.database) && size(self.database) > 0 ? has(self.username)
+                    && size(self.username) > 0 : true'
               rest:
                 description: Configuration for REST endpoint
                 properties:
