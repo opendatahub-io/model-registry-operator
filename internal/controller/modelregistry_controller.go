@@ -383,16 +383,9 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	// cleanup oauth proxy config as it's not used anymore
-	result2, err = r.deleteOAuthConfig(ctx, params, registry)
-	if err != nil {
-		return result2, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
 	// create or update kube-rbac-proxy config if enabled, delete if disabled
+	// This also handles cleanup of OAuth proxy resources since they share the same
+	// ClusterRoleBinding, Route, and NetworkPolicy names
 	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err

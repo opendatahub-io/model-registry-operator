@@ -350,8 +350,8 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	}
 
 	if r.IsOpenShift {
-		// Delete OAuth Proxy Route
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "https-route.yaml.tmpl", &routev1.Route{})
+		// Delete OAuth Proxy Route (now uses kube-rbac-proxy templates)
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "kube-rbac-proxy-https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -359,8 +359,8 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 			result = result2
 		}
 
-		// Delete OAuth Proxy NetworkPolicy
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
+		// Delete OAuth Proxy NetworkPolicy (now uses kube-rbac-proxy templates)
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "kube-rbac-proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -717,19 +717,15 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
 	result = ResourceUnchanged
 
-	// delete oauth proxy rolebinding
-	result, err = r.deleteFromTemplate(ctx, params, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
-	if err != nil {
-		return result, err
-	}
-
 	// delete oauth proxy cookie secret
-	result2, err := r.deleteFromTemplate(ctx, params, "proxy-cookie-secret.yaml.tmpl", &corev1.Secret{})
-	if err != nil {
-		return result2, err
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      params.Name + "-oauth-cookie-secret",
+			Namespace: params.Namespace,
+		},
 	}
-	if result2 != ResourceUnchanged {
-		result = result2
+	if err := r.Client.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
+		return result, err
 	}
 
 	return result, nil

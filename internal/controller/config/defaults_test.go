@@ -161,8 +161,8 @@ func TestKubeRBACProxyTemplates(t *testing.T) {
 			return
 		}
 
-		if result.Name != "test-registry-kube-rbac-proxy" {
-			t.Errorf("ClusterRoleBinding name = %v, want test-registry-kube-rbac-proxy", result.Name)
+		if result.Name != "test-registry-auth-delegator" {
+			t.Errorf("ClusterRoleBinding name = %v, want test-registry-auth-delegator", result.Name)
 		}
 
 		if result.RoleRef.Name != "system:auth-delegator" {
@@ -205,6 +205,15 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 				RoutePort: &routePort,
 				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
 				Domain:    "example.com",
+				// RuntimeDefaults sets these, so they must be present for template rendering
+				TLSCertificateSecret: &v1beta1.SecretKeyValue{
+					Name: "test-registry-kube-rbac-proxy",
+					Key:  "tls.crt",
+				},
+				TLSKeySecret: &v1beta1.SecretKeyValue{
+					Name: "test-registry-kube-rbac-proxy",
+					Key:  "tls.key",
+				},
 			},
 		},
 	}

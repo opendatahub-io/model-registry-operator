@@ -36,8 +36,6 @@ import (
 )
 
 //go:embed templates/*.yaml.tmpl
-//go:embed templates/proxy/*.yaml.tmpl
-//go:embed templates/oauth-proxy/*.yaml.tmpl
 //go:embed templates/kube-rbac-proxy/*.yaml.tmpl
 //go:embed templates/catalog/*.yaml.tmpl
 var templateFS embed.FS
@@ -124,8 +122,6 @@ func ParseTemplates() (*template.Template, error) {
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
-		"templates/proxy/*.yaml.tmpl",
-		"templates/oauth-proxy/*.yaml.tmpl",
 		"templates/kube-rbac-proxy/*.yaml.tmpl",
 		"templates/catalog/*.yaml.tmpl",
 	)
