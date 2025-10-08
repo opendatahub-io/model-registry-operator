@@ -1322,6 +1322,11 @@ spec:
                 - message: Username must be set if database is specified
                   rule: 'has(self.database) && size(self.database) > 0 ? has(self.username)
                     && size(self.username) > 0 : true'
+                - message: host and hostAddress must not be set when generateDeployment
+                    is true
+                  rule: '!(has(self.generateDeployment) && self.generateDeployment)
+                    || ((!has(self.host) || size(self.host) == 0) && (!has(self.hostAddress)
+                    || size(self.hostAddress) == 0))'
               rest:
                 description: Configuration for REST endpoint
                 properties:
