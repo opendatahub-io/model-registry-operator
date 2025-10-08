@@ -135,6 +135,24 @@ spec:
             mountPath: /shared-data
           - name: benchmark-data
             mountPath: /shared-benchmark-data
+          env:
+            - name: PGHOST
+              value: {{.Name}}-postgres
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-name
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-password
         {{ if .Spec.KubeRBACProxy }}
         - name: kube-rbac-proxy
           args:
