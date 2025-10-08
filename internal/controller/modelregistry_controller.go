@@ -176,6 +176,19 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// Migrate OAuth proxy to kube-rbac-proxy for existing registries
+	// This handles registries created before the migration or updated outside the webhook
+	if modelRegistry.Spec.OAuthProxy != nil {
+		log.Info("Migrating OAuthProxy to KubeRBACProxy")
+		modelRegistry.MigrateOAuthProxyToKubeRBACProxy()
+		if err = r.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry after OAuth proxy migration")
+			return ctrl.Result{}, err
+		}
+		// Requeue to process with the migrated configuration
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// remember original spec
 	originalSpec := modelRegistry.Spec.DeepCopy()
 	// set runtime default properties in memory for reconciliation

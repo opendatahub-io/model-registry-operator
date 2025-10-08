@@ -245,6 +245,7 @@ type OAuthProxyConfig struct {
 	Image string `json:"image,omitempty"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.tlsCertificateSecret) == has(self.tlsKeySecret)",message="tlsCertificateSecret and tlsKeySecret MUST be set together"
 // KubeRBACProxyConfig specifies the kube-rbac-proxy configuration options
 type KubeRBACProxyConfig struct {
 	//+kubebuilder:default=8443
@@ -361,7 +362,7 @@ type ModelRegistryStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:storageversion
 //+kubebuilder:printcolumn:name="Available",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].status`
-//+kubebuilder:printcolumn:name="OAuthProxy",type=string,JSONPath=`.status.conditions[?(@.type=="OAuthProxyAvailable")].status`,priority=2
+//+kubebuilder:printcolumn:name="KubeRBACProxy",type=string,JSONPath=`.status.conditions[?(@.type=="KubeRBACProxyAvailable")].status`,priority=2
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 //+kubebuilder:printcolumn:name="Hosts",type=string,JSONPath=`.status.hostsStr`,priority=2
 //+kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.conditions[?(@.type=="Available")].message`,priority=2

@@ -846,8 +846,8 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Available")].status
       name: Available
       type: string
-    - jsonPath: .status.conditions[?(@.type=="OAuthProxyAvailable")].status
-      name: OAuthProxy
+    - jsonPath: .status.conditions[?(@.type=="KubeRBACProxyAvailable")].status
+      name: KubeRBACProxy
       priority: 2
       type: string
     - jsonPath: .metadata.creationTimestamp
@@ -1041,6 +1041,9 @@ spec:
                     - name
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: tlsCertificateSecret and tlsKeySecret MUST be set together
+                  rule: has(self.tlsCertificateSecret) == has(self.tlsKeySecret)
               mysql:
                 description: MySQL configuration options
                 properties:

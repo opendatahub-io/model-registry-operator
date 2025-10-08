@@ -218,6 +218,7 @@ spec:
           args:
             - --secure-listen-address=0.0.0.0:{{.Spec.KubeRBACProxy.Port}}
             - --upstream=http://127.0.0.1:{{.Spec.Rest.Port}}/
+            - --proxy-endpoints-port=8888
             - --logtostderr=true
             - --v=0
             - --config-file=/etc/kube-rbac-proxy/config-file.yaml
@@ -228,10 +229,13 @@ spec:
             - containerPort: {{.Spec.KubeRBACProxy.Port}}
               name: https-proxy
               protocol: TCP
+            - containerPort: 8888
+              name: proxy-healthz
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /healthz
-              port: https-proxy
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 30
             timeoutSeconds: 1
@@ -241,7 +245,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /healthz
-              port: https-proxy
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 5
             timeoutSeconds: 1
