@@ -32,9 +32,12 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
       volumes:
-      - name: sources
+      - name: user-sources
         configMap:
           name: model-catalog-sources
+      - name: default-sources
+        configMap:
+          name: model-catalog-default-sources
       - name: catalog-data
         emptyDir: {}
       - name: benchmark-data
@@ -86,7 +89,8 @@ spec:
             - catalog
           args:
             - --listen=0.0.0.0:8080
-            - --catalogs-path=/catalog/sources.yaml
+            - --catalogs-path=/data/user-sources/sources.yaml
+            - --catalogs-path=/data/default-sources/sources.yaml
           image: {{.Spec.Rest.Image}}
           ports:
             - name: http-api
@@ -122,8 +126,10 @@ spec:
               drop:
                 - ALL
           volumeMounts:
-          - name: sources
-            mountPath: /catalog
+          - name: user-sources
+            mountPath: /data/user-sources
+          - name: default-sources
+            mountPath: /data/default-sources
           - name: catalog-data
             mountPath: /shared-data
           - name: benchmark-data
