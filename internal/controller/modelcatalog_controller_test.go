@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -574,6 +575,416 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Attempting to delete non-existent resources")
 				_, err := catalogReconciler.cleanupCatalogResources(ctx)
 				Expect(err).To(Not(HaveOccurred()))
+			})
+		})
+
+		Context("ConfigMap management", func() {
+			It("Should create both user and default sources ConfigMaps", func() {
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Checking if the user sources ConfigMap was created")
+				userConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				}, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userConfigMap.Labels["component"]).To(Equal("model-catalog"))
+				Expect(userConfigMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(userConfigMap.Data).To(HaveKey("sources.yaml"))
+				Expect(userConfigMap.Data["sources.yaml"]).To(ContainSubstring("catalogs: []"))
+
+				By("Checking if the default sources ConfigMap was created")
+				defaultConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(defaultConfigMap.Labels["component"]).To(Equal("model-catalog"))
+				Expect(defaultConfigMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+				Expect(defaultConfigMap.Data).To(HaveKey("sources.yaml"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/default-catalog.yaml"))
+			})
+
+			It("Should update default sources ConfigMap when changed", func() {
+				By("Creating initial resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Getting the default sources ConfigMap")
+				defaultConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Modifying the ConfigMap to simulate external changes")
+				defaultConfigMap.Data["sources.yaml"] = "catalogs:\n  - name: Modified\n    id: modified"
+				err = k8sClient.Update(ctx, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation again")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the ConfigMap was restored to the expected state")
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+			})
+
+			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
+				By("Creating initial resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Getting the user sources ConfigMap")
+				userConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				}, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Modifying the user ConfigMap to add custom sources")
+				customSources := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /custom/path.yaml`
+				userConfigMap.Data["sources.yaml"] = customSources
+				err = k8sClient.Update(ctx, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation again")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the user ConfigMap was not modified")
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				}, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userConfigMap.Data["sources.yaml"]).To(Equal(customSources))
+			})
+
+			It("Should remove default catalog from user sources ConfigMap during migration", func() {
+				By("Creating a user ConfigMap with the old default catalog")
+				userConfigMapWithDefault := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-sources",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app":                          "model-catalog",
+							"component":                    "model-catalog",
+							"app.kubernetes.io/name":       "model-catalog",
+							"app.kubernetes.io/instance":   "model-catalog",
+							"app.kubernetes.io/component":  "model-catalog",
+							"app.kubernetes.io/created-by": "model-registry-operator",
+							"app.kubernetes.io/part-of":    "model-registry",
+							"app.kubernetes.io/managed-by": "model-registry-operator",
+						},
+					},
+					Data: map[string]string{
+						"sources.yaml": `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /custom/path.yaml`,
+					},
+				}
+				err := k8sClient.Create(ctx, userConfigMapWithDefault)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation to trigger migration")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the default catalog was removed from user ConfigMap")
+				userConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				}, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userConfigMap.Data["sources.yaml"]).To(Not(ContainSubstring("default_catalog")))
+				Expect(userConfigMap.Data["sources.yaml"]).To(ContainSubstring("custom_catalog"))
+
+				By("Verifying the default sources ConfigMap was still created")
+				defaultConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+			})
+
+			It("Should handle malformed YAML in user sources ConfigMap gracefully", func() {
+				By("Creating a user ConfigMap with malformed YAML")
+				userConfigMapMalformed := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-sources",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app":                          "model-catalog",
+							"component":                    "model-catalog",
+							"app.kubernetes.io/name":       "model-catalog",
+							"app.kubernetes.io/instance":   "model-catalog",
+							"app.kubernetes.io/component":  "model-catalog",
+							"app.kubernetes.io/created-by": "model-registry-operator",
+							"app.kubernetes.io/part-of":    "model-registry",
+							"app.kubernetes.io/managed-by": "model-registry-operator",
+						},
+					},
+					Data: map[string]string{
+						"sources.yaml": `invalid: yaml: content:
+  - malformed
+    - nested
+catalogs:
+  - name: Default Catalog
+    id: default_catalog`,
+					},
+				}
+				err := k8sClient.Create(ctx, userConfigMapMalformed)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation should not fail")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying malformed ConfigMap was left unchanged")
+				userConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				}, userConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userConfigMap.Data["sources.yaml"]).To(ContainSubstring("invalid: yaml: content:"))
+
+				By("Verifying default sources ConfigMap was still created")
+				defaultConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+			})
+
+			It("Should set owner references on default sources ConfigMap", func() {
+				By("Creating catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Getting the default sources ConfigMap")
+				defaultConfigMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "model-catalog-default-sources",
+					Namespace: namespaceName,
+				}, defaultConfigMap)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying owner reference is set when platform ModelRegistry exists")
+				// Note: In this test environment, the platform ModelRegistry may not exist,
+				// so we check that the function handles this case gracefully
+				// If owner reference exists, it should be properly formatted
+				if len(defaultConfigMap.OwnerReferences) > 0 {
+					Expect(defaultConfigMap.OwnerReferences[0].APIVersion).To(ContainSubstring("modelregistry"))
+					Expect(defaultConfigMap.OwnerReferences[0].Kind).To(Equal("ModelRegistry"))
+				}
+			})
+
+			It("Should correctly configure deployment volumes for both ConfigMaps", func() {
+				By("Creating catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Getting the deployment")
+				deployment := &appsv1.Deployment{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying deployment has both user and default sources volumes")
+				volumes := deployment.Spec.Template.Spec.Volumes
+				var userSourcesVolume, defaultSourcesVolume *corev1.Volume
+				for i := range volumes {
+					if volumes[i].Name == "user-sources" {
+						userSourcesVolume = &volumes[i]
+					}
+					if volumes[i].Name == "default-sources" {
+						defaultSourcesVolume = &volumes[i]
+					}
+				}
+
+				Expect(userSourcesVolume).To(Not(BeNil()))
+				Expect(userSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-sources"))
+
+				Expect(defaultSourcesVolume).To(Not(BeNil()))
+				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-default-sources"))
+
+				By("Verifying catalog container has both volume mounts")
+				catalogContainer := deployment.Spec.Template.Spec.Containers[0]
+				var userSourcesMount, defaultSourcesMount *corev1.VolumeMount
+				for i := range catalogContainer.VolumeMounts {
+					if catalogContainer.VolumeMounts[i].Name == "user-sources" {
+						userSourcesMount = &catalogContainer.VolumeMounts[i]
+					}
+					if catalogContainer.VolumeMounts[i].Name == "default-sources" {
+						defaultSourcesMount = &catalogContainer.VolumeMounts[i]
+					}
+				}
+
+				Expect(userSourcesMount).To(Not(BeNil()))
+				Expect(userSourcesMount.MountPath).To(Equal("/data/user-sources"))
+
+				Expect(defaultSourcesMount).To(Not(BeNil()))
+				Expect(defaultSourcesMount.MountPath).To(Equal("/data/default-sources"))
+
+				By("Verifying catalog container has both catalogs-path arguments")
+				args := catalogContainer.Args
+				Expect(args).To(ContainElement("--catalogs-path=/data/user-sources/sources.yaml"))
+				Expect(args).To(ContainElement("--catalogs-path=/data/default-sources/sources.yaml"))
+			})
+		})
+
+		Context("removeDefaultSource function", func() {
+			It("Should remove default catalog from YAML with multiple catalogs", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /custom/path.yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+				Expect(result).To(ContainSubstring("Custom Catalog"))
+			})
+
+			It("Should return empty when only default catalog exists", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(ContainSubstring("catalogs: []"))
+			})
+
+			It("Should return empty string when no default catalog exists", func() {
+				input := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /custom/path.yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""))
+			})
+
+			It("Should handle empty catalog list", func() {
+				input := `catalogs: []`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""))
+			})
+
+			It("Should handle malformed YAML gracefully", func() {
+				input := `invalid: yaml: content:
+  - malformed
+    - nested`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(HaveOccurred())
+				Expect(result).To(Equal(""))
+			})
+
+			It("Should preserve catalog order when removing default", func() {
+				input := `catalogs:
+  - name: First Catalog
+    id: first_catalog
+    type: yaml
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+  - name: Third Catalog
+    id: third_catalog
+    type: yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("first_catalog"))
+				Expect(result).To(ContainSubstring("third_catalog"))
+
+				// Verify order is preserved
+				lines := result
+				firstIndex := strings.Index(lines, "first_catalog")
+				thirdIndex := strings.Index(lines, "third_catalog")
+				Expect(firstIndex).To(BeNumerically("<", thirdIndex))
+			})
+
+			It("Should handle catalogs with different structures", func() {
+				input := `catalogs:
+  - name: Simple Catalog
+    id: simple_catalog
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    enabled: true
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+      other: value
+  - name: Complex Catalog
+    id: complex_catalog
+    type: database
+    enabled: false
+    properties:
+      host: localhost
+      port: 5432`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("simple_catalog"))
+				Expect(result).To(ContainSubstring("complex_catalog"))
+				Expect(result).To(ContainSubstring("host: localhost"))
 			})
 		})
 

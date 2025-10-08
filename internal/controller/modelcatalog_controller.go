@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"reflect"
+	"slices"
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/yaml"
 )
 
 const modelCatalogName = "model-catalog"
@@ -45,6 +47,12 @@ type ModelCatalogReconciler struct {
 	TargetNamespace       string
 	Enabled               bool
 	SkipCatalogDBCreation bool
+
+	// noDefaultSource is set after checking for the default source in the
+	// user-managed sources configmap. When true, the default source is
+	// assumed to not be present and no further attempts are made to remove
+	// it.
+	noDefaultSource bool
 
 	// embedded utilities for shared functionality
 	templateApplier *TemplateApplier
@@ -84,7 +92,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
 	crOwner, err := r.fetchDefaultModelRegistry(ctx)
-	if err != nil {
+	if client.IgnoreNotFound(err) != nil {
 		log.Error(err, "unable to retrieve platform model registry CRD")
 	}
 
@@ -94,8 +102,17 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Create sources ConfigMap
-	result2, err := r.ensureConfigMapExists(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
+	// Create or update the managed default sources ConfigMap
+	result2, err := r.createOrUpdateConfigmap(ctx, catalogParams, "catalog-default-configmap.yaml.tmpl", crOwner)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create the user-managed sources ConfigMap if it doesn't exist
+	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -427,7 +444,33 @@ func (r *ModelCatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) ensureConfigMapExists(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) createOrUpdateConfigmap(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
+	result := ResourceUnchanged
+	var cm corev1.ConfigMap
+	if err := r.Apply(params, templateName, &cm); err != nil {
+		return result, err
+	}
+
+	r.applyLabels(&cm.ObjectMeta, params)
+	r.applyOwnerReference(&cm.ObjectMeta, owner)
+
+	result, err := r.createOrUpdate(ctx, &corev1.ConfigMap{}, &cm)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+const sourcesFileName = "sources.yaml"
+
+func (r *ModelCatalogReconciler) manageUserSourcesConfigmap(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+	log := klog.FromContext(ctx)
+
+	// The sources configmap is created by this operator and it can be
+	// changed to suit the site's needs. Before 3.0, the default configmap
+	// contained an entry for the default catalog, which has now been moved
+	// to the default sources configmap. The default catalog needs to be
+	// removed from the user sources configmap if it's found.
 	result := ResourceUnchanged
 	var cm corev1.ConfigMap
 	if err := r.Apply(params, templateName, &cm); err != nil {
@@ -436,11 +479,86 @@ func (r *ModelCatalogReconciler) ensureConfigMapExists(ctx context.Context, para
 
 	r.applyLabels(&cm.ObjectMeta, params)
 
-	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
+	var existing corev1.ConfigMap
+	result, err := r.createIfNotExists(ctx, &existing, &cm)
 	if err != nil {
 		return result, err
 	}
+
+	if result == ResourceCreated {
+		return result, nil
+	}
+
+	// If we've already checked for the default source this run then don't
+	// check it again.
+	if r.noDefaultSource {
+		return result, nil
+	}
+
+	if existing.Data == nil {
+		// Empty configmap, so nothing to do.
+		return result, nil
+	}
+
+	existing.Data[sourcesFileName], err = r.removeDefaultSource(existing.Data[sourcesFileName])
+	if err != nil {
+		log.Error(err, "Unable to process sources configmap")
+		return result, nil
+	}
+
+	if existing.Data[sourcesFileName] == "" {
+		// Nothing to do.
+		r.noDefaultSource = true
+		return result, nil
+	}
+
+	result = ResourceUpdated
+	log.Info("updating", "kind", existing.GetObjectKind().GroupVersionKind(), "name", existing.GetName())
+	if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existing); err != nil {
+		return result, err
+	}
+	err = r.Client.Update(ctx, &existing)
+	if err != nil {
+		return result, err
+	}
+
+	r.noDefaultSource = true
 	return result, nil
+}
+
+func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error) {
+	type catalog struct {
+		Name       string            `json:"name"`
+		ID         string            `json:"id"`
+		Type       string            `json:"type"`
+		Enabled    *bool             `json:"enabled,omitempty"`
+		Properties map[string]string `json:"properties,omitempty"`
+	}
+	var sources struct {
+		Catalogs []catalog `json:"catalogs"`
+	}
+
+	err := yaml.UnmarshalStrict([]byte(doc), &sources)
+	if err != nil {
+		return "", err
+	}
+
+	originalLen := len(sources.Catalogs)
+	sources.Catalogs = slices.DeleteFunc(sources.Catalogs, func(c catalog) bool {
+		return c.ID == "default_catalog"
+	})
+
+	if len(sources.Catalogs) == originalLen {
+		// Nothing to do
+		return "", nil
+	}
+
+	buf, err := yaml.Marshal(sources)
+	if err != nil {
+		return "", err
+	}
+
+	return string(buf), nil
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
