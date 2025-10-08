@@ -4,7 +4,7 @@ metadata:
   name: modelregistry-sample
 spec:
   postgres:
-    generate: true
+    generateDeployment: true
   rest:
     port: 8080
   grpc:
