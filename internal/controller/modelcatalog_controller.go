@@ -351,7 +351,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 	if r.IsOpenShift {
 		// Delete OAuth Proxy Route (now uses kube-rbac-proxy templates)
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "kube-rbac-proxy-https-route.yaml.tmpl", &routev1.Route{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -360,7 +360,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 
 		// Delete OAuth Proxy NetworkPolicy (now uses kube-rbac-proxy templates)
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "kube-rbac-proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
