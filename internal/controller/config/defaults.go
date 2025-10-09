@@ -80,8 +80,9 @@ var (
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
-	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
-	MlmdGRPCResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	CatalogServiceResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	MlmdRestResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	MlmdGRPCResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
 )
 
 func init() {
@@ -90,15 +91,25 @@ func init() {
 }
 
 func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory resource.Quantity, LimitsCPU resource.Quantity, LimitsMemory resource.Quantity) v1.ResourceRequirements {
+	requests := v1.ResourceList{}
+	if !RequestsCPU.IsZero() {
+		requests["cpu"] = RequestsCPU
+	}
+	if !RequestsMemory.IsZero() {
+		requests["memory"] = RequestsMemory
+	}
+
+	limits := v1.ResourceList{}
+	if !LimitsCPU.IsZero() {
+		limits["cpu"] = LimitsCPU
+	}
+	if !LimitsMemory.IsZero() {
+		limits["memory"] = LimitsMemory
+	}
+
 	return v1.ResourceRequirements{
-		Requests: v1.ResourceList{
-			"cpu":    RequestsCPU,
-			"memory": RequestsMemory,
-		},
-		Limits: v1.ResourceList{
-			"cpu":    LimitsCPU,
-			"memory": LimitsMemory,
-		},
+		Requests: requests,
+		Limits:   limits,
 	}
 }
 
@@ -118,7 +129,8 @@ func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
 
 func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
-		"randBytes": utils.RandBytes,
+		"randBytes":        utils.RandBytes,
+		"quantityToString": utils.QuantityToString,
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",

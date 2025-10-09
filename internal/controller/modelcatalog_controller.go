@@ -218,7 +218,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.IsOpenShift {
 		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-route.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -227,7 +227,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 
 		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-network-policy.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -848,8 +848,9 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
-			Port:  &restPort,
-			Image: config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Port:      &restPort,
+			Image:     config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Resources: &config.CatalogServiceResourceRequirements,
 		},
 		// Use kube-rbac-proxy by default instead of oauth-proxy
 		KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{

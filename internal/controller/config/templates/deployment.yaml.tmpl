@@ -197,15 +197,17 @@ spec:
             failureThreshold: 3
           {{- with .Spec.Rest.Resources }}
           resources:
-            {{- with .Requests }}
+            {{- if .Requests }}
             requests:
-              cpu: {{.Cpu}}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Requests }}
+              {{$key}}: {{quantityToString $value}}
             {{- end }}
-            {{- with .Limits }}
+            {{- end }}
+            {{- if .Limits }}
             limits:
-              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Limits }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
             {{- end }}
           {{- end }}
           securityContext:

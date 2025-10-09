@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func DownloadFile(url string, path string) error {
@@ -42,4 +44,9 @@ func RandBytes(n int) string {
 	buf := make([]byte, n)
 	rand.Read(buf)
 	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// QuantityToString converts a resource.Quantity to a string
+func QuantityToString(q resource.Quantity) string {
+	return q.String()
 }
