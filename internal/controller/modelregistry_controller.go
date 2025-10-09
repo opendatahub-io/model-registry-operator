@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -316,6 +317,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	var result, result2 OperationResult
 
 	var err error
+
+	if registry.Spec.Postgres != nil && registry.Spec.Postgres.GenerateDeployment != nil && *registry.Spec.Postgres.GenerateDeployment {
+		result, err = r.createOrUpdatePostgres(ctx, params, registry)
+		if err != nil {
+			return result, err
+		}
+	}
+
 	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "serviceaccount.yaml.tmpl")
 	if err != nil {
 		return result, err
@@ -386,6 +395,104 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	// Clean up old catalog resources from before it was moved to ModelCatalogReconciler
 	if err := r.deleteOldCatalogResources(ctx, params); err != nil {
 		return result, err
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, params *ModelRegistryParams,
+	registry *v1beta1.ModelRegistry) (result OperationResult, err error) {
+	log := klog.FromContext(ctx)
+	log.Info("Creating or updating postgres database")
+	result = ResourceUnchanged
+	var secret corev1.Secret
+	secretName := params.Name + "-postgres-credentials"
+	err = r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: params.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the secret
+			log.Info("Creating postgres secret", "secret", secretName)
+			secret = corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: params.Namespace,
+				},
+				StringData: map[string]string{
+					"username": "modelregistry",
+					"password": utils.RandBytes(16),
+				},
+			}
+			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
+				log.Error(err, "Failed to set controller reference on secret")
+				return result, err
+			}
+			if result, err = r.createOrUpdate(ctx, &corev1.Secret{}, &secret); err != nil {
+				log.Error(err, "Failed to create or update secret")
+				return result, err
+			}
+		} else {
+			log.Error(err, "Failed to get secret")
+			return result, err
+		}
+	}
+
+	log.Info("Creating or updating postgres PVC")
+	var pvc corev1.PersistentVolumeClaim
+	if err = r.Apply(params, "postgres-pvc.yaml.tmpl", &pvc); err != nil {
+		log.Error(err, "Failed to apply postgres PVC template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &pvc, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on PVC")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc); err != nil {
+		log.Error(err, "Failed to create or update PVC")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres deployment")
+	var deployment appsv1.Deployment
+	if err = r.Apply(params, "postgres-deployment.yaml.tmpl", &deployment); err != nil {
+		log.Error(err, "Failed to apply postgres deployment template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on deployment")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
+		log.Error(err, "Failed to create or update deployment")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres service")
+	var service corev1.Service
+	if err = r.Apply(params, "postgres-service.yaml.tmpl", &service); err != nil {
+		log.Error(err, "Failed to apply postgres service template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on service")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
+		log.Error(err, "Failed to create or update service")
+		return result, err
+	}
+
+	// Update the spec in memory
+	log.Info("Updating spec in memory with postgres details")
+	port := int32(5432)
+	registry.Spec.Postgres = &v1beta1.PostgresConfig{
+		Host:     params.Name + "-postgres",
+		Port:     &port,
+		Username: "modelregistry",
+		Database: "model_registry",
+		PasswordSecret: &v1beta1.SecretKeyValue{
+			Name: secretName,
+			Key:  "password",
+		},
 	}
 
 	return result, nil

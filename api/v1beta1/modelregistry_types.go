@@ -43,6 +43,9 @@ type SecretKeyValue struct {
 	Key string `json:"key"`
 }
 
+// +kubebuilder:validation:XValidation:rule="has(self.generateDeployment) && self.generateDeployment ? true : (size(self.host) > 0 || size(self.hostAddress) > 0)",message="GenerateDeployment must be set to true if host/hostAddress are not provided"
+// +kubebuilder:validation:XValidation:rule="has(self.database) && size(self.database) > 0 ? has(self.username) && size(self.username) > 0 : true",message="Username must be set if database is specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.generateDeployment) && self.generateDeployment) || ((!has(self.host) || size(self.host) == 0) && (!has(self.hostAddress) || size(self.hostAddress) == 0))",message="host and hostAddress must not be set when generateDeployment is true"
 type PostgresConfig struct {
 	// Name of host to connect to.
 	Host string `json:"host,omitempty"`
@@ -56,21 +59,22 @@ type PostgresConfig struct {
 	// Port number to connect to at the server host.
 	Port *int32 `json:"port,omitempty"`
 
-	//+kubebuilder:required
 	// PostgreSQL username to connect as.
 	Username string `json:"username,omitempty"`
 
 	// Password to be used if required by the PostgreSQL server.
 	PasswordSecret *SecretKeyValue `json:"passwordSecret,omitempty"`
 
-	//+kubebuilder:required
 	// The database name.
-	Database string `json:"database"`
+	Database string `json:"database,omitempty"`
 
 	//+kubebuilder:default=false
 	// True if skipping database instance creation during ML Metadata
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
+
+	// Auto-provision a PostgreSQL database if true.
+	GenerateDeployment *bool `json:"generateDeployment,omitempty"`
 
 	//+kubebuilder:validation:Enum=disable;allow;prefer;require;verify-ca;verify-full
 	//+kubebuilder:default=disable

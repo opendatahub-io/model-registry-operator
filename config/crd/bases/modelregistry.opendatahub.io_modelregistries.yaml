@@ -1183,6 +1183,9 @@ spec:
                   database:
                     description: The database name.
                     type: string
+                  generateDeployment:
+                    description: Auto-provision a PostgreSQL database if true.
+                    type: boolean
                   host:
                     description: Name of host to connect to.
                     type: string
@@ -1310,9 +1313,20 @@ spec:
                   username:
                     description: PostgreSQL username to connect as.
                     type: string
-                required:
-                - database
                 type: object
+                x-kubernetes-validations:
+                - message: GenerateDeployment must be set to true if host/hostAddress
+                    are not provided
+                  rule: 'has(self.generateDeployment) && self.generateDeployment ?
+                    true : (size(self.host) > 0 || size(self.hostAddress) > 0)'
+                - message: Username must be set if database is specified
+                  rule: 'has(self.database) && size(self.database) > 0 ? has(self.username)
+                    && size(self.username) > 0 : true'
+                - message: host and hostAddress must not be set when generateDeployment
+                    is true
+                  rule: '!(has(self.generateDeployment) && self.generateDeployment)
+                    || ((!has(self.host) || size(self.host) == 0) && (!has(self.hostAddress)
+                    || size(self.hostAddress) == 0))'
               rest:
                 description: Configuration for REST endpoint
                 properties:

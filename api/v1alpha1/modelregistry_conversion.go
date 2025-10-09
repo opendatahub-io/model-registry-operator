@@ -130,3 +130,9 @@ func Convert_v1alpha1_ModelRegistrySpec_To_v1beta1_ModelRegistrySpec(in *ModelRe
 	}
 	return nil
 }
+
+// Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig handles conversion from v1beta1 to v1alpha1 PostgresConfig.
+// The v1beta1.GenerateDeployment field is ignored as it doesn't exist in v1alpha1.
+func Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in *v1beta1.PostgresConfig, out *PostgresConfig, s apiconversion.Scope) error {
+	return autoConvert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in, out, s)
+}

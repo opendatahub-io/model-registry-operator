@@ -18,13 +18,12 @@ package config
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/template"
 
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -117,7 +116,7 @@ func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
 
 func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
-		"randBytes": randBytes,
+		"randBytes": utils.RandBytes,
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
@@ -128,12 +127,6 @@ func ParseTemplates() (*template.Template, error) {
 		return nil, err
 	}
 	return tmpl, err
-}
-
-func randBytes(n int) string {
-	buf := make([]byte, n)
-	rand.Read(buf)
-	return base64.StdEncoding.EncodeToString(buf)
 }
 
 var (
