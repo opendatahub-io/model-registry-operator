@@ -594,7 +594,7 @@ func (r *ModelCatalogReconciler) createOrUpdateServiceAccount(ctx context.Contex
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Context, params *ModelCatalogParams, templateName string) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var roleBinding rbac.ClusterRoleBinding
 	if err = r.Apply(params, templateName, &roleBinding); err != nil {
@@ -602,7 +602,7 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 	}
 
 	r.applyLabels(&roleBinding.ObjectMeta, params)
-	r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
+	// Note: ClusterRoleBinding is cluster-scoped and cannot have a namespaced owner reference
 
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
@@ -741,7 +741,7 @@ func (r *ModelCatalogReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.C
 	}
 
 	// create kube-rbac-proxy rolebinding
-	result2, err := r.createOrUpdateClusterRoleBinding(ctx, params, "catalog-kube-rbac-proxy-role-binding.yaml.tmpl", owner)
+	result2, err := r.createOrUpdateClusterRoleBinding(ctx, params, "catalog-kube-rbac-proxy-role-binding.yaml.tmpl")
 	if err != nil {
 		return result2, err
 	}
