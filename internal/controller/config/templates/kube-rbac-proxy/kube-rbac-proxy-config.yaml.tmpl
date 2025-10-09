@@ -1,24 +1,23 @@
-apiVersion: route.openshift.io/v1
-kind: Route
+apiVersion: v1
+kind: ConfigMap
 metadata:
-  name: {{.Name}}-https
+  name: {{.Name}}-kube-rbac-proxy-config
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
     component: model-registry
     app.kubernetes.io/name: {{.Name}}
-    app.kubernetes.io/instance: {{.Name}}-https
+    app.kubernetes.io/instance: {{.Name}}-kube-rbac-proxy-config
     app.kubernetes.io/component: model-registry
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
-spec:
-  host: {{.Name}}-rest.{{.Spec.OAuthProxy.Domain}}
-  to:
-    kind: Service
-    name: {{.Name}}
-  port:
-    targetPort: https-api
-  tls:
-    termination: reencrypt
-  wildcardPolicy: None
+data:
+  config-file.yaml: |
+    authorization:
+      resourceAttributes:
+        apiVersion: v1
+        resource: services
+        verb: get
+        namespace: {{.Namespace}}
+        name: {{.Name}}

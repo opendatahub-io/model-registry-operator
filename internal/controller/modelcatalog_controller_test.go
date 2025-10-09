@@ -104,8 +104,35 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(deployment.Labels["component"]).To(Equal("model-catalog"))
 				Expect(deployment.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
-				Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2)) // catalog + oauth-proxy
+				Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2)) // catalog + kube-rbac-proxy
 				Expect(deployment.Spec.Template.Spec.Containers[0].Name).To(Equal("catalog"))
+
+				// Check that kube-rbac-proxy container is deployed
+				var proxyContainer *corev1.Container
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					if container.Name == "kube-rbac-proxy" {
+						proxyContainer = &container
+						break
+					}
+				}
+				Expect(proxyContainer).ToNot(BeNil(), "kube-rbac-proxy container should be present")
+				Expect(proxyContainer.Image).To(ContainSubstring("kube-rbac-proxy"))
+
+				// Check kube-rbac-proxy specific arguments
+				Expect(proxyContainer.Args).To(ContainElement("--secure-listen-address=0.0.0.0:8443"))
+				Expect(proxyContainer.Args).To(ContainElement("--upstream=http://127.0.0.1:8080/"))
+				Expect(proxyContainer.Args).To(ContainElement("--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
+
+				// Check that oauth-proxy specific args are NOT present
+				for _, arg := range proxyContainer.Args {
+					Expect(arg).ToNot(ContainSubstring("--provider=openshift"))
+					Expect(arg).ToNot(ContainSubstring("--cookie-secret"))
+				}
+
+				// Ensure oauth-proxy container is NOT present
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					Expect(container.Name).ToNot(Equal("oauth-proxy"))
+				}
 
 				By("Checking if the Service was created")
 				service := &corev1.Service{}

@@ -13,26 +13,26 @@ metadata:
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
   annotations:
-    {{- if .Spec.OAuthProxy}}
-      {{- if not .OriginalSpec.OAuthProxy.TLSCertificateSecret}}
-    service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-oauth-proxy
+    {{- if .Spec.KubeRBACProxy}}
+      {{- if not .OriginalSpec.KubeRBACProxy.TLSCertificateSecret}}
+    service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-kube-rbac-proxy
       {{- end}}
-      {{- if eq .Spec.OAuthProxy.ServiceRoute "enabled"}}
-    routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.OAuthProxy.Domain}}:{{.Spec.OAuthProxy.RoutePort}}
+      {{- if eq .Spec.KubeRBACProxy.ServiceRoute "enabled"}}
+    routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.KubeRBACProxy.Domain}}:{{.Spec.KubeRBACProxy.RoutePort}}
       {{- end}}
     {{- end}}
 spec:
   ports:
-    {{- if not .Spec.OAuthProxy}}
+    {{- if .Spec.KubeRBACProxy}}
+    - name: https-api
+      port: {{.Spec.KubeRBACProxy.Port}}
+      protocol: TCP
+      appProtocol: https
+    {{- else}}
     - name: http-api
       port: {{.Spec.Rest.Port}}
       protocol: TCP
       appProtocol: http
-    {{- else}}
-    - name: https-api
-      port: {{.Spec.OAuthProxy.Port}}
-      protocol: TCP
-      appProtocol: https
     {{- end}}
   selector:
     app: {{.Name}}

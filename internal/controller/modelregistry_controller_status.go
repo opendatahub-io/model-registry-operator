@@ -55,6 +55,8 @@ const (
 	ConditionTypeGateway = "GatewayAvailable"
 	// ConditionTypeOauthProxy represents the status of OAuth Proxy configuration.
 	ConditionTypeOAuthProxy = "OAuthProxyAvailable"
+	// ConditionTypeKubeRBACProxy represents the status of KubeRBACProxy configuration.
+	ConditionTypeKubeRBACProxy = "KubeRBACProxyAvailable"
 
 	ReasonDeploymentCreated     = "CreatedDeployment"
 	ReasonDeploymentCreating    = "CreatingDeployment"
@@ -131,11 +133,13 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		return false, err
 	}
 
-	if condition.Status == metav1.ConditionTrue {
-		if modelRegistry.Spec.OAuthProxy != nil {
-			condition.Status, condition.Reason, condition.Message = r.SetOauthProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
-		}
+	// remove oauth proxy condition if it exists
+	meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeOAuthProxy)
 
+	if condition.Status == metav1.ConditionTrue {
+		if modelRegistry.Spec.KubeRBACProxy != nil {
+			condition.Status, condition.Reason, condition.Message = r.SetKubeRBACProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
+		}
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)
@@ -154,13 +158,15 @@ func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, param
 
 	var hosts []string
 
-	oAuthProxy := registry.Spec.OAuthProxy
 	name := req.Name
-	if oAuthProxy != nil && oAuthProxy.ServiceRoute == config.RouteEnabled {
-		// use domain from the reconciled registry with runtime defaults
-		domain := params.Spec.OAuthProxy.Domain
+
+	// Check kube-rbac-proxy for HTTPS route
+	if registry.Spec.KubeRBACProxy != nil && registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
+		// use domain from the kube-rbac-proxy configuration
+		domain := params.Spec.KubeRBACProxy.Domain
 		hosts = append(hosts, fmt.Sprintf("%s-rest.%s", name, domain))
 	}
+
 	namespace := req.Namespace
 	hosts = append(hosts, fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace))
 	hosts = append(hosts, fmt.Sprintf("%s.%s", name, namespace))
@@ -380,27 +386,27 @@ func (r *ModelRegistryReconciler) getContainerDBerror(ctx context.Context, pod c
 	return nil, nil
 }
 
-func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, req ctrl.Request,
+func (r *ModelRegistryReconciler) SetKubeRBACProxyCondition(ctx context.Context, req ctrl.Request,
 	modelRegistry *v1beta1.ModelRegistry,
 	status metav1.ConditionStatus, reason string, message string) (metav1.ConditionStatus, string, string) {
 
 	log := klog.FromContext(ctx)
 
-	if modelRegistry.Spec.OAuthProxy != nil {
+	if modelRegistry.Spec.KubeRBACProxy != nil {
 
-		// verify that Deployment pod has 2 containers including the oauth proxy
+		// verify that Deployment pod has kube-rbac-proxy container
 		name := req.NamespacedName
 		reason2 := ReasonResourcesCreated
-		message2 := "OAuth Proxy was successfully created"
-		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "OAuth", log, message2, reason2, status)
+		message2 := "kube-rbac-proxy was successfully created"
+		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "kube-rbac-proxy", log, message2, reason2, status)
 
-		// set OAuth proxy available condition
+		// set kube-rbac-proxy available condition
 		if status2 == metav1.ConditionTrue {
 
 			reason2 = ReasonResourcesAvailable
 
-			// also check Oauth proxy route if enabled
-			if modelRegistry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
+			// also check kube-rbac-proxy route if enabled
+			if modelRegistry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
 				// get proxy route
 				var routeList routev1.RouteList
 				err := r.Client.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{
@@ -408,7 +414,7 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 				}))
 				if err != nil {
 					// log K8s error
-					r.Log.Error(err, "failed to get oauth proxy route")
+					r.Log.Error(err, "failed to get kube-rbac-proxy route")
 				}
 				routeAvailable := make(map[string]bool)
 				routeMessage := make(map[string]string)
@@ -418,23 +424,19 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 				if !routeAvailable[routeType] {
 					status2 = metav1.ConditionFalse
 					reason2 = ReasonResourcesUnavailable
-					message2 = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
+					message2 = fmt.Sprintf("KubeRBACProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
 				}
 			}
 		}
 
-		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
+		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeKubeRBACProxy,
 			Status: status2, Reason: reason2, Message: message2})
 
-		if status2 == metav1.ConditionFalse && status == metav1.ConditionFalse {
-			status = status2
-			reason = reason2
-			message = "OAuth Proxy resources are unavailable"
+		if status2 != metav1.ConditionTrue {
+			return status2, reason2, message2
 		}
-	} else {
-		meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeOAuthProxy)
+		return status, reason, message
 	}
-
 	return status, reason, message
 }
 
