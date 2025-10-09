@@ -484,8 +484,8 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				Expect(postgresService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 				Expect(postgresService.Spec.SessionAffinity).To(Equal(corev1.ServiceAffinityNone))
-				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName+"-postgres"))
-				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("component", "model-catalog-postgres"))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app.kubernetes.io/name", "model-catalog-postgres"))
 
 				By("Verifying PostgreSQL PVC configuration")
 				postgresPVC := &corev1.PersistentVolumeClaim{}

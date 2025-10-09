@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
@@ -15,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -130,6 +132,9 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	if result2 != ResourceUnchanged {
 		result = result2
 	}
+	if deployment == nil {
+		return ctrl.Result{Requeue: true}, nil
+	}
 
 	// Use deployment as owner for the remaining resources
 	deploymentOwner := &metav1.OwnerReference{
@@ -198,6 +203,9 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 		if result2 != ResourceUnchanged {
 			result = result2
+		}
+		if postgresDeployment == nil {
+			return ctrl.Result{Requeue: true}, nil
 		}
 
 		// Use postgres deployment as owner for the remaining resources
@@ -381,6 +389,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, *appsv1.Deployment, error) {
+	log := klog.FromContext(ctx)
 	result := ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err := r.Apply(params, templateName, &deployment); err != nil {
@@ -392,6 +401,25 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 
 	result, err := r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
+		// Check if the error is due to immutable field conflicts
+		if apierrors.IsForbidden(err) || (apierrors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				return result, nil, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				return result, nil, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			return ResourceUpdated, nil, nil
+		}
 		return result, nil, err
 	}
 
