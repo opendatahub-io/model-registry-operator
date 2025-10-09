@@ -8,11 +8,12 @@ rules:
   - ""
   resources:
   - configmaps
-  - secrets
   verbs:
   - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - ""
@@ -34,6 +35,8 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - persistentvolumeclaims
+  - secrets
   - serviceaccounts
   - services
   verbs:
@@ -71,23 +74,19 @@ rules:
   verbs:
   - create
 - apiGroups:
-  - authorino.kuadrant.io
-  resources:
-  - authconfigs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - authorization.k8s.io
   resources:
   - subjectaccessreviews
   verbs:
   - create
+- apiGroups:
+  - components.platform.opendatahub.io
+  resources:
+  - modelregistries
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - config.openshift.io
   resources:
@@ -135,20 +134,6 @@ rules:
   - patch
   - update
 - apiGroups:
-  - networking.istio.io
-  resources:
-  - destinationrules
-  - gateways
-  - virtualservices
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - networking.k8s.io
   resources:
   - networkpolicies
@@ -179,18 +164,6 @@ rules:
   resources:
   - routes
   - routes/custom-host
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - security.istio.io
-  resources:
-  - authorizationpolicies
   verbs:
   - create
   - delete

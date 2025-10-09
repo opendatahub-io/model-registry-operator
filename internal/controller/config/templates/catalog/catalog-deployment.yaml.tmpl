@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{.Name}}-catalog
+  name: {{.Name}}
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
     component: model-catalog
-    app.kubernetes.io/name: {{.Name}}-catalog
+    app.kubernetes.io/name: {{.Name}}
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
@@ -32,13 +32,20 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
       volumes:
-      - name: sources
+      - name: user-sources
         configMap:
           name: model-catalog-sources
+      - name: default-sources
+        configMap:
+          name: model-catalog-default-sources
+      - name: catalog-data
+        emptyDir: {}
+      - name: benchmark-data
+        emptyDir: {}
       {{- if .Spec.OAuthProxy }}
       - name: oauth-proxy-tls
         secret:
-          secretName: {{.Name}}-catalog-oauth-proxy
+          secretName: {{.Name}}-oauth-proxy
           defaultMode: 0600
       - name: oauth-proxy-cookie-secret
         secret:
@@ -46,6 +53,35 @@ spec:
           defaultMode: 0600
       {{- end}}
       serviceAccountName: {{.Name}}
+      initContainers:
+        - name: catalog-data-init
+          image: {{.CatalogDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp /app/data/models-catalog.yaml /shared-data/default-catalog.yaml
+          volumeMounts:
+            - name: catalog-data
+              mountPath: /shared-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: benchmark-data-init
+          image: {{.BenchmarkDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp -r /app/benchmarks/* /shared-benchmark-data/ || true
+          volumeMounts:
+            - name: benchmark-data
+              mountPath: /shared-benchmark-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
       containers:
         - name: catalog
           command:
@@ -53,7 +89,8 @@ spec:
             - catalog
           args:
             - --listen=0.0.0.0:8080
-            - --catalogs-path=/catalog/sources.yaml
+            - --catalogs-path=/data/user-sources/sources.yaml
+            - --catalogs-path=/data/default-sources/sources.yaml
           image: {{.Spec.Rest.Image}}
           ports:
             - name: http-api
@@ -89,8 +126,14 @@ spec:
               drop:
                 - ALL
           volumeMounts:
-          - name: sources
-            mountPath: /catalog
+          - name: user-sources
+            mountPath: /data/user-sources
+          - name: default-sources
+            mountPath: /data/default-sources
+          - name: catalog-data
+            mountPath: /shared-data
+          - name: benchmark-data
+            mountPath: /shared-benchmark-data
         {{ if .Spec.OAuthProxy }}
         - name: oauth-proxy
           args:

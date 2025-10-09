@@ -3,14 +3,14 @@ kind: NetworkPolicy
 metadata:
   labels:
     app: {{.Name}}
-    component: model-registry
+    component: model-catalog
     app.kubernetes.io/name: {{.Name}}
     app.kubernetes.io/instance: {{.Name}}-https-route
-    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/part-of: model-registry
     app.kubernetes.io/managed-by: model-registry-operator
-  name: {{.Name}}-catalog-https-route
+  name: {{.Name}}-https-route
   namespace: {{.Namespace}}
 spec:
   ingress:

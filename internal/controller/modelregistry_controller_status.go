@@ -132,27 +132,10 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	}
 
 	if condition.Status == metav1.ConditionTrue {
-		if r.HasIstio {
-			// remove deprecated Istio and Gateway conditions
-			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeIstio)
-			meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeGateway)
-		}
 		if modelRegistry.Spec.OAuthProxy != nil {
 			condition.Status, condition.Reason, condition.Message = r.SetOauthProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
 		}
 
-		if r.EnableModelCatalog && condition.Status != metav1.ConditionFalse {
-			catKey := client.ObjectKey{Namespace: req.NamespacedName.Namespace, Name: req.NamespacedName.Name + "-catalog"}
-			catCondition, err := r.checkDeploymentAvailability(ctx, catKey, req.Name, "model-catalog")
-			if err != nil {
-				log.Error(err, "Failed to get model catalog deployment", "name", catKey)
-				return false, err
-			}
-
-			if catCondition.Status != metav1.ConditionTrue {
-				condition = catCondition
-			}
-		}
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)

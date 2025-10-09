@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Name}}-postgres
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}-postgres
+    component: model-catalog-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  annotations:
+    template.openshift.io/expose-uri: 'postgres://{.spec.clusterIP}:{.spec.ports[?(@.name=="postgresql")].port}'
+spec:
+  ports:
+  - name: postgresql
+    port: 5432
+    protocol: TCP
+    appProtocol: tcp
+    targetPort: 5432
+  selector:
+    app: {{.Name}}-postgres
+    component: model-catalog-postgres
+  sessionAffinity: None
+  type: ClusterIP
