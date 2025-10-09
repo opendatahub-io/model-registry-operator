@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -418,7 +419,7 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 				},
 				StringData: map[string]string{
 					"username": "modelregistry",
-					"password": "password",
+					"password": utils.RandBytes(16),
 				},
 			}
 			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {

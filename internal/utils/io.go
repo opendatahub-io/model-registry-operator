@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,4 +34,12 @@ func DownloadFile(url string, path string) error {
 	}
 
 	return nil
+}
+
+// RandBytes generates a cryptographically secure random byte sequence
+// of the specified length, base64 encoded for safe string usage
+func RandBytes(n int) string {
+	buf := make([]byte, n)
+	rand.Read(buf)
+	return base64.StdEncoding.EncodeToString(buf)
 }
