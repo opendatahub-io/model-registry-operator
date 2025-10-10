@@ -12,16 +12,6 @@
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
-    fieldPath: data.IMAGES_GRPC_SERVICE
-  targets:
-    - select:
-        kind: Deployment
-        name: controller-manager
-      fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=GRPC_IMAGE].value
-- source:
-    kind: ConfigMap
-    name: model-registry-operator-parameters
     fieldPath: data.IMAGES_REST_SERVICE
   targets:
     - select:
