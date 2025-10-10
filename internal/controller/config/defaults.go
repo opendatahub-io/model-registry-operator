@@ -18,13 +18,13 @@ package config
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
 	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/template"
 
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -37,7 +37,7 @@ import (
 )
 
 //go:embed templates/*.yaml.tmpl
-//go:embed templates/oauth-proxy/*.yaml.tmpl
+//go:embed templates/kube-rbac-proxy/*.yaml.tmpl
 //go:embed templates/catalog/*.yaml.tmpl
 var templateFS embed.FS
 
@@ -45,11 +45,13 @@ const (
 	GrpcImage                 = "GRPC_IMAGE"
 	RestImage                 = "REST_IMAGE"
 	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
+	KubeRBACProxyImage        = "KUBE_RBAC_PROXY_IMAGE"
 	CatalogDataImage          = "CATALOG_DATA_IMAGE"
 	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
 	DefaultGrpcImage          = "quay.io/opendatahub/mlmd-grpc-server:latest"
 	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
+	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
 	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	DefaultBenchmarkDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	RouteDisabled             = "disabled"
@@ -79,8 +81,9 @@ var (
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
-	MlmdRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
-	MlmdGRPCResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	CatalogServiceResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	MlmdRestResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	MlmdGRPCResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
 )
 
 func init() {
@@ -89,15 +92,25 @@ func init() {
 }
 
 func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory resource.Quantity, LimitsCPU resource.Quantity, LimitsMemory resource.Quantity) v1.ResourceRequirements {
+	requests := v1.ResourceList{}
+	if !RequestsCPU.IsZero() {
+		requests["cpu"] = RequestsCPU
+	}
+	if !RequestsMemory.IsZero() {
+		requests["memory"] = RequestsMemory
+	}
+
+	limits := v1.ResourceList{}
+	if !LimitsCPU.IsZero() {
+		limits["cpu"] = LimitsCPU
+	}
+	if !LimitsMemory.IsZero() {
+		limits["memory"] = LimitsMemory
+	}
+
 	return v1.ResourceRequirements{
-		Requests: v1.ResourceList{
-			"cpu":    RequestsCPU,
-			"memory": RequestsMemory,
-		},
-		Limits: v1.ResourceList{
-			"cpu":    LimitsCPU,
-			"memory": LimitsMemory,
-		},
+		Requests: requests,
+		Limits:   limits,
 	}
 }
 
@@ -117,11 +130,13 @@ func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
 
 func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
-		"randBytes": randBytes,
+		"b64enc":           b64enc,
+		"quantityToString": utils.QuantityToString,
+		"randBytes":        utils.RandBytes,
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
-		"templates/oauth-proxy/*.yaml.tmpl",
+		"templates/kube-rbac-proxy/*.yaml.tmpl",
 		"templates/catalog/*.yaml.tmpl",
 	)
 	if err != nil {
@@ -130,10 +145,8 @@ func ParseTemplates() (*template.Template, error) {
 	return tmpl, err
 }
 
-func randBytes(n int) string {
-	buf := make([]byte, n)
-	rand.Read(buf)
-	return base64.StdEncoding.EncodeToString(buf)
+func b64enc(str string) string {
+	return base64.StdEncoding.EncodeToString([]byte(str))
 }
 
 var (

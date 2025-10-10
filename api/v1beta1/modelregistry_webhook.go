@@ -56,16 +56,24 @@ func (r *ModelRegistry) Default() {
 	}
 
 	// Fixes default database configs that get set for some reason in Kind cluster
+	// But don't remove postgres config if auto-provisioning is enabled
 	if r.Spec.Postgres != nil && len(r.Spec.Postgres.Host) == 0 && len(r.Spec.Postgres.HostAddress) == 0 {
-		r.Spec.Postgres = nil
+		// Check if auto-provisioning is enabled before removing the config
+		isAutoProvisioning := r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
+		if !isAutoProvisioning {
+			r.Spec.Postgres = nil
+		}
 	}
 	if r.Spec.MySQL != nil && len(r.Spec.MySQL.Host) == 0 {
 		r.Spec.MySQL = nil
 	}
 
-	// enable oauth proxy route by default
-	if r.Spec.OAuthProxy != nil && len(r.Spec.OAuthProxy.ServiceRoute) == 0 {
-		r.Spec.OAuthProxy.ServiceRoute = config.RouteEnabled
+	// migrate oauth proxy to kube-rbac-proxy if oauth proxy is configured
+	r.MigrateOAuthProxyToKubeRBACProxy()
+
+	// enable kube-rbac-proxy route by default
+	if r.Spec.KubeRBACProxy != nil && len(r.Spec.KubeRBACProxy.ServiceRoute) == 0 {
+		r.Spec.KubeRBACProxy.ServiceRoute = config.RouteEnabled
 	}
 
 	// handle runtime default properties for https://issues.redhat.com/browse/RHOAIENG-15033
@@ -137,25 +145,25 @@ func (r *ModelRegistry) RuntimeDefaults() {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
 
-	// oauth proxy defaults
-	if r.Spec.OAuthProxy != nil {
+	// kube-rbac-proxy defaults
+	if r.Spec.KubeRBACProxy != nil {
 		// set default cert and key if not provided
-		if r.Spec.OAuthProxy.TLSCertificateSecret == nil {
-			secretName := r.Name + "-oauth-proxy"
-			r.Spec.OAuthProxy.TLSCertificateSecret = &SecretKeyValue{
+		if r.Spec.KubeRBACProxy.TLSCertificateSecret == nil {
+			secretName := r.Name + "-kube-rbac-proxy"
+			r.Spec.KubeRBACProxy.TLSCertificateSecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.crt",
 			}
-			r.Spec.OAuthProxy.TLSKeySecret = &SecretKeyValue{
+			r.Spec.KubeRBACProxy.TLSKeySecret = &SecretKeyValue{
 				Name: secretName,
 				Key:  "tls.key",
 			}
 		}
-		if len(r.Spec.OAuthProxy.Domain) == 0 {
-			r.Spec.OAuthProxy.Domain = config.GetDefaultDomain()
+		if len(r.Spec.KubeRBACProxy.Domain) == 0 {
+			r.Spec.KubeRBACProxy.Domain = config.GetDefaultDomain()
 		}
-		if len(r.Spec.OAuthProxy.Image) == 0 {
-			r.Spec.OAuthProxy.Image = config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage)
+		if len(r.Spec.KubeRBACProxy.Image) == 0 {
+			r.Spec.KubeRBACProxy.Image = config.GetStringConfigWithDefault(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage)
 		}
 	}
 }
@@ -176,6 +184,31 @@ func (r *ModelRegistry) ValidateRegistry() (warnings admission.Warnings, err err
 	return
 }
 
+// MigrateOAuthProxyToKubeRBACProxy automatically migrates existing OAuth proxy configurations to kube-rbac-proxy.
+// This provides a seamless upgrade path similar to the Istio to OAuth proxy migration.
+func (r *ModelRegistry) MigrateOAuthProxyToKubeRBACProxy() {
+	// Only perform migration if OAuthProxy is configured but KubeRBACProxy is not
+	if r.Spec.OAuthProxy != nil && r.Spec.KubeRBACProxy == nil {
+		modelregistrylog.Info("migrating OAuthProxy configuration to KubeRBACProxy", "name", r.Name, "namespace", r.Namespace)
+
+		// Create KubeRBACProxy config by copying OAuthProxy settings
+		r.Spec.KubeRBACProxy = &KubeRBACProxyConfig{
+			Port:                 r.Spec.OAuthProxy.Port,
+			TLSCertificateSecret: r.Spec.OAuthProxy.TLSCertificateSecret,
+			TLSKeySecret:         r.Spec.OAuthProxy.TLSKeySecret,
+			ServiceRoute:         r.Spec.OAuthProxy.ServiceRoute,
+			Domain:               r.Spec.OAuthProxy.Domain,
+			RoutePort:            r.Spec.OAuthProxy.RoutePort,
+			// Image is not copied here because it is set to the operator default
+		}
+
+		// MUST remove old oauth proxy config
+		r.Spec.OAuthProxy = nil
+
+		modelregistrylog.Info("successfully migrated OAuthProxy to KubeRBACProxy", "name", r.Name, "namespace", r.Namespace)
+	}
+}
+
 func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 	// make sure this instance's namespace matches registries namespace, if set
 	registriesNamespace := config.GetRegistriesNamespace()
@@ -190,12 +223,27 @@ func (r *ModelRegistry) ValidateNamespace() field.ErrorList {
 
 // ValidateDatabase validates that at least one database config is present
 func (r *ModelRegistry) ValidateDatabase() (admission.Warnings, field.ErrorList) {
-	if r.Spec.Postgres == nil && r.Spec.MySQL == nil {
+	hasPostgres := r.Spec.Postgres != nil
+	hasMySQL := r.Spec.MySQL != nil
+	hasAutoProvisioning := hasPostgres && r.Spec.Postgres.GenerateDeployment != nil && *r.Spec.Postgres.GenerateDeployment
+
+	if !hasPostgres && !hasMySQL {
 		return nil, field.ErrorList{
 			field.Required(field.NewPath("spec").Child("postgres"), "required one of `postgres` or `mysql` database"),
 			field.Required(field.NewPath("spec").Child("mysql"), "required one of `postgres` or `mysql` database"),
 		}
 	}
+
+	if hasAutoProvisioning {
+		// When auto-provisioning is enabled, host/hostAddress should not be set (they will be auto-generated)
+		if len(r.Spec.Postgres.Host) > 0 || len(r.Spec.Postgres.HostAddress) > 0 {
+			return nil, field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("postgres").Child("host"), r.Spec.Postgres.Host, "host should not be set when auto-provisioning is enabled"),
+			}
+		}
+		// Note: database and username CAN be set when auto-provisioning - they specify the desired values
+	}
+
 	return nil, nil
 }
 

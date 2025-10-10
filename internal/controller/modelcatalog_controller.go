@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"slices"
+	"strings"
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
@@ -15,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -84,6 +86,8 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
+	log.Info("Reconciling catalog")
+
 	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
@@ -127,6 +131,9 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 	if result2 != ResourceUnchanged {
 		result = result2
+	}
+	if deployment == nil {
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Use deployment as owner for the remaining resources
@@ -197,6 +204,9 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+		if postgresDeployment == nil {
+			return ctrl.Result{Requeue: true}, nil
+		}
 
 		// Use postgres deployment as owner for the remaining resources
 		postgresDeploymentOwner := &metav1.OwnerReference{
@@ -218,7 +228,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.IsOpenShift {
 		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-route.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -227,7 +237,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 
 		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-network-policy.yaml.tmpl", deploymentOwner)
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -236,8 +246,17 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 	}
 
-	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, catalogParams)
+	// cleanup oauth proxy config as it's not used anymore
+	result2, err = r.cleanupOAuthConfig(ctx, catalogParams)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// create or update kube-rbac-proxy config (catalog uses kube-rbac-proxy by default now)
+	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, catalogParams, crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -268,7 +287,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		return ctrl.Result{}, err
 	}
 
-	// Delete ServiceAccount (both ServiceAccount and Deployment are owned by default-modelregistry)
+	// Delete ServiceAccount (Deployment, ServiceAccount, and ClusterRoleBinding are owned by default-modelregistry)
 	result2, err := r.deleteFromTemplate(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", &corev1.ServiceAccount{})
 	if err != nil {
 		return ctrl.Result{}, err
@@ -277,9 +296,17 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
-	// Delete OAuth Proxy ClusterRoleBinding
-	// This resource doesn't have an owner reference as it's cluster-scoped
-	result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
+	// Delete OAuth Proxy Resources
+	result2, err = r.cleanupOAuthConfig(ctx, catalogParams)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Delete Kube-RBAC-Proxy Resources
+	result2, err = r.cleanupKubeRBACProxyConfig(ctx, catalogParams)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -333,8 +360,8 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 	}
 
 	if r.IsOpenShift {
-		// Delete OAuth Proxy Route
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "https-route.yaml.tmpl", &routev1.Route{})
+		// Delete OAuth Proxy Route (now uses kube-rbac-proxy templates)
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -342,8 +369,8 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 			result = result2
 		}
 
-		// Delete OAuth Proxy NetworkPolicy
-		result2, err = r.deleteFromTemplate(ctx, catalogParams, "proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
+		// Delete OAuth Proxy NetworkPolicy (now uses kube-rbac-proxy templates)
+		result2, err = r.deleteFromTemplate(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", &networkingv1.NetworkPolicy{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -362,6 +389,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, *appsv1.Deployment, error) {
+	log := klog.FromContext(ctx)
 	result := ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err := r.Apply(params, templateName, &deployment); err != nil {
@@ -373,6 +401,25 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 
 	result, err := r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
+		// Check if the error is due to immutable field conflicts
+		if apierrors.IsForbidden(err) || (apierrors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				return result, nil, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				return result, nil, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			return ResourceUpdated, nil, nil
+		}
 		return result, nil, err
 	}
 
@@ -585,11 +632,12 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 	}
 
 	r.applyLabels(&roleBinding.ObjectMeta, params)
+	// Note: ClusterRoleBinding is cluster-scoped and cannot have a namespaced owner reference
 
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
 
-func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string) (OperationResult, error) {
+func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
 	result := ResourceUnchanged
 	var secret corev1.Secret
 	if err := r.Apply(params, templateName, &secret); err != nil {
@@ -641,71 +689,58 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	r.applyLabels(&newSecret.ObjectMeta, params)
 	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
 
-	// Check if Secret already exists
-	var existingSecret corev1.Secret
-	key := client.ObjectKeyFromObject(&newSecret)
+	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
+}
 
-	if err := r.Client.Get(ctx, key, &existingSecret); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Secret doesn't exist, create it
-			result = ResourceCreated
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
-				return result, err
-			}
-			return result, r.Client.Create(ctx, &newSecret)
-		}
+func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
+	result = ResourceUnchanged
+
+	// delete oauth proxy cookie secret
+	secret := corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      params.Name + "-oauth-cookie-secret",
+			Namespace: params.Namespace,
+		},
+	}
+	if err := r.Client.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
 		return result, err
-	}
-
-	// Secret exists, check if data has changed
-	dataChanged := !reflect.DeepEqual(existingSecret.Data, newSecret.Data)
-
-	// Check if other mutable fields have changed
-	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
-	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
-	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
-
-	// If data has changed, we need to delete and recreate the Secret
-	if dataChanged {
-		// Delete the existing Secret
-		if err := r.Client.Delete(ctx, &existingSecret); err != nil {
-			return result, err
-		}
-
-		// Create the new Secret with updated data
-		result = ResourceUpdated
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
-			return result, err
-		}
-		return result, r.Client.Create(ctx, &newSecret)
-	}
-
-	// If only metadata changed, update in place
-	if labelsChanged || annotationsChanged || ownerRefsChanged {
-		existingSecret.Labels = newSecret.Labels
-		existingSecret.Annotations = newSecret.Annotations
-		existingSecret.OwnerReferences = newSecret.OwnerReferences
-
-		result = ResourceUpdated
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingSecret); err != nil {
-			return result, err
-		}
-		return result, r.Client.Update(ctx, &existingSecret)
 	}
 
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
+func (r *ModelCatalogReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 
-	// create oauth proxy rolebinding
-	result, err = r.createOrUpdateClusterRoleBinding(ctx, params, "proxy-role-binding.yaml.tmpl")
+	// create kube-rbac-proxy config
+	result, err = r.createOrUpdateConfigmap(ctx, params, "catalog-kube-rbac-proxy-config.yaml.tmpl", owner)
 	if err != nil {
 		return result, err
 	}
 
-	result2, err := r.ensureSecretExists(ctx, params, "proxy-cookie-secret.yaml.tmpl")
+	// create kube-rbac-proxy rolebinding
+	result2, err := r.createOrUpdateClusterRoleBinding(ctx, params, "catalog-kube-rbac-proxy-role-binding.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	return result, nil
+}
+
+func (r *ModelCatalogReconciler) cleanupKubeRBACProxyConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
+	result = ResourceUnchanged
+
+	// delete kube-rbac-proxy config
+	result, err = r.deleteFromTemplate(ctx, params, "catalog-kube-rbac-proxy-config.yaml.tmpl", &corev1.ConfigMap{})
+	if err != nil {
+		return result, err
+	}
+
+	// delete kube-rbac-proxy rolebinding
+	result2, err := r.deleteFromTemplate(ctx, params, "catalog-kube-rbac-proxy-role-binding.yaml.tmpl", &rbac.ClusterRoleBinding{})
 	if err != nil {
 		return result2, err
 	}
@@ -791,13 +826,15 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
-			Port:  &restPort,
-			Image: config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Port:      &restPort,
+			Image:     config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Resources: &config.CatalogServiceResourceRequirements,
 		},
-		OAuthProxy: &v1beta1.OAuthProxyConfig{
+		// Use kube-rbac-proxy by default instead of oauth-proxy
+		KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 			Port:      &oauthPort,
 			RoutePort: &routePort,
-			Image:     config.GetStringConfigWithDefault(config.OAuthProxyImage, config.DefaultOAuthProxyImage),
+			Image:     config.GetStringConfigWithDefault(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage),
 			Domain:    config.GetDefaultDomain(),
 		},
 	}
@@ -925,6 +962,14 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
+	// only watch resources in the target namespace
+	combinedPredicate := predicate.And(
+		labels,
+		predicate.NewPredicateFuncs(func(object client.Object) bool {
+			return object.GetNamespace() == r.TargetNamespace
+		}),
+	)
+
 	// Custom mapper that maps ALL watched objects to the same reconcile request
 	// This enables workqueue deduplication to prevent reconcile storms
 	mapToFixedCatalogRequest := handler.EnqueueRequestsFromMapFunc(
@@ -941,15 +986,15 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		Named("modelcatalog").
 		// All watched resources now map to the same reconcile request for deduplication
-		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&corev1.ConfigMap{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&corev1.PersistentVolumeClaim{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.ConfigMap{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.PersistentVolumeClaim{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
-		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
+		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Build(r)
 	if err != nil {
 		return err

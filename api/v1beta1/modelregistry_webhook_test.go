@@ -63,6 +63,7 @@ func TestValidateNamespace(t *testing.T) {
 }
 
 func TestValidateDatabase(t *testing.T) {
+	trueValue := true
 	tests := []struct {
 		name    string
 		mrSpec  *v1beta1.ModelRegistry
@@ -81,6 +82,25 @@ func TestValidateDatabase(t *testing.T) {
 				Postgres: &v1beta1.PostgresConfig{},
 			}},
 			wantErr: false,
+		},
+		{
+			name: "valid - postgres auto-provisioning",
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				Postgres: &v1beta1.PostgresConfig{
+					GenerateDeployment: &trueValue,
+				},
+			}},
+			wantErr: false,
+		},
+		{
+			name: "invalid - postgres auto-provisioning with host",
+			mrSpec: &v1beta1.ModelRegistry{Spec: v1beta1.ModelRegistrySpec{
+				Postgres: &v1beta1.PostgresConfig{
+					GenerateDeployment: &trueValue,
+					Host:               "some-host",
+				},
+			}},
+			wantErr: true,
 		},
 		{
 			name:    "invalid - missing databases",
@@ -105,6 +125,9 @@ func TestValidateDatabase(t *testing.T) {
 }
 
 func TestDefault(t *testing.T) {
+	httpsPort := int32(8443)
+	httpsRoutePort := int32(443)
+
 	tests := []struct {
 		name       string
 		mrSpec     *v1beta1.ModelRegistry
@@ -126,6 +149,64 @@ func TestDefault(t *testing.T) {
 					},
 					Postgres: nil,
 					MySQL:    nil,
+				},
+			},
+		},
+		{
+			name: "migrate oauth proxy to kube-rbac-proxy",
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+					OAuthProxy: &v1beta1.OAuthProxyConfig{
+						Port:         &httpsPort,
+						RoutePort:    &httpsRoutePort,
+						Domain:       "example.com",
+						ServiceRoute: config.RouteEnabled,
+					},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:         &httpsPort,
+						RoutePort:    &httpsRoutePort,
+						Domain:       "example.com",
+						ServiceRoute: config.RouteEnabled,
+						// Image is not copied here because it is set to the operator default
+					},
+					// OAuthProxy should be removed after migration
+				},
+			},
+		},
+		{
+			name: "don't migrate when kube-rbac-proxy already exists",
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:   &httpsPort,
+						Domain: "different.com",
+					},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					// KubeRBACProxy should remain unchanged
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
+						Port:         &httpsPort,
+						Domain:       "different.com",
+						ServiceRoute: config.RouteEnabled,
+					},
 				},
 			},
 		},
@@ -215,18 +296,8 @@ func TestRuntimeDefaults(t *testing.T) {
 						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
-					OAuthProxy: &v1beta1.OAuthProxyConfig{
-						TLSCertificateSecret: &v1beta1.SecretKeyValue{
-							Name: "default-oauth-proxy",
-							Key:  "tls.crt",
-						},
-						TLSKeySecret: &v1beta1.SecretKeyValue{
-							Name: "default-oauth-proxy",
-							Key:  "tls.key",
-						},
-						Domain: domain,
-						Image:  config.DefaultOAuthProxyImage,
-					},
+					// No runtime defaults for oauth proxy config
+					OAuthProxy: &v1beta1.OAuthProxyConfig{},
 				},
 			},
 		},

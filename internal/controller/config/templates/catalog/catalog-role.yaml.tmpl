@@ -9,6 +9,8 @@ metadata:
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/managed-by: model-registry-operator
     app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/part-of: model-catalog
+    app.kubernetes.io/component: model-catalog
   name: {{.Name}}
   namespace: {{.Namespace}}
 rules:
