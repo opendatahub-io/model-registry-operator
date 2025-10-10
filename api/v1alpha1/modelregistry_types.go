@@ -67,7 +67,7 @@ type PostgresConfig struct {
 	Database string `json:"database"`
 
 	//+kubebuilder:default=false
-	// True if skipping database instance creation during ML Metadata
+	// True if skipping database instance creation during Model Registry
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
 
@@ -125,7 +125,7 @@ type MySQLConfig struct {
 	Database string `json:"database"`
 
 	//+kubebuilder:default=false
-	// True if skipping database instance creation during ML Metadata
+	// True if skipping database instance creation during Model Registry
 	// service initialization. By default, it is false.
 	SkipDBCreation bool `json:"skipDBCreation,omitempty"`
 
@@ -175,6 +175,7 @@ type RestSpec struct {
 	Image string `json:"image,omitempty"`
 }
 
+// Deprecated: This type will be removed in a future API version.
 type GrpcSpec struct {
 	//+kubebuilder:default=9090
 	//+kubebuilder:validation:Minimum=0
@@ -265,7 +266,7 @@ type GatewayConfig struct {
 	// Rest gateway server config
 	Rest ServerConfig `json:"rest"`
 
-	// gRPC  gateway server config
+	// Deprecated: gRPC gateway server config is deprecated and will be removed in a future release
 	Grpc ServerConfig `json:"grpc"`
 }
 
@@ -375,7 +376,7 @@ type ModelRegistrySpec struct {
 
 	//+kubebuilder:required
 
-	// Configuration for gRPC endpoint
+	// Deprecated: Configuration for gRPC endpoint is deprecated and will be removed in a future release
 	Grpc GrpcSpec `json:"grpc"`
 
 	// PostgreSQL configuration options

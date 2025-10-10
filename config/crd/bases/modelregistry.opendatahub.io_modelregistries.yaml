@@ -86,7 +86,8 @@ spec:
                   database migration during initialization (Optional parameter)
                 type: boolean
               grpc:
-                description: Configuration for gRPC endpoint
+                description: 'Deprecated: Configuration for gRPC endpoint is deprecated
+                  and will be removed in a future release'
                 properties:
                   image:
                     description: Optional image to support overriding the image deployed
@@ -196,7 +197,8 @@ spec:
                         pattern: ^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*)?$
                         type: string
                       grpc:
-                        description: gRPC  gateway server config
+                        description: 'Deprecated: gRPC gateway server config is deprecated
+                          and will be removed in a future release'
                         properties:
                           gatewayRoute:
                             description: Creates an OpenShift Route for Gateway Service
@@ -380,7 +382,7 @@ spec:
                   skipDBCreation:
                     default: false
                     description: |-
-                      True if skipping database instance creation during ML Metadata
+                      True if skipping database instance creation during Model Registry
                       service initialization. By default, it is false.
                     type: boolean
                   sslCertificateSecret:
@@ -583,7 +585,7 @@ spec:
                   skipDBCreation:
                     default: false
                     description: |-
-                      True if skipping database instance creation during ML Metadata
+                      True if skipping database instance creation during Model Registry
                       service initialization. By default, it is false.
                     type: boolean
                   sslCertificateSecret:
@@ -901,7 +903,8 @@ spec:
                   database migration during initialization (Optional parameter)
                 type: boolean
               grpc:
-                description: Configuration for gRPC endpoint
+                description: 'Deprecated: Configuration for gRPC endpoint is deprecated
+                  and will be removed in a future release'
                 properties:
                   image:
                     description: Optional image to support overriding the image deployed
@@ -1088,7 +1091,7 @@ spec:
                   skipDBCreation:
                     default: false
                     description: |-
-                      True if skipping database instance creation during ML Metadata
+                      True if skipping database instance creation during Model Registry
                       service initialization. By default, it is false.
                     type: boolean
                   sslCertificateSecret:
@@ -1294,7 +1297,7 @@ spec:
                   skipDBCreation:
                     default: false
                     description: |-
-                      True if skipping database instance creation during ML Metadata
+                      True if skipping database instance creation during Model Registry
                       service initialization. By default, it is false.
                     type: boolean
                   sslCertificateSecret:
@@ -1479,7 +1482,6 @@ spec:
                     type: string
                 type: object
             required:
-            - grpc
             - rest
             type: object
             x-kubernetes-validations:

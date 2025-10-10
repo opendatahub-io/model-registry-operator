@@ -274,9 +274,7 @@ func autoConvert_v1alpha1_ModelRegistrySpec_To_v1beta1_ModelRegistrySpec(in *Mod
 	if err := Convert_v1alpha1_RestSpec_To_v1beta1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1alpha1_GrpcSpec_To_v1beta1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
-		return err
-	}
+	// WARNING: in.Grpc requires manual conversion: inconvertible types (github.com/opendatahub-io/model-registry-operator/api/v1alpha1.GrpcSpec vs *github.com/opendatahub-io/model-registry-operator/api/v1beta1.GrpcSpec)
 	if in.Postgres != nil {
 		in, out := &in.Postgres, &out.Postgres
 		*out = new(v1beta1.PostgresConfig)
@@ -298,9 +296,7 @@ func autoConvert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1b
 	if err := Convert_v1beta1_RestSpec_To_v1alpha1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
-		return err
-	}
+	// WARNING: in.Grpc requires manual conversion: inconvertible types (*github.com/opendatahub-io/model-registry-operator/api/v1beta1.GrpcSpec vs github.com/opendatahub-io/model-registry-operator/api/v1alpha1.GrpcSpec)
 	if in.Postgres != nil {
 		in, out := &in.Postgres, &out.Postgres
 		*out = new(PostgresConfig)
