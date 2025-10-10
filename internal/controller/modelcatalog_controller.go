@@ -84,6 +84,8 @@ func (r *ModelCatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
 
+	log.Info("Reconciling catalog")
+
 	catalogParams := &ModelCatalogParams{
 		Name:      modelCatalogName,
 		Namespace: r.TargetNamespace,
@@ -659,59 +661,7 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	r.applyLabels(&newSecret.ObjectMeta, params)
 	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
 
-	// Check if Secret already exists
-	var existingSecret corev1.Secret
-	key := client.ObjectKeyFromObject(&newSecret)
-
-	if err := r.Client.Get(ctx, key, &existingSecret); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Secret doesn't exist, create it
-			result = ResourceCreated
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
-				return result, err
-			}
-			return result, r.Client.Create(ctx, &newSecret)
-		}
-		return result, err
-	}
-
-	// Secret exists, check if data has changed
-	dataChanged := !reflect.DeepEqual(existingSecret.Data, newSecret.Data)
-
-	// Check if other mutable fields have changed
-	labelsChanged := !reflect.DeepEqual(existingSecret.Labels, newSecret.Labels)
-	annotationsChanged := !reflect.DeepEqual(existingSecret.Annotations, newSecret.Annotations)
-	ownerRefsChanged := !reflect.DeepEqual(existingSecret.OwnerReferences, newSecret.OwnerReferences)
-
-	// If data has changed, we need to delete and recreate the Secret
-	if dataChanged {
-		// Delete the existing Secret
-		if err := r.Client.Delete(ctx, &existingSecret); err != nil {
-			return result, err
-		}
-
-		// Create the new Secret with updated data
-		result = ResourceUpdated
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newSecret); err != nil {
-			return result, err
-		}
-		return result, r.Client.Create(ctx, &newSecret)
-	}
-
-	// If only metadata changed, update in place
-	if labelsChanged || annotationsChanged || ownerRefsChanged {
-		existingSecret.Labels = newSecret.Labels
-		existingSecret.Annotations = newSecret.Annotations
-		existingSecret.OwnerReferences = newSecret.OwnerReferences
-
-		result = ResourceUpdated
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingSecret); err != nil {
-			return result, err
-		}
-		return result, r.Client.Update(ctx, &existingSecret)
-	}
-
-	return result, nil
+	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
 }
 
 func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {

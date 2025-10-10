@@ -19,6 +19,7 @@ package config
 import (
 	"context"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"text/template"
@@ -129,8 +130,9 @@ func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
 
 func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
-		"randBytes":        utils.RandBytes,
+		"b64enc":           b64enc,
 		"quantityToString": utils.QuantityToString,
+		"randBytes":        utils.RandBytes,
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
@@ -141,6 +143,10 @@ func ParseTemplates() (*template.Template, error) {
 		return nil, err
 	}
 	return tmpl, err
+}
+
+func b64enc(str string) string {
+	return base64.StdEncoding.EncodeToString([]byte(str))
 }
 
 var (
