@@ -497,6 +497,110 @@ func TestCatalogDeployment(t *testing.T) {
 	})
 }
 
+func TestCatalogPostgresSecret(t *testing.T) {
+	// Clear any env vars from previous tests
+	os.Unsetenv(config.CatalogPostgresUser)
+	os.Unsetenv(config.CatalogPostgresPassword)
+	os.Unsetenv(config.CatalogPostgresDatabase)
+
+	// parse all templates
+	templates, err := config.ParseTemplates()
+	if err != nil {
+		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow()
+	}
+
+	catalogReconciler := controller.ModelCatalogReconciler{
+		Log:         logr.Logger{},
+		Template:    templates,
+		IsOpenShift: true,
+	}
+
+	params := controller.ModelCatalogParams{
+		Name:      "model-catalog",
+		Namespace: "test-namespace",
+		Component: "model-catalog-postgres",
+	}
+
+	t.Run("catalog-postgres-secret.yaml.tmpl", func(t *testing.T) {
+		var result corev1.Secret
+		err := catalogReconciler.Apply(&params, "catalog-postgres-secret.yaml.tmpl", &result)
+		if err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		// Verify secret metadata
+		if result.Name != "model-catalog-postgres" {
+			t.Errorf("Secret name = %v, want model-catalog-postgres", result.Name)
+		}
+
+		if result.Namespace != params.Namespace {
+			t.Errorf("Secret namespace = %v, want %v", result.Namespace, params.Namespace)
+		}
+
+		// Verify labels
+		expectedLabels := map[string]string{
+			"app":                          "model-catalog-postgres",
+			"component":                    "model-catalog-postgres",
+			"app.kubernetes.io/name":       "model-catalog-postgres",
+			"app.kubernetes.io/instance":   "model-catalog-postgres",
+			"app.kubernetes.io/component":  "database",
+			"app.kubernetes.io/created-by": "model-registry-operator",
+			"app.kubernetes.io/part-of":    "model-catalog",
+			"app.kubernetes.io/managed-by": "model-registry-operator",
+		}
+
+		for key, expectedValue := range expectedLabels {
+			if result.Labels[key] != expectedValue {
+				t.Errorf("Label %s = %v, want %v", key, result.Labels[key], expectedValue)
+			}
+		}
+
+		// Verify annotations
+		expectedAnnotations := map[string]string{
+			"template.openshift.io/expose-database_name": "{.data['database-name']}",
+			"template.openshift.io/expose-password":      "{.data['database-password']}",
+			"template.openshift.io/expose-username":      "{.data['database-user']}",
+		}
+
+		for key, expectedValue := range expectedAnnotations {
+			if result.Annotations[key] != expectedValue {
+				t.Errorf("Annotation %s = %v, want %v", key, result.Annotations[key], expectedValue)
+			}
+		}
+
+		// Verify data fields exist and contain base64 encoded values
+		if result.Data == nil {
+			t.Errorf("Secret data should not be nil")
+			return
+		}
+
+		requiredDataKeys := []string{"database-name", "database-password", "database-user"}
+		for _, key := range requiredDataKeys {
+			if _, exists := result.Data[key]; !exists {
+				t.Errorf("Secret should contain data key: %s", key)
+			}
+		}
+
+		// Verify the base64 encoded values decode to expected defaults
+		expectedValues := map[string]string{
+			"database-name":     config.DefaultCatalogPostgresDatabase,
+			"database-password": config.DefaultCatalogPostgresPassword,
+			"database-user":     config.DefaultCatalogPostgresUser,
+		}
+
+		for dataKey, expectedValue := range expectedValues {
+			if encodedValue, exists := result.Data[dataKey]; exists {
+				decodedValue := string(encodedValue)
+				if decodedValue != expectedValue {
+					t.Errorf("Decoded %s = %v, want %v", dataKey, decodedValue, expectedValue)
+				}
+			}
+		}
+	})
+}
+
 func TestSetRegistriesNamespace(t *testing.T) {
 	type args struct {
 		namespace string
