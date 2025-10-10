@@ -22,7 +22,7 @@ spec:
     appProtocol: tcp
     targetPort: 5432
   selector:
-    app: {{.Name}}-postgres
-    component: model-catalog-postgres
+    app: {{.Name}}
+    app.kubernetes.io/name: {{.Name}}-postgres
   sessionAffinity: None
   type: ClusterIP
