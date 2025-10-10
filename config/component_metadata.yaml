@@ -1,7 +1,4 @@
 releases:
-  - name: Google ML Metadata
-    version: v1.14.0
-    repoUrl: https://github.com/google/ml-metadata
   - name: Kubeflow Model Registry
     version: latest
     repoUrl: https://github.com/kubeflow/model-registry

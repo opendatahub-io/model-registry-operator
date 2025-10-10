@@ -119,7 +119,6 @@ var _ = Describe("Storage Version Migration", func() {
 			testMR.SetNamespace(testNamespace)
 			testMR.Spec = v1alpha1.ModelRegistrySpec{
 				Rest: v1alpha1.RestSpec{},
-				Grpc: v1alpha1.GrpcSpec{},
 			}
 			Expect(k8sClient.Create(ctx, testMR)).To(Succeed())
 		})
@@ -209,7 +208,6 @@ var _ = Describe("Storage Version Migration", func() {
 			testMR.SetNamespace(testNamespace)
 			testMR.Spec = v1alpha1.ModelRegistrySpec{
 				Rest: v1alpha1.RestSpec{},
-				Grpc: v1alpha1.GrpcSpec{},
 			}
 			Expect(k8sClient.Create(ctx, testMR)).To(Succeed())
 		})
@@ -285,9 +283,6 @@ var _ = Describe("Storage Version Migration", func() {
 				Rest: v1alpha1.RestSpec{
 					Image: "test-rest-image",
 				},
-				Grpc: v1alpha1.GrpcSpec{
-					Image: "test-grpc-image",
-				},
 				MySQL: &v1alpha1.MySQLConfig{
 					Host:     "test-mysql",
 					Port:     &dbPort,
@@ -324,7 +319,6 @@ var _ = Describe("Storage Version Migration", func() {
 
 			// Verify key fields are preserved
 			Expect(convertedMR.Spec.Rest.Image).To(Equal(originalMR.Spec.Rest.Image))
-			Expect(convertedMR.Spec.Grpc.Image).To(Equal(originalMR.Spec.Grpc.Image))
 
 			if originalMR.Spec.MySQL != nil && convertedMR.Spec.MySQL != nil {
 				Expect(convertedMR.Spec.MySQL.Host).To(Equal(originalMR.Spec.MySQL.Host))

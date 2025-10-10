@@ -9,4 +9,5 @@
 
     # Ignore specific database user
     '''database-user\s*:\s*"mlmduser"'''
+    '''database-user\s*:\s*"modelregistryuser"'''
   ]
