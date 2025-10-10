@@ -58,7 +58,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - cp /app/data/models-catalog.yaml /shared-data/default-catalog.yaml
+            - cp /app/data/models-catalog.yaml /app/data/validated-models-catalog.yaml /shared-data/
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data

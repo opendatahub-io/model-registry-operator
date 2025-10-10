@@ -632,9 +632,9 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(defaultConfigMap.Labels["component"]).To(Equal("model-catalog"))
 				Expect(defaultConfigMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
 				Expect(defaultConfigMap.Data).To(HaveKey("sources.yaml"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/default-catalog.yaml"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/models-catalog.yaml"))
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
@@ -665,8 +665,8 @@ var _ = Describe("ModelCatalog controller", func() {
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
@@ -761,7 +761,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should handle malformed YAML in user sources ConfigMap gracefully", func() {
@@ -813,7 +813,7 @@ catalogs:
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should set owner references on default sources ConfigMap", func() {
