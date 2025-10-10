@@ -10,18 +10,18 @@ metadata:
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
   annotations:
-    {{- if .Spec.OAuthProxy}}
-    service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-oauth-proxy
-    routing.opendatahub.io/external-address-rest: {{.Name}}.{{.Spec.OAuthProxy.Domain}}:{{.Spec.OAuthProxy.RoutePort}}
+    {{- if .Spec.KubeRBACProxy}}
+    service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-kube-rbac-proxy
+    routing.opendatahub.io/external-address-rest: {{.Name}}.{{.Spec.KubeRBACProxy.Domain}}:{{.Spec.KubeRBACProxy.RoutePort}}
     {{- end}}
 spec:
   ports:
-    {{- if .Spec.OAuthProxy}}
+    {{- if .Spec.KubeRBACProxy}}
     - name: https-api
-      port: {{.Spec.OAuthProxy.Port}}
+      port: {{.Spec.KubeRBACProxy.Port}}
       protocol: TCP
       appProtocol: https
     {{- else }}

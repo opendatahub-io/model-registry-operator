@@ -1,10 +1,14 @@
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func DownloadFile(url string, path string) error {
@@ -32,4 +36,17 @@ func DownloadFile(url string, path string) error {
 	}
 
 	return nil
+}
+
+// RandBytes generates a cryptographically secure random byte sequence
+// of the specified length, base64 encoded for safe string usage
+func RandBytes(n int) string {
+	buf := make([]byte, n)
+	rand.Read(buf)
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// QuantityToString converts a resource.Quantity to a string
+func QuantityToString(q resource.Quantity) string {
+	return q.String()
 }

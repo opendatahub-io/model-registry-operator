@@ -197,15 +197,17 @@ spec:
             failureThreshold: 3
           {{- with .Spec.Rest.Resources }}
           resources:
-            {{- with .Requests }}
+            {{- if .Requests }}
             requests:
-              cpu: {{.Cpu}}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Requests }}
+              {{$key}}: {{quantityToString $value}}
             {{- end }}
-            {{- with .Limits }}
+            {{- end }}
+            {{- if .Limits }}
             limits:
-              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Limits }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
             {{- end }}
           {{- end }}
           securityContext:
@@ -213,28 +215,29 @@ spec:
             capabilities:
               drop:
                 - ALL
-        {{ if .Spec.OAuthProxy }}
-        - name: oauth-proxy
+        {{ if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy
           args:
-            - --https-address=:{{.Spec.OAuthProxy.Port}}
-            - --provider=openshift
-            - --openshift-service-account={{.Name}}
-            - --upstream=http://localhost:{{.Spec.Rest.Port}}
-            - --tls-cert=/etc/tls/private-cert/{{.Spec.OAuthProxy.TLSCertificateSecret.Key}}
-            - --tls-key=/etc/tls/private-key/{{.Spec.OAuthProxy.TLSKeySecret.Key}}
-            - --cookie-secret-file=/cookie-secret/cookie-secret.txt
-            - --cookie-name=_{{.Name}}_oauth_proxy
-            - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
-            - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
-          image: {{.Spec.OAuthProxy.Image}}
+            - --secure-listen-address=0.0.0.0:{{.Spec.KubeRBACProxy.Port}}
+            - --upstream=http://127.0.0.1:{{.Spec.Rest.Port}}/
+            - --proxy-endpoints-port=8888
+            - --logtostderr=true
+            - --v=0
+            - --config-file=/etc/kube-rbac-proxy/config-file.yaml
+            - --tls-cert-file=/etc/tls/private-cert/{{.Spec.KubeRBACProxy.TLSCertificateSecret.Key}}
+            - --tls-private-key-file=/etc/tls/private-key/{{.Spec.KubeRBACProxy.TLSKeySecret.Key}}
+          image: {{.Spec.KubeRBACProxy.Image}}
           ports:
-            - containerPort: 8443
-              name: oauth2-proxy
+            - containerPort: {{.Spec.KubeRBACProxy.Port}}
+              name: https-proxy
+              protocol: TCP
+            - containerPort: 8888
+              name: proxy-healthz
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /oauth/healthz
-              port: oauth2-proxy
+              path: /healthz
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 30
             timeoutSeconds: 1
@@ -243,8 +246,8 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /oauth/healthz
-              port: oauth2-proxy
+              path: /healthz
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 5
             timeoutSeconds: 1
@@ -259,11 +262,11 @@ spec:
               memory: 256Mi
           volumeMounts:
             - mountPath: /etc/tls/private-cert
-              name: oauth-proxy-cert
+              name: kube-rbac-proxy-cert
             - mountPath: /etc/tls/private-key
-              name: oauth-proxy-key
-            - mountPath: /cookie-secret
-              name: oauth-proxy-cookie-secret
+              name: kube-rbac-proxy-key
+            - mountPath: /etc/kube-rbac-proxy
+              name: kube-rbac-proxy-config
         {{ end }}
       serviceAccountName: {{.Name}}
       volumes:
@@ -327,17 +330,16 @@ spec:
             defaultMode: 0600
             {{- end}}
         {{- end}}
-        {{- if .Spec.OAuthProxy }}
-        - name: oauth-proxy-cert
+        {{- if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy-cert
           secret:
-            secretName: {{.Spec.OAuthProxy.TLSCertificateSecret.Name}}
+            secretName: {{.Spec.KubeRBACProxy.TLSCertificateSecret.Name}}
             defaultMode: 0600
-        - name: oauth-proxy-key
+        - name: kube-rbac-proxy-key
           secret:
-            secretName: {{.Spec.OAuthProxy.TLSKeySecret.Name}}
+            secretName: {{.Spec.KubeRBACProxy.TLSKeySecret.Name}}
             defaultMode: 0600
-        - name: oauth-proxy-cookie-secret
-          secret:
-            secretName: {{.Name}}-oauth-cookie-secret
-            defaultMode: 0600
+        - name: kube-rbac-proxy-config
+          configMap:
+            name: {{.Name}}-kube-rbac-proxy-config
         {{- end}}
