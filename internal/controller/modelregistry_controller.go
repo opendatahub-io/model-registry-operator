@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -175,6 +176,19 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// Migrate OAuth proxy to kube-rbac-proxy for existing registries
+	// This handles registries created before the migration or updated outside the webhook
+	if modelRegistry.Spec.OAuthProxy != nil {
+		log.Info("Migrating OAuthProxy to KubeRBACProxy")
+		modelRegistry.MigrateOAuthProxyToKubeRBACProxy()
+		if err = r.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry after OAuth proxy migration")
+			return ctrl.Result{}, err
+		}
+		// Requeue to process with the migrated configuration
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// remember original spec
 	originalSpec := modelRegistry.Spec.DeepCopy()
 	// set runtime default properties in memory for reconciliation
@@ -309,6 +323,29 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 	}
 }
 
+// NOTE: There MUST be an empty newline at the end of this rbac permissions list, or role generation won't work!!!
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
+// +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
+// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=migration.k8s.io,resources=storageversionmigrations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=modelregistries,verbs=get;list;watch
+
 func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) (OperationResult, error) {
 
 	//log := klog.FromContext(ctx)
@@ -316,6 +353,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	var result, result2 OperationResult
 
 	var err error
+
+	if registry.Spec.Postgres != nil && registry.Spec.Postgres.GenerateDeployment != nil && *registry.Spec.Postgres.GenerateDeployment {
+		result, err = r.createOrUpdatePostgres(ctx, params, registry)
+		if err != nil {
+			return result, err
+		}
+	}
+
 	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "serviceaccount.yaml.tmpl")
 	if err != nil {
 		return result, err
@@ -374,8 +419,10 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
+	// create or update kube-rbac-proxy config if enabled, delete if disabled
+	// This also handles cleanup of OAuth proxy resources since they share the same
+	// ClusterRoleBinding, Route, and NetworkPolicy names
+	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err
 	}
@@ -386,6 +433,104 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	// Clean up old catalog resources from before it was moved to ModelCatalogReconciler
 	if err := r.deleteOldCatalogResources(ctx, params); err != nil {
 		return result, err
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, params *ModelRegistryParams,
+	registry *v1beta1.ModelRegistry) (result OperationResult, err error) {
+	log := klog.FromContext(ctx)
+	log.Info("Creating or updating postgres database")
+	result = ResourceUnchanged
+	var secret corev1.Secret
+	secretName := params.Name + "-postgres-credentials"
+	err = r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: params.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the secret
+			log.Info("Creating postgres secret", "secret", secretName)
+			secret = corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: params.Namespace,
+				},
+				StringData: map[string]string{
+					"username": "modelregistry",
+					"password": utils.RandBytes(16),
+				},
+			}
+			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
+				log.Error(err, "Failed to set controller reference on secret")
+				return result, err
+			}
+			if result, err = r.createOrUpdate(ctx, &corev1.Secret{}, &secret); err != nil {
+				log.Error(err, "Failed to create or update secret")
+				return result, err
+			}
+		} else {
+			log.Error(err, "Failed to get secret")
+			return result, err
+		}
+	}
+
+	log.Info("Creating or updating postgres PVC")
+	var pvc corev1.PersistentVolumeClaim
+	if err = r.Apply(params, "postgres-pvc.yaml.tmpl", &pvc); err != nil {
+		log.Error(err, "Failed to apply postgres PVC template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &pvc, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on PVC")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc); err != nil {
+		log.Error(err, "Failed to create or update PVC")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres deployment")
+	var deployment appsv1.Deployment
+	if err = r.Apply(params, "postgres-deployment.yaml.tmpl", &deployment); err != nil {
+		log.Error(err, "Failed to apply postgres deployment template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on deployment")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
+		log.Error(err, "Failed to create or update deployment")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres service")
+	var service corev1.Service
+	if err = r.Apply(params, "postgres-service.yaml.tmpl", &service); err != nil {
+		log.Error(err, "Failed to apply postgres service template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on service")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
+		log.Error(err, "Failed to create or update service")
+		return result, err
+	}
+
+	// Update the spec in memory
+	log.Info("Updating spec in memory with postgres details")
+	port := int32(5432)
+	registry.Spec.Postgres = &v1beta1.PostgresConfig{
+		Host:     params.Name + "-postgres",
+		Port:     &port,
+		Username: "modelregistry",
+		Database: "model_registry",
+		PasswordSecret: &v1beta1.SecretKeyValue{
+			Name: secretName,
+			Key:  "password",
+		},
 	}
 
 	return result, nil

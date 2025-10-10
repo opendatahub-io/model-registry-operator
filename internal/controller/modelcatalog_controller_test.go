@@ -104,8 +104,35 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(deployment.Labels["component"]).To(Equal("model-catalog"))
 				Expect(deployment.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
-				Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2)) // catalog + oauth-proxy
+				Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2)) // catalog + kube-rbac-proxy
 				Expect(deployment.Spec.Template.Spec.Containers[0].Name).To(Equal("catalog"))
+
+				// Check that kube-rbac-proxy container is deployed
+				var proxyContainer *corev1.Container
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					if container.Name == "kube-rbac-proxy" {
+						proxyContainer = &container
+						break
+					}
+				}
+				Expect(proxyContainer).ToNot(BeNil(), "kube-rbac-proxy container should be present")
+				Expect(proxyContainer.Image).To(ContainSubstring("kube-rbac-proxy"))
+
+				// Check kube-rbac-proxy specific arguments
+				Expect(proxyContainer.Args).To(ContainElement("--secure-listen-address=0.0.0.0:8443"))
+				Expect(proxyContainer.Args).To(ContainElement("--upstream=http://127.0.0.1:8080/"))
+				Expect(proxyContainer.Args).To(ContainElement("--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
+
+				// Check that oauth-proxy specific args are NOT present
+				for _, arg := range proxyContainer.Args {
+					Expect(arg).ToNot(ContainSubstring("--provider=openshift"))
+					Expect(arg).ToNot(ContainSubstring("--cookie-secret"))
+				}
+
+				// Ensure oauth-proxy container is NOT present
+				for _, container := range deployment.Spec.Template.Spec.Containers {
+					Expect(container.Name).ToNot(Equal("oauth-proxy"))
+				}
 
 				By("Checking if the Service was created")
 				service := &corev1.Service{}
@@ -457,8 +484,8 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				Expect(postgresService.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 				Expect(postgresService.Spec.SessionAffinity).To(Equal(corev1.ServiceAffinityNone))
-				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName+"-postgres"))
-				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("component", "model-catalog-postgres"))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName))
+				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app.kubernetes.io/name", "model-catalog-postgres"))
 
 				By("Verifying PostgreSQL PVC configuration")
 				postgresPVC := &corev1.PersistentVolumeClaim{}
@@ -605,9 +632,9 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(defaultConfigMap.Labels["component"]).To(Equal("model-catalog"))
 				Expect(defaultConfigMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
 				Expect(defaultConfigMap.Data).To(HaveKey("sources.yaml"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/default-catalog.yaml"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/models-catalog.yaml"))
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
@@ -638,8 +665,8 @@ var _ = Describe("ModelCatalog controller", func() {
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Default Catalog"))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI models"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
@@ -734,7 +761,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should handle malformed YAML in user sources ConfigMap gracefully", func() {
@@ -786,7 +813,7 @@ catalogs:
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("default_catalog"))
+				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 			})
 
 			It("Should set owner references on default sources ConfigMap", func() {

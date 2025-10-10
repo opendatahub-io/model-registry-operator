@@ -1,17 +1,23 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: "model-catalog-sources"
+  name: {{.Name}}-kube-rbac-proxy-config
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}
     component: model-catalog
     app.kubernetes.io/name: {{.Name}}
-    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-kube-rbac-proxy-config
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
     app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
 data:
-  sources.yaml: |-
-    catalogs: []
+  config-file.yaml: |
+    authorization:
+      resourceAttributes:
+        apiVersion: v1
+        resource: services
+        verb: get
+        namespace: {{.Namespace}}
+        name: {{.Name}}

@@ -10,13 +10,22 @@ metadata:
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
 data:
   sources.yaml: |-
     catalogs:
-      - name: Default Catalog
-        id: default_catalog
+      - name: Red Hat AI models
+        id: redhat_ai_models
         type: yaml
         properties:
-          yamlCatalogPath: /shared-data/default-catalog.yaml
+          yamlCatalogPath: /shared-data/models-catalog.yaml
+        labels:
+          - Red Hat AI models
+      - name: Red Hat AI validated models
+        id: redhat_ai_validated_models
+        type: yaml
+        properties:
+          yamlCatalogPath: /shared-data/validated-models-catalog.yaml
+        labels:
+          - Red Hat AI validated models

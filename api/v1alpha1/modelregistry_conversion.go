@@ -130,3 +130,37 @@ func Convert_v1alpha1_ModelRegistrySpec_To_v1beta1_ModelRegistrySpec(in *ModelRe
 	}
 	return nil
 }
+
+// Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig handles conversion from v1beta1 to v1alpha1 PostgresConfig.
+// The v1beta1.GenerateDeployment field is ignored as it doesn't exist in v1alpha1.
+func Convert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in *v1beta1.PostgresConfig, out *PostgresConfig, s apiconversion.Scope) error {
+	return autoConvert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in, out, s)
+}
+
+// Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec handles conversion from v1beta1 to v1alpha1
+// KubeRBACProxy field in v1beta1 is ignored since it doesn't exist in v1alpha1
+func Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1beta1.ModelRegistrySpec, out *ModelRegistrySpec, s apiconversion.Scope) error {
+	if err := Convert_v1beta1_RestSpec_To_v1alpha1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
+		return err
+	}
+	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
+		return err
+	}
+	if err := s.Convert(&in.Postgres, &out.Postgres); err != nil {
+		return err
+	}
+	if err := s.Convert(&in.MySQL, &out.MySQL); err != nil {
+		return err
+	}
+	if err := s.Convert(&in.EnableDatabaseUpgrade, &out.EnableDatabaseUpgrade); err != nil {
+		return err
+	}
+	if err := s.Convert(&in.DowngradeDbSchemaVersion, &out.DowngradeDbSchemaVersion); err != nil {
+		return err
+	}
+	if err := s.Convert(&in.OAuthProxy, &out.OAuthProxy); err != nil {
+		return err
+	}
+	// Note: KubeRBACProxy, and GenerateDeployment fields in v1beta1 are intentionally ignored since they don't exist in v1alpha1
+	return nil
+}

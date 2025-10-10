@@ -9,8 +9,7 @@ metadata:
     app.kubernetes.io/name: {{.Name}}
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
-    app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
 spec:
   replicas: 1
@@ -19,11 +18,13 @@ spec:
     matchLabels:
       app: {{.Name}}
       component: model-catalog
+      app.kubernetes.io/name: {{.Name}}
   template:
     metadata:
       labels:
         app: {{.Name}}
         component: model-catalog
+        app.kubernetes.io/name: {{.Name}}
       annotations:
         openshift.io/required-scc: restricted-v2
     spec:
@@ -42,15 +43,14 @@ spec:
         emptyDir: {}
       - name: benchmark-data
         emptyDir: {}
-      {{- if .Spec.OAuthProxy }}
-      - name: oauth-proxy-tls
+      {{- if .Spec.KubeRBACProxy }}
+      - name: kube-rbac-proxy-tls
         secret:
-          secretName: {{.Name}}-oauth-proxy
+          secretName: {{.Name}}-kube-rbac-proxy
           defaultMode: 0600
-      - name: oauth-proxy-cookie-secret
-        secret:
-          secretName: {{.Name}}-oauth-cookie-secret
-          defaultMode: 0600
+      - name: kube-rbac-proxy-config
+        configMap:
+          name: {{.Name}}-kube-rbac-proxy-config
       {{- end}}
       serviceAccountName: {{.Name}}
       initContainers:
@@ -59,7 +59,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - cp /app/data/models-catalog.yaml /shared-data/default-catalog.yaml
+            - cp /app/data/models-catalog.yaml /app/data/validated-models-catalog.yaml /shared-data/
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data
@@ -109,15 +109,17 @@ spec:
             timeoutSeconds: 2
           {{- with .Spec.Rest.Resources }}
           resources:
-            {{- with .Requests }}
+            {{- if .Requests }}
             requests:
-              cpu: {{.Cpu}}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Requests }}
+              {{$key}}: {{quantityToString $value}}
             {{- end }}
-            {{- with .Limits }}
+            {{- end }}
+            {{- if .Limits }}
             limits:
-              {{ if not .Cpu.IsZero }}cpu: {{.Cpu}}{{ end }}
-              memory: {{.Memory}}
+            {{- range $key, $value := .Limits }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
             {{- end }}
           {{- end }}
           securityContext:
@@ -134,28 +136,47 @@ spec:
             mountPath: /shared-data
           - name: benchmark-data
             mountPath: /shared-benchmark-data
-        {{ if .Spec.OAuthProxy }}
-        - name: oauth-proxy
+          env:
+            - name: PGHOST
+              value: {{.Name}}-postgres
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-name
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-password
+        {{ if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy
           args:
-            - --https-address=:{{.Spec.OAuthProxy.Port}}
-            - --provider=openshift
-            - --openshift-service-account={{.Name}}
-            - --upstream=http://localhost:8080
-            - --tls-cert=/etc/tls/tls.crt
-            - --tls-key=/etc/tls/tls.key
-            - --cookie-secret-file=/cookie-secret/cookie-secret.txt
-            - --cookie-name=_{{.Name}}_catalog_oauth_proxy
-            - '--openshift-delegate-urls={"/":{"group":"","resource":"services","verb":"get","name":"{{.Name}}","namespace":"{{.Namespace}}"}}'
-            - --skip-auth-regex='(^/metrics|^/oauth/healthz)'
-          image: {{.Spec.OAuthProxy.Image}}
+            - --secure-listen-address=0.0.0.0:{{.Spec.KubeRBACProxy.Port}}
+            - --upstream=http://127.0.0.1:8080/
+            - --proxy-endpoints-port=8888
+            - --logtostderr=true
+            - --v=0
+            - --config-file=/etc/kube-rbac-proxy/config-file.yaml
+            - --tls-cert-file=/etc/tls/tls.crt
+            - --tls-private-key-file=/etc/tls/tls.key
+          image: {{.Spec.KubeRBACProxy.Image}}
           ports:
-            - containerPort: 8443
-              name: oauth2-proxy
+            - containerPort: {{.Spec.KubeRBACProxy.Port}}
+              name: https-proxy
+              protocol: TCP
+            - containerPort: 8888
+              name: proxy-healthz
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /oauth/healthz
-              port: oauth2-proxy
+              path: /healthz
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 30
             timeoutSeconds: 1
@@ -164,8 +185,8 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /oauth/healthz
-              port: oauth2-proxy
+              path: /healthz
+              port: proxy-healthz
               scheme: HTTPS
             initialDelaySeconds: 5
             timeoutSeconds: 1
@@ -180,7 +201,7 @@ spec:
               memory: 256Mi
           volumeMounts:
             - mountPath: /etc/tls
-              name: oauth-proxy-tls
-            - mountPath: /cookie-secret
-              name: oauth-proxy-cookie-secret
+              name: kube-rbac-proxy-tls
+            - mountPath: /etc/kube-rbac-proxy
+              name: kube-rbac-proxy-config
         {{ end }}

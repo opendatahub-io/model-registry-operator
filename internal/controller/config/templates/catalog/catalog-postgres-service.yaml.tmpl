@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/instance: {{.Name}}-postgres
     app.kubernetes.io/component: database
     app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
   annotations:
     template.openshift.io/expose-uri: 'postgres://{.spec.clusterIP}:{.spec.ports[?(@.name=="postgresql")].port}'
@@ -22,7 +22,7 @@ spec:
     appProtocol: tcp
     targetPort: 5432
   selector:
-    app: {{.Name}}-postgres
-    component: model-catalog-postgres
+    app: {{.Name}}
+    app.kubernetes.io/name: {{.Name}}-postgres
   sessionAffinity: None
   type: ClusterIP
