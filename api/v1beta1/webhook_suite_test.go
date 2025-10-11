@@ -270,7 +270,7 @@ func newModelRegistry(ctx context.Context, name string, namespace string) *v1bet
 		},
 		Spec: v1beta1.ModelRegistrySpec{
 			Rest: v1beta1.RestSpec{},
-			Grpc: v1beta1.GrpcSpec{},
+			Grpc: &v1beta1.GrpcSpec{},
 			MySQL: &v1beta1.MySQLConfig{
 				Host:     "test-db",
 				Username: "test-user",
@@ -340,7 +340,7 @@ var _ = Describe("ModelRegistry Conversion Webhook", func() {
 					Port:         &restPort,
 					ServiceRoute: config.RouteDisabled,
 				},
-				Grpc: v1beta1.GrpcSpec{
+				Grpc: &v1beta1.GrpcSpec{
 					Port: &grpcPort,
 				},
 				MySQL: &v1beta1.MySQLConfig{

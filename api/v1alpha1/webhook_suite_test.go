@@ -270,7 +270,6 @@ func newModelRegistry(ctx context.Context, name string, namespace string) *v1alp
 		},
 		Spec: v1alpha1.ModelRegistrySpec{
 			Rest: v1alpha1.RestSpec{},
-			Grpc: v1alpha1.GrpcSpec{},
 			MySQL: &v1alpha1.MySQLConfig{
 				Host:     "test-db",
 				Username: "test-user",

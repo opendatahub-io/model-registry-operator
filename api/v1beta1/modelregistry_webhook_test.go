@@ -235,22 +235,14 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 			mrSpec: &v1beta1.ModelRegistry{
 				Spec: v1beta1.ModelRegistrySpec{
 					Rest: v1beta1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Resources: config.ModelRegistryRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
-					},
-					Grpc: v1beta1.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
 					},
 				},
 			},
 			wantMrSpec: &v1beta1.ModelRegistry{
 				Spec: v1beta1.ModelRegistrySpec{
 					Rest: v1beta1.RestSpec{
-						Resources: nil,
-						Image:     "",
-					},
-					Grpc: v1beta1.GrpcSpec{
 						Resources: nil,
 						Image:     "",
 					},
@@ -288,12 +280,8 @@ func TestRuntimeDefaults(t *testing.T) {
 			wantMrSpec: &v1beta1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: v1beta1.ModelRegistrySpec{
-					Grpc: v1beta1.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
-					},
 					Rest: v1beta1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Resources: config.ModelRegistryRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
 					// No runtime defaults for oauth proxy config

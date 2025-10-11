@@ -164,7 +164,11 @@ func (in *ModelRegistryList) DeepCopyObject() runtime.Object {
 func (in *ModelRegistrySpec) DeepCopyInto(out *ModelRegistrySpec) {
 	*out = *in
 	in.Rest.DeepCopyInto(&out.Rest)
-	in.Grpc.DeepCopyInto(&out.Grpc)
+	if in.Grpc != nil {
+		in, out := &in.Grpc, &out.Grpc
+		*out = new(GrpcSpec)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.Postgres != nil {
 		in, out := &in.Postgres, &out.Postgres
 		*out = new(PostgresConfig)

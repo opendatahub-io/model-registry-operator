@@ -175,12 +175,8 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 			mrSpec: &v1alpha1.ModelRegistry{
 				Spec: v1alpha1.ModelRegistrySpec{
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Resources: config.ModelRegistryRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
-					},
-					Grpc: v1alpha1.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
 					},
 					Istio: &v1alpha1.IstioConfig{
 						Audiences:        []string{audience},
@@ -194,12 +190,6 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 									CredentialName: &certName,
 								},
 							},
-							Grpc: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode:           tlsMode,
-									CredentialName: &certName,
-								},
-							},
 						},
 					},
 				},
@@ -207,10 +197,6 @@ func TestCleanupRuntimeDefaults(t *testing.T) {
 			wantMrSpec: &v1alpha1.ModelRegistry{
 				Spec: v1alpha1.ModelRegistrySpec{
 					Rest: v1alpha1.RestSpec{
-						Resources: nil,
-						Image:     "",
-					},
-					Grpc: v1alpha1.GrpcSpec{
 						Resources: nil,
 						Image:     "",
 					},
@@ -257,11 +243,6 @@ func TestRuntimeDefaults(t *testing.T) {
 									Mode: tlsMode,
 								},
 							},
-							Grpc: v1alpha1.ServerConfig{
-								TLS: &v1alpha1.TLSServerSettings{
-									Mode: tlsMode,
-								},
-							},
 						},
 					},
 				},
@@ -269,12 +250,8 @@ func TestRuntimeDefaults(t *testing.T) {
 			wantMrSpec: &v1alpha1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: v1alpha1.ModelRegistrySpec{
-					Grpc: v1alpha1.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
-					},
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Resources: config.ModelRegistryRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
 					// istio config is replaced with default oauth proxy config
@@ -307,12 +284,8 @@ func TestRuntimeDefaults(t *testing.T) {
 			wantMrSpec: &v1alpha1.ModelRegistry{
 				ObjectMeta: metav1.ObjectMeta{Name: "default"},
 				Spec: v1alpha1.ModelRegistrySpec{
-					Grpc: v1alpha1.GrpcSpec{
-						Resources: config.MlmdGRPCResourceRequirements.DeepCopy(),
-						Image:     config.DefaultGrpcImage,
-					},
 					Rest: v1alpha1.RestSpec{
-						Resources: config.MlmdRestResourceRequirements.DeepCopy(),
+						Resources: config.ModelRegistryRestResourceRequirements.DeepCopy(),
 						Image:     config.DefaultRestImage,
 					},
 					OAuthProxy: &v1alpha1.OAuthProxyConfig{

@@ -10,15 +10,13 @@ metadata:
   name: modelregistry-sample
 spec:
   # TODO(user): Add fields here
-  grpc:
-    port: 9090
   rest:
     port: 8080
     serviceRoute: disabled
   postgres:
     host: model-registry-db
     database: model-registry
-    username: mlmduser
+    username: modelregistryuser
     passwordSecret:
       name: model-registry-db
       key: database-password

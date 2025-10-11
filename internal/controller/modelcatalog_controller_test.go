@@ -34,14 +34,12 @@ var _ = Describe("ModelCatalog controller", func() {
 
 		BeforeEach(func() {
 			By("Setting the Image ENV VARs")
-			err := os.Setenv(config.RestImage, config.DefaultRestImage)
-			Expect(err).To(Not(HaveOccurred()))
-			err = os.Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
-			Expect(err).To(Not(HaveOccurred()))
-			err = os.Setenv(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)
-			Expect(err).To(Not(HaveOccurred()))
+			GinkgoT().Setenv(config.RestImage, config.DefaultRestImage)
+			GinkgoT().Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
+			GinkgoT().Setenv(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)
 
 			namespaceName = fmt.Sprintf("model-catalog-test-%d", time.Now().UnixNano())
+			var err error
 
 			namespace = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{

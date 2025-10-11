@@ -103,7 +103,9 @@ func Convert_v1alpha1_ModelRegistrySpec_To_v1beta1_ModelRegistrySpec(in *ModelRe
 	if err := Convert_v1alpha1_RestSpec_To_v1beta1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1alpha1_GrpcSpec_To_v1beta1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
+	// Convert grpc from value type (v1alpha1) to pointer type (v1beta1)
+	out.Grpc = &v1beta1.GrpcSpec{}
+	if err := Convert_v1alpha1_GrpcSpec_To_v1beta1_GrpcSpec(&in.Grpc, out.Grpc, s); err != nil {
 		return err
 	}
 	if err := s.Convert(&in.Postgres, &out.Postgres); err != nil {
@@ -143,8 +145,14 @@ func Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1beta1
 	if err := Convert_v1beta1_RestSpec_To_v1alpha1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
-		return err
+	// Convert grpc from pointer type (v1beta1) to value type (v1alpha1)
+	if in.Grpc != nil {
+		if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(in.Grpc, &out.Grpc, s); err != nil {
+			return err
+		}
+	} else {
+		// If grpc is nil in v1beta1, set defaults for v1alpha1 (required field)
+		out.Grpc = GrpcSpec{}
 	}
 	if err := s.Convert(&in.Postgres, &out.Postgres); err != nil {
 		return err
