@@ -17,7 +17,7 @@ spec:
     kind: Service
     name: {{.Name}}
   {{- if .Spec.KubeRBACProxy}}
-  host: {{.Name}}-rest.{{.Spec.KubeRBACProxy.Domain}}
+  host: {{.Name}}.{{.Spec.KubeRBACProxy.Domain}}
   {{- end}}
   port:
     targetPort: https-api
