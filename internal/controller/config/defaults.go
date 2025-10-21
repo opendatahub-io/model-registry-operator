@@ -49,7 +49,7 @@ const (
 	CatalogDataImage          = "CATALOG_DATA_IMAGE"
 	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
 	DefaultGrpcImage          = "quay.io/opendatahub/mlmd-grpc-server:latest"
-	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage          = "quay.io/opendatahub/model-registry:v0.3.2"
 	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
 	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
