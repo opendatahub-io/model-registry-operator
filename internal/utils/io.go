@@ -39,11 +39,11 @@ func DownloadFile(url string, path string) error {
 }
 
 // RandBytes generates a cryptographically secure random byte sequence
-// of the specified length, base64 encoded for safe string usage
+// of the specified length, base64 URL-encoded for safe string usage in URLs
 func RandBytes(n int) string {
 	buf := make([]byte, n)
 	rand.Read(buf)
-	return base64.StdEncoding.EncodeToString(buf)
+	return base64.URLEncoding.EncodeToString(buf)
 }
 
 // QuantityToString converts a resource.Quantity to a string
