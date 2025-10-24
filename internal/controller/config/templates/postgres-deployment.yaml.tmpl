@@ -5,15 +5,26 @@ metadata:
   namespace: {{.Namespace}}
   labels:
     app: {{.Name}}-postgres
+    component: model-registry-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: {{.Name}}-postgres
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}-postgres
   template:
     metadata:
       labels:
-        app: {{.Name}}-postgres
+        app: {{.Name}}
+        component: model-registry
+        app.kubernetes.io/name: {{.Name}}-postgres
     spec:
       securityContext:
         runAsNonRoot: true

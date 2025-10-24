@@ -3,9 +3,19 @@ kind: Service
 metadata:
   name: {{.Name}}-postgres
   namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}-postgres
+    component: model-registry-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
 spec:
   selector:
-    app: {{.Name}}-postgres
+    app: {{.Name}}
+    app.kubernetes.io/name: {{.Name}}-postgres
   ports:
     - protocol: TCP
       port: 5432
