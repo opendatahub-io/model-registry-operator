@@ -70,12 +70,11 @@ const (
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 	ReasonResourcesAlert       = "ResourcesAlert"
 
-	grpcContainerName       = "grpc-container"
 	restContainerName       = "rest-container"
 	containerCreatingReason = "ContainerCreating"
 )
 
-// errRegexp is based on the CHECK_EQ macro output used by mlmd container.
+// errRegexp is based on the CHECK_EQ macro output used by REST container.
 // For more details on Abseil logging and CHECK_EQ macro see [Abseil documentation].
 //
 // [Abseil documentation]: https://abseil.io/docs/cpp/guides/logging#CHECK
@@ -264,33 +263,13 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": app, "component": component}, client.InNamespace(namespace))
 	if err != nil {
 		// log K8s error
-		r.Log.Error(err, "failed to get grpc container error")
+		r.Log.Error(err, "failed to list pods")
 	}
 	for _, p := range pods.Items {
 		// look for not ready container status first
 		failedContainers := make(map[string]string)
 		for _, s := range p.Status.ContainerStatuses {
 			if !s.Ready {
-				// look for MLMD container errors, make sure it has also been created
-				if s.Name == grpcContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
-					// check container log for MLMD errors
-					dbError, err := r.getContainerDBerror(ctx, p, grpcContainerName)
-					if err != nil {
-						// log K8s error
-						r.Log.Error(err, "failed to get grpc container error")
-					}
-					if dbError != nil {
-						if strings.Contains(dbError.Error(), "{{ALERT}}") {
-							condition.Reason = ReasonResourcesAlert
-							condition.Message = fmt.Sprintf("grpc container alert: %s", dbError)
-							return condition
-						}
-						// MLMD errors take priority
-						condition.Reason = ReasonConfigurationError
-						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
-						return condition
-					}
-				}
 				// check for schema migration errors within rest containers
 				if s.Name == restContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
 					// check container log for schema migration errors
@@ -307,7 +286,7 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 						}
 						// if not a schema migration error, return a generic configuration error
 						condition.Reason = ReasonConfigurationError
-						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
+						condition.Message = fmt.Sprintf("database configuration error: %s", dbError)
 						return condition
 					}
 				}
