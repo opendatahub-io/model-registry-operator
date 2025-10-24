@@ -14,7 +14,8 @@ metadata:
     app.kubernetes.io/managed-by: model-registry-operator
 spec:
   selector:
-    app: {{.Name}}-postgres
+    app: {{.Name}}
+    app.kubernetes.io/name: {{.Name}}-postgres
   ports:
     - protocol: TCP
       port: 5432
