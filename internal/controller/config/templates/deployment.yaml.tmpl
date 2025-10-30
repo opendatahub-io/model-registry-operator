@@ -24,6 +24,7 @@ spec:
       labels:
         app: {{.Name}}
         component: model-registry
+        app.kubernetes.io/name: {{.Name}}
       annotations:
         openshift.io/required-scc: restricted-v2
     spec:
