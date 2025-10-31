@@ -444,7 +444,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 	log logr.Logger, message string, reason string, status metav1.ConditionStatus) (string, string, metav1.ConditionStatus) {
 	pods := corev1.PodList{}
 	if err := r.Client.List(ctx, &pods,
-		client.MatchingLabels{"app": name.Name, "component": "model-registry"},
+		client.MatchingLabels{"app": name.Name, "component": "model-registry", "app.kubernetes.io/name": name.Name},
 		client.InNamespace(name.Namespace)); err != nil {
 
 		log.Error(err, "Failed to get model registry pods", "name", name)
