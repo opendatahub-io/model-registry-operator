@@ -72,6 +72,8 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.RestImage, config.DefaultRestImage)
 				Expect(err).To(Not(HaveOccurred()))
+				err = os.Setenv(config.PostgresImage, config.DefaultPostgresImage)
+				Expect(err).To(Not(HaveOccurred()))
 				err = os.Setenv(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage)
 				Expect(err).To(Not(HaveOccurred()))
 			})

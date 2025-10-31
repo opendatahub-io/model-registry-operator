@@ -145,6 +145,13 @@ func (r *ModelRegistry) RuntimeDefaults() {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
 	}
 
+	// postgres defaults
+	if r.Spec.Postgres != nil {
+		if len(r.Spec.Postgres.Image) == 0 {
+			r.Spec.Postgres.Image = config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage)
+		}
+	}
+
 	// kube-rbac-proxy defaults
 	if r.Spec.KubeRBACProxy != nil {
 		// set default cert and key if not provided

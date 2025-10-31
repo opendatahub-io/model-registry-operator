@@ -97,6 +97,11 @@ type PostgresConfig struct {
 	// This parameter specifies the Kubernetes Secret name and key containing SSL
 	// certificate authority (CA) certificate(s).
 	SSLRootCertificateSecret *SecretKeyValue `json:"sslRootCertificateSecret,omitempty"`
+
+	// Optional image to support overriding the PostgreSQL image deployed by the operator.
+	// If not specified, defaults to the operator's configured PostgreSQL image.
+	//+optional
+	Image string `json:"image,omitempty"`
 }
 
 type MySQLConfig struct {

@@ -50,7 +50,7 @@ spec:
               name: {{.Name}}-postgres
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
-        image: quay.io/sclorg/postgresql-16-c10s:latest
+        image: {{.PostgresImage}}
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
