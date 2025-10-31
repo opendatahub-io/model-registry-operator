@@ -93,9 +93,6 @@ sync-images:
 	# sync component_metadata.yaml model registry versions on line 6 and 9
 	$(SED) $(SED_INPLACE) "6s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
 	$(SED) $(SED_INPLACE) "9s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
-	# sync mlmd image
-	$(SED) "s|quay.io/opendatahub/mlmd-grpc-server:.*|${IMAGES_GRPC_SERVICE}|" $(SED_INPLACE) ./config/manager/manager.yaml
-	$(SED) "s|\"quay.io/opendatahub/mlmd-grpc-server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" $(SED_INPLACE) ./internal/controller/config/defaults.go
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.

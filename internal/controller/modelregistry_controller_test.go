@@ -68,12 +68,9 @@ var _ = Describe("ModelRegistry controller", func() {
 
 			BeforeEach(func() {
 				By("Setting the Image ENV VARs which stores the Server images")
-				err = os.Setenv(config.GrpcImage, config.DefaultGrpcImage)
-				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv(config.RestImage, config.DefaultRestImage)
-				Expect(err).To(Not(HaveOccurred()))
-				err = os.Setenv(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage)
-				Expect(err).To(Not(HaveOccurred()))
+				t := GinkgoT()
+				t.Setenv(config.RestImage, config.DefaultRestImage)
+				t.Setenv(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage)
 			})
 
 			specInit := func() {
@@ -96,7 +93,6 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				// Let's mock our custom resource in the same way that we would
 				// apply on the cluster the manifest under config/samples
-				var gRPCPort int32 = 9090
 				var restPort int32 = 8080
 				modelRegistry = &v1beta1.ModelRegistry{
 					ObjectMeta: metav1.ObjectMeta{
@@ -105,9 +101,6 @@ var _ = Describe("ModelRegistry controller", func() {
 						Annotations: map[string]string{DisplayNameAnnotation: registryName, DescriptionAnnotation: DescriptionPrefix + registryName},
 					},
 					Spec: v1beta1.ModelRegistrySpec{
-						Grpc: v1beta1.GrpcSpec{
-							Port: &gRPCPort,
-						},
 						Rest: v1beta1.RestSpec{
 							Port: &restPort,
 						},
@@ -125,7 +118,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &postgresPort,
 					Database: "model-registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -154,7 +147,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &postgresPort,
 					Database: "model-registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -243,7 +236,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &postgresPort,
 					Database: "model-registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -325,7 +318,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -351,7 +344,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -385,7 +378,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -417,7 +410,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					Host:     "model-registry-db",
 					Port:     &mySQLPort,
 					Database: "model_registry",
-					Username: "mlmduser",
+					Username: "modelregistryuser",
 					PasswordSecret: &v1beta1.SecretKeyValue{
 						Name: "model-registry-db",
 						Key:  "database-password",
@@ -531,7 +524,7 @@ var _ = Describe("ModelRegistry controller", func() {
 						Host:     "model-registry-db",
 						Port:     &mySQLPort,
 						Database: "model_registry",
-						Username: "mlmduser",
+						Username: "modelregistryuser",
 						PasswordSecret: &v1beta1.SecretKeyValue{
 							Name: "model-registry-db",
 							Key:  "database-password",
@@ -708,7 +701,6 @@ var _ = Describe("ModelRegistry controller", func() {
 				_ = k8sClient.Delete(ctx, namespace)
 
 				By("Removing the Image ENV VARs which stores the Server images")
-				_ = os.Unsetenv(config.GrpcImage)
 				_ = os.Unsetenv(config.RestImage)
 				_ = os.Unsetenv(config.OAuthProxyImage)
 			})

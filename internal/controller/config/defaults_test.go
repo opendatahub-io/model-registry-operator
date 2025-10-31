@@ -26,19 +26,18 @@ func TestGetStringConfigWithDefault(t *testing.T) {
 		defaultValue string
 		want         string
 	}{
-		{name: "test " + config.GrpcImage, configName: config.GrpcImage, defaultValue: config.DefaultGrpcImage, want: "success1"},
-		{name: "test " + config.RestImage, configName: config.RestImage, defaultValue: config.DefaultRestImage, want: "success2"},
-		{name: "test " + config.OAuthProxyImage, configName: config.OAuthProxyImage, defaultValue: config.DefaultOAuthProxyImage, want: "success3"},
+		{name: "test " + config.RestImage, configName: config.RestImage, defaultValue: config.DefaultRestImage, want: "success1"},
+		{name: "test " + config.OAuthProxyImage, configName: config.OAuthProxyImage, defaultValue: config.DefaultOAuthProxyImage, want: "success2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// test env variable not set or blank
-			os.Setenv(tt.configName, "")
+			t.Setenv(tt.configName, "")
 			if got := config.GetStringConfigWithDefault(tt.configName, tt.defaultValue); got != tt.defaultValue {
 				t.Errorf("GetStringConfigWithDefault() = %v, want %v", got, tt.want)
 			}
 			// test env variable set
-			os.Setenv(tt.configName, tt.want)
+			t.Setenv(tt.configName, tt.want)
 			if got := config.GetStringConfigWithDefault(tt.configName, "fail"); got != tt.want {
 				t.Errorf("GetStringConfigWithDefault() = %v, want %v", got, tt.want)
 			}
@@ -324,12 +323,12 @@ func TestDeploymentWithResources(t *testing.T) {
 				Image: "quay.io/opendatahub/model-registry:latest",
 				Resources: &corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						"cpu":    config.MlmdRestResourceRequirements.Requests["cpu"],
-						"memory": config.MlmdRestResourceRequirements.Requests["memory"],
+						"cpu":    config.ModelRegistryRestResourceRequirements.Requests["cpu"],
+						"memory": config.ModelRegistryRestResourceRequirements.Requests["memory"],
 					},
 					Limits: corev1.ResourceList{
-						"cpu":    config.MlmdRestResourceRequirements.Limits["cpu"],
-						"memory": config.MlmdRestResourceRequirements.Limits["memory"],
+						"cpu":    config.ModelRegistryRestResourceRequirements.Limits["cpu"],
+						"memory": config.ModelRegistryRestResourceRequirements.Limits["memory"],
 					},
 				},
 			},
