@@ -459,6 +459,7 @@ func autoConvert_v1beta1_PostgresConfig_To_v1alpha1_PostgresConfig(in *v1beta1.P
 	out.SSLPasswordSecret = (*SecretKeyValue)(unsafe.Pointer(in.SSLPasswordSecret))
 	out.SSLRootCertificateConfigMap = (*ConfigMapKeyValue)(unsafe.Pointer(in.SSLRootCertificateConfigMap))
 	out.SSLRootCertificateSecret = (*SecretKeyValue)(unsafe.Pointer(in.SSLRootCertificateSecret))
+	// WARNING: in.Image requires manual conversion: does not exist in peer-type
 	return nil
 }
 

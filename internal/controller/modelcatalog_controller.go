@@ -63,9 +63,22 @@ type ModelCatalogReconciler struct {
 
 // ModelCatalogParams is a wrapper for template parameters
 type ModelCatalogParams struct {
-	Name      string
-	Namespace string
-	Component string
+	Name          string
+	Namespace     string
+	Component     string
+	PostgresImage string
+}
+
+// createPostgresParams creates PostgreSQL-specific ModelCatalogParams.
+// This helper eliminates code duplication and ensures consistent parameter initialization
+// across resource creation and cleanup operations.
+func (r *ModelCatalogReconciler) createPostgresParams() *ModelCatalogParams {
+	return &ModelCatalogParams{
+		Name:          modelCatalogName,
+		Namespace:     r.TargetNamespace,
+		Component:     modelCatalogPostgresName,
+		PostgresImage: config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
+	}
 }
 
 // Reconcile manages a single model catalog instance
@@ -171,11 +184,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
-	postgresParams := &ModelCatalogParams{
-		Name:      modelCatalogName,
-		Namespace: r.TargetNamespace,
-		Component: modelCatalogPostgresName,
-	}
+	postgresParams := r.createPostgresParams()
 
 	// Create PostgreSQL resources only if not skipping DB creation
 	if !r.SkipCatalogDBCreation {
@@ -314,11 +323,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		result = result2
 	}
 
-	postgresParams := &ModelCatalogParams{
-		Name:      modelCatalogName,
-		Namespace: r.TargetNamespace,
-		Component: modelCatalogPostgresName,
-	}
+	postgresParams := r.createPostgresParams()
 
 	// Delete PostgreSQL resources only if they were created (not skipping DB creation)
 	if !r.SkipCatalogDBCreation {
@@ -839,12 +844,18 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		},
 	}
 
+	// NOTE: This anonymous struct serves as a superset of ModelCatalogParams.
+	// It includes PostgresImage and other catalog-specific fields not present in ModelCatalogParams.
+	// The dual-structure pattern exists because:
+	// - ModelCatalogParams: Used for direct postgres resource creation (simple params)
+	// - This struct: Used for catalog deployment templates that need access to Spec for kube-rbac-proxy config
 	catalogParams := struct {
 		Name               string
 		Namespace          string
 		Spec               *v1beta1.ModelRegistrySpec
 		CatalogDataImage   string
 		BenchmarkDataImage string
+		PostgresImage      string
 		PostgresUser       string
 		PostgresPassword   string
 		PostgresDatabase   string
@@ -854,6 +865,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		Spec:               defaultSpec,
 		CatalogDataImage:   config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
 		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
+		PostgresImage:      config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),

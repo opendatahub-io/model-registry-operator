@@ -81,6 +81,8 @@ spec:
             value: quay.io/openshift/origin-oauth-proxy:latest
           - name: KUBE_RBAC_PROXY_IMAGE
             value: quay.io/openshift/origin-kube-rbac-proxy:latest
+          - name: POSTGRES_IMAGE
+            value: quay.io/sclorg/postgresql-16-c10s:latest
           - name: CATALOG_DATA_IMAGE
             value: quay.io/opendatahub/odh-model-metadata-collection:latest
           - name: BENCHMARK_DATA_IMAGE
