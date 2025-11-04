@@ -36,6 +36,8 @@ var _ = Describe("ModelCatalog controller", func() {
 			By("Setting the Image ENV VARs")
 			err := os.Setenv(config.RestImage, config.DefaultRestImage)
 			Expect(err).To(Not(HaveOccurred()))
+			err = os.Setenv(config.PostgresImage, config.DefaultPostgresImage)
+			Expect(err).To(Not(HaveOccurred()))
 			err = os.Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
 			Expect(err).To(Not(HaveOccurred()))
 			err = os.Setenv(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)
