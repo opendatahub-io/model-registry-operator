@@ -185,7 +185,7 @@ func GetDefaultDomain() string {
 			return ""
 		}
 		// try reading appsDomain if it is set
-		if len(ingress.Spec.AppsDomain) != 0 {
+		if ingress.Spec.AppsDomain != "" {
 			defaultDomain = ingress.Spec.AppsDomain
 		} else {
 			defaultDomain = ingress.Spec.Domain
