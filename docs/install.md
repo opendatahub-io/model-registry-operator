@@ -387,7 +387,7 @@ items:
   stringData:
     database-name: "model_registry"
     database-password: "TheBlurstOfTimes" # notsecret
-    database-user: "mlmduser" # notsecret
+    database-user: "modelregistryuser" # notsecret
 kind: List
 metadata: {}
 EOF
@@ -401,6 +401,9 @@ oc wait --for=condition=available deployment/model-registry-db --timeout=5m
 If you encounter image pull limits, you could replace the sample db image with analogous one from (upstream [example](https://github.com/kubeflow/model-registry?tab=readme-ov-file#pull-image-rate-limiting)).
 
 ## Install Model Registry
+
+> [!NOTE]
+> **gRPC Endpoint Deprecation**: The gRPC endpoint configuration is deprecated and will be removed in a future release. New deployments should use the REST endpoint configuration only. Existing deployments with gRPC will continue to work but should migrate to REST-only configurations.
 
 To install Model Registry use the following script. Create a namespace where you going to be installing the model registry
 
@@ -429,7 +432,7 @@ items:
     stringData:
       database-name: model_registry
       database-password: TheBlurstOfTimes
-      database-user: mlmduser
+      database-user: modelregistryuser
   - apiVersion: modelregistry.opendatahub.io/v1alpha1
     kind: ModelRegistry
     metadata:
@@ -442,13 +445,10 @@ items:
       name: modelregistry-public
       namespace: odh-model-registries
     spec:
-      grpc: {}
       rest: {}
       istio:
         authProvider: opendatahub-auth-provider
         gateway:
-          grpc:
-            tls: {}
           rest:
             tls: {}
       mysql:
@@ -459,7 +459,7 @@ items:
           name: model-registry-db
         port: 3306
         skipDBCreation: false
-        username: mlmduser
+        username: modelregistryuser
 kind: List
 metadata: {}
 EOF
