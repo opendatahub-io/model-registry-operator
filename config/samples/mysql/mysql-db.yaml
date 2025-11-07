@@ -141,6 +141,6 @@ items:
   stringData:
     database-name: "model_registry"
     database-password: "TheBlurstOfTimes" # notsecret
-    database-user: "mlmduser" # notsecret
+    database-user: "modelregistryuser" # notsecret
 kind: List
 metadata: {}

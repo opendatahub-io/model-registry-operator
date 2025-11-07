@@ -42,14 +42,12 @@ import (
 var templateFS embed.FS
 
 const (
-	GrpcImage                 = "GRPC_IMAGE"
 	RestImage                 = "REST_IMAGE"
 	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
 	KubeRBACProxyImage        = "KUBE_RBAC_PROXY_IMAGE"
 	PostgresImage             = "POSTGRES_IMAGE"
 	CatalogDataImage          = "CATALOG_DATA_IMAGE"
 	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
-	DefaultGrpcImage          = "quay.io/opendatahub/mlmd-grpc-server:latest"
 	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
@@ -83,9 +81,8 @@ var (
 	defaultRegistriesNamespace = ""
 
 	// Default ResourceRequirements
-	CatalogServiceResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
-	MlmdRestResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
-	MlmdGRPCResourceRequirements       = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	CatalogServiceResourceRequirements    = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	ModelRegistryRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
 )
 
 func init() {
