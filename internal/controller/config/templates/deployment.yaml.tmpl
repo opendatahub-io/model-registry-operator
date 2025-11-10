@@ -19,6 +19,7 @@ spec:
     matchLabels:
       app: {{.Name}}
       component: model-registry
+      app.kubernetes.io/name: {{.Name}}
   template:
     metadata:
       labels:
