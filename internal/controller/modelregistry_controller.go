@@ -20,6 +20,7 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	"strings"
 	"text/template"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -500,6 +501,28 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		return result, err
 	}
 	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
+		// Check if the error is due to immutable field conflicts
+		if errors.IsForbidden(err) || (errors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting postgres deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				log.Error(getErr, "Failed to get existing postgres deployment for deletion")
+				return result, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				log.Error(deleteErr, "Failed to delete existing postgres deployment")
+				return result, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			log.Info("postgres deployment deleted, will be recreated in next reconcile")
+			return ResourceUpdated, nil
+		}
 		log.Error(err, "Failed to create or update deployment")
 		return result, err
 	}
@@ -614,6 +637,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, param
 
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
 	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	log := klog.FromContext(ctx)
 	result = ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err = r.Apply(params, templateName, &deployment); err != nil {
@@ -625,6 +649,25 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 
 	result, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
+		// Check if the error is due to immutable field conflicts
+		if errors.IsForbidden(err) || (errors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				return result, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				return result, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			return ResourceUpdated, nil
+		}
 		return result, err
 	}
 	return result, nil
