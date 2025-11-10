@@ -182,6 +182,12 @@ var _ = Describe("ModelRegistry controller", func() {
 					return k8sClient.Get(ctx, typeNamespaceName, deployment)
 				}, time.Minute, time.Second).Should(Succeed())
 
+				// Verify deployment selector has app.kubernetes.io/name label
+				Expect(deployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", registryName),
+					"Deployment selector should include app.kubernetes.io/name label")
+				Expect(deployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app", registryName))
+				Expect(deployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("component", "model-registry"))
+
 				// Check that kube-rbac-proxy container is present
 				var kubeRBACProxyContainer *corev1.Container
 				for _, container := range deployment.Spec.Template.Spec.Containers {
@@ -495,10 +501,16 @@ var _ = Describe("ModelRegistry controller", func() {
 				}, time.Minute, time.Second).Should(Succeed())
 
 				By("Checking if the Postgres Deployment was successfully created in the reconciliation")
+				postgresDeployment := &appsv1.Deployment{}
 				Eventually(func() error {
-					found := &appsv1.Deployment{}
-					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, postgresDeployment)
 				}, time.Minute, time.Second).Should(Succeed())
+
+				// Verify postgres deployment selector has app.kubernetes.io/name label
+				Expect(postgresDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", registryName+"-postgres"),
+					"Postgres deployment selector should include app.kubernetes.io/name label")
+				Expect(postgresDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app", registryName))
+				Expect(postgresDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("component", "model-registry"))
 
 				By("Checking if the Postgres Service was successfully created in the reconciliation")
 				Eventually(func() error {
