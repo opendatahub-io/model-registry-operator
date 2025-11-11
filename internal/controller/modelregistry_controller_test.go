@@ -434,10 +434,9 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
-				modelRegistryReconciler.Capabilities = &ClusterCapabilities{
+				modelRegistryReconciler.Capabilities = ClusterCapabilities{
 					IsOpenShift: true,
 					HasUserAPI:  true,
-					HasRouteAPI: true,
 				}
 
 				Eventually(validateRegistryKubeRBACProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
@@ -653,10 +652,9 @@ var _ = Describe("ModelRegistry controller", func() {
 
 					By("Performing reconciliation")
 					modelRegistryReconciler := initModelRegistryReconciler(template)
-					modelRegistryReconciler.Capabilities = &ClusterCapabilities{
+					modelRegistryReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
-						HasRouteAPI: true,
 					}
 
 					Eventually(func() error {
@@ -741,10 +739,10 @@ func initModelRegistryReconciler(template *template.Template) *ModelRegistryReco
 		Recorder: &record.FakeRecorder{},
 		Log:      ctrl.Log.WithName("controller"),
 		Template: template,
-		Capabilities: &ClusterCapabilities{
-			IsOpenShift:  false,
-			HasUserAPI:   false,
-			HasRouteAPI:  false,
+		Capabilities: ClusterCapabilities{
+			IsOpenShift: false,
+			HasUserAPI:  false,
+
 			HasConfigAPI: false,
 		},
 	}
@@ -955,10 +953,9 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 
 func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
-		modelRegistryReconciler.Capabilities = &ClusterCapabilities{
+		modelRegistryReconciler.Capabilities = ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		}
 
 		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
@@ -983,10 +980,9 @@ func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.Name
 
 func validateRegistryKubeRBACProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
-		modelRegistryReconciler.Capabilities = &ClusterCapabilities{
+		modelRegistryReconciler.Capabilities = ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		}
 
 		Eventually(validateRegistryOpenshift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())

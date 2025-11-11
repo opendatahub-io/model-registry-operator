@@ -159,7 +159,6 @@ func main() {
 	setupLog.Info("cluster capabilities detected",
 		"isOpenShift", capabilities.IsOpenShift,
 		"hasUserAPI", capabilities.HasUserAPI,
-		"hasRouteAPI", capabilities.HasRouteAPI,
 		"hasConfigAPI", capabilities.HasConfigAPI)
 
 	clientset, err := kubernetes.NewForConfig(mgrRestConfig)

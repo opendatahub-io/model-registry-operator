@@ -44,10 +44,8 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				caps, err := DetectClusterCapabilities(mockDiscovery)
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(caps).NotTo(BeNil())
 				Expect(caps.IsOpenShift).To(BeTrue())
 				Expect(caps.HasUserAPI).To(BeTrue())
-				Expect(caps.HasRouteAPI).To(BeTrue())
 				Expect(caps.HasConfigAPI).To(BeTrue())
 			})
 		})
@@ -73,10 +71,8 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				caps, err := DetectClusterCapabilities(mockDiscovery)
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(caps).NotTo(BeNil())
 				Expect(caps.IsOpenShift).To(BeTrue())
 				Expect(caps.HasUserAPI).To(BeFalse())
-				Expect(caps.HasRouteAPI).To(BeTrue())
 				Expect(caps.HasConfigAPI).To(BeTrue())
 			})
 		})
@@ -97,10 +93,8 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				caps, err := DetectClusterCapabilities(mockDiscovery)
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(caps).NotTo(BeNil())
 				Expect(caps.IsOpenShift).To(BeFalse())
 				Expect(caps.HasUserAPI).To(BeFalse())
-				Expect(caps.HasRouteAPI).To(BeFalse())
 				Expect(caps.HasConfigAPI).To(BeFalse())
 			})
 		})
@@ -120,10 +114,8 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				caps, err := DetectClusterCapabilities(mockDiscovery)
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(caps).NotTo(BeNil())
 				Expect(caps.IsOpenShift).To(BeFalse())
 				Expect(caps.HasUserAPI).To(BeTrue())
-				Expect(caps.HasRouteAPI).To(BeFalse())
 			})
 		})
 
@@ -138,7 +130,7 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 
 				// When there are NO partial results, it should fail
 				Expect(err).To(HaveOccurred())
-				Expect(caps).To(BeNil())
+				Expect(caps).To(Equal(ClusterCapabilities{}))
 			})
 		})
 	})

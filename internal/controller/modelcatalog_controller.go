@@ -45,7 +45,7 @@ type ModelCatalogReconciler struct {
 	Recorder              record.EventRecorder
 	Log                   logr.Logger
 	Template              *template.Template
-	Capabilities          *ClusterCapabilities
+	Capabilities          ClusterCapabilities
 	TargetNamespace       string
 	Enabled               bool
 	SkipCatalogDBCreation bool

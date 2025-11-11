@@ -34,7 +34,6 @@ import (
 type ClusterCapabilities struct {
 	IsOpenShift  bool // true if route.openshift.io API is present
 	HasUserAPI   bool // true if user.openshift.io API is present
-	HasRouteAPI  bool // true if route.openshift.io API is present
 	HasConfigAPI bool // true if config.openshift.io API is present
 }
 
@@ -54,9 +53,9 @@ func (c *ClusterCapabilities) IsBYOIDC() bool {
 // by querying the Kubernetes discovery API. It gracefully handles partial discovery
 // failures which occur in BYOIDC-enabled OpenShift clusters where user.openshift.io
 // APIs are not available.
-func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (*ClusterCapabilities, error) {
+func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (ClusterCapabilities, error) {
 	setupLog := ctrl.Log.WithName("setup")
-	caps := &ClusterCapabilities{}
+	caps := ClusterCapabilities{}
 
 	groups, err := discoveryClient.ServerGroups()
 	if err != nil {
@@ -65,7 +64,7 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (*C
 			// In partial failure, groups contains the successfully discovered groups
 			// The error contains information about which groups failed
 			if groups == nil {
-				return nil, fmt.Errorf("failed to get API groups with no partial results: %w", err)
+				return ClusterCapabilities{}, fmt.Errorf("failed to get API groups with no partial results: %w", err)
 			}
 			// Log the partial failure for troubleshooting
 			setupLog.Info("partial API discovery succeeded (likely BYOIDC cluster)",
@@ -73,7 +72,7 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (*C
 				"availableGroups", len(groups.Groups))
 		} else {
 			// Complete failure - cannot proceed
-			return nil, fmt.Errorf("failed to discover API groups: %w", err)
+			return ClusterCapabilities{}, fmt.Errorf("failed to discover API groups: %w", err)
 		}
 	}
 
@@ -83,7 +82,6 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (*C
 			switch g.Name {
 			case "route.openshift.io":
 				caps.IsOpenShift = true
-				caps.HasRouteAPI = true
 			case "user.openshift.io":
 				caps.HasUserAPI = true
 			case "config.openshift.io":

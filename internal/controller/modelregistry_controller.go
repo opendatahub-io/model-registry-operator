@@ -67,7 +67,7 @@ type ModelRegistryReconciler struct {
 	Log            logr.Logger
 	Template       *template.Template
 	EnableWebhooks bool
-	Capabilities   *ClusterCapabilities
+	Capabilities   ClusterCapabilities
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

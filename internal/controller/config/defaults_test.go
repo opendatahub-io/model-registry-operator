@@ -64,10 +64,9 @@ func TestParseTemplates(t *testing.T) {
 	reconciler := controller.ModelRegistryReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
@@ -106,10 +105,9 @@ func TestKubeRBACProxyTemplates(t *testing.T) {
 	reconciler := controller.ModelRegistryReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
@@ -192,10 +190,9 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 	reconciler := controller.ModelRegistryReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
@@ -319,10 +316,9 @@ func TestDeploymentWithResources(t *testing.T) {
 	reconciler := controller.ModelRegistryReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
@@ -433,10 +429,9 @@ func TestCatalogDeployment(t *testing.T) {
 	catalogReconciler := controller.ModelCatalogReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
@@ -532,10 +527,9 @@ func TestCatalogPostgresSecret(t *testing.T) {
 	catalogReconciler := controller.ModelCatalogReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
-		Capabilities: &controller.ClusterCapabilities{
+		Capabilities: controller.ClusterCapabilities{
 			IsOpenShift: true,
 			HasUserAPI:  true,
-			HasRouteAPI: true,
 		},
 	}
 
