@@ -19,6 +19,7 @@ import (
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,10 +67,41 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (Cl
 			if groups == nil {
 				return ClusterCapabilities{}, fmt.Errorf("failed to get API groups with no partial results: %w", err)
 			}
-			// Log the partial failure for troubleshooting
-			setupLog.Info("partial API discovery succeeded (likely BYOIDC cluster)",
-				"error", err.Error(),
-				"availableGroups", len(groups.Groups))
+
+			// Examine which specific groups failed and why
+			groupErr, ok := err.(*discovery.ErrGroupDiscoveryFailed)
+			if !ok {
+				return ClusterCapabilities{}, fmt.Errorf("unexpected discovery error type: %w", err)
+			}
+
+			// Validate that only user.openshift.io failed (expected in BYOIDC)
+			// Any other OpenShift API failures indicate a real problem
+			for gv, apiErr := range groupErr.Groups {
+				if gv.Group == "user.openshift.io" {
+					// Check if this is a "not found" error (expected in BYOIDC)
+					// Use apierrors.IsNotFound() as primary check (works with StatusError)
+					// Fall back to string matching for generic errors in test scenarios
+					if !apierrors.IsNotFound(apiErr) {
+						// Also check error message as fallback for non-StatusError types
+						errMsg := strings.ToLower(apiErr.Error())
+						if !strings.Contains(errMsg, "not found") &&
+							!strings.Contains(errMsg, "could not find") &&
+							!strings.Contains(errMsg, "does not exist") {
+							// user.openshift.io failed for a reason OTHER than missing API
+							// This indicates a transient issue (network, RBAC, timeout)
+							return ClusterCapabilities{}, fmt.Errorf("user.openshift.io discovery failed (not BYOIDC): %w", apiErr)
+						}
+					}
+					// Valid BYOIDC scenario - user API is intentionally disabled
+					setupLog.Info("BYOIDC cluster detected: user.openshift.io API not available",
+						"reason", apiErr.Error())
+				} else if gv.Group == "route.openshift.io" || gv.Group == "config.openshift.io" {
+					// route.openshift.io and config.openshift.io should ALWAYS be present on OpenShift
+					// If they failed, this is a real problem, not BYOIDC
+					return ClusterCapabilities{}, fmt.Errorf("critical OpenShift API %s failed discovery: %w", gv.Group, apiErr)
+				}
+				// Other non-OpenShift API failures are logged but don't block
+			}
 		} else {
 			// Complete failure - cannot proceed
 			return ClusterCapabilities{}, fmt.Errorf("failed to discover API groups: %w", err)

@@ -133,6 +133,81 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				Expect(caps).To(Equal(ClusterCapabilities{}))
 			})
 		})
+
+		Context("Transient user.openshift.io failure (not BYOIDC)", func() {
+			It("should fail-fast on non-'not found' errors", func() {
+				// Simulate a transient network/RBAC error for user.openshift.io
+				mockDiscovery := &mockDiscoveryClient{
+					groups: &metav1.APIGroupList{
+						Groups: []metav1.APIGroup{
+							{Name: "route.openshift.io"},
+							{Name: "config.openshift.io"},
+						},
+					},
+					err: &discovery.ErrGroupDiscoveryFailed{
+						Groups: map[schema.GroupVersion]error{
+							{Group: "user.openshift.io", Version: "v1"}: fmt.Errorf("connection timeout"),
+						},
+					},
+				}
+
+				caps, err := DetectClusterCapabilities(mockDiscovery)
+
+				// Should fail because this is NOT a BYOIDC "not found" error
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("user.openshift.io discovery failed"))
+				Expect(err.Error()).To(ContainSubstring("not BYOIDC"))
+				Expect(caps).To(Equal(ClusterCapabilities{}))
+			})
+		})
+
+		Context("Critical OpenShift API failure", func() {
+			It("should fail-fast if route.openshift.io fails", func() {
+				mockDiscovery := &mockDiscoveryClient{
+					groups: &metav1.APIGroupList{
+						Groups: []metav1.APIGroup{
+							{Name: "config.openshift.io"},
+						},
+					},
+					err: &discovery.ErrGroupDiscoveryFailed{
+						Groups: map[schema.GroupVersion]error{
+							{Group: "route.openshift.io", Version: "v1"}: fmt.Errorf("connection refused"),
+						},
+					},
+				}
+
+				caps, err := DetectClusterCapabilities(mockDiscovery)
+
+				// Should fail because route.openshift.io is critical
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("critical OpenShift API"))
+				Expect(err.Error()).To(ContainSubstring("route.openshift.io"))
+				Expect(caps).To(Equal(ClusterCapabilities{}))
+			})
+
+			It("should fail-fast if config.openshift.io fails", func() {
+				mockDiscovery := &mockDiscoveryClient{
+					groups: &metav1.APIGroupList{
+						Groups: []metav1.APIGroup{
+							{Name: "route.openshift.io"},
+						},
+					},
+					err: &discovery.ErrGroupDiscoveryFailed{
+						Groups: map[schema.GroupVersion]error{
+							{Group: "config.openshift.io", Version: "v1"}: fmt.Errorf("RBAC error"),
+						},
+					},
+				}
+
+				caps, err := DetectClusterCapabilities(mockDiscovery)
+
+				// Should fail because config.openshift.io is critical
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("critical OpenShift API"))
+				Expect(err.Error()).To(ContainSubstring("config.openshift.io"))
+				Expect(caps).To(Equal(ClusterCapabilities{}))
+			})
+		})
 	})
 })
 
