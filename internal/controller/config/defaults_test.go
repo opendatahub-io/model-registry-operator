@@ -62,9 +62,13 @@ func TestParseTemplates(t *testing.T) {
 		t.FailNow() // exit this test, otherwise a panic error in Apply is not reported as a failure
 	}
 	reconciler := controller.ModelRegistryReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -100,9 +104,13 @@ func TestKubeRBACProxyTemplates(t *testing.T) {
 		t.FailNow()
 	}
 	reconciler := controller.ModelRegistryReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	httpsPort := int32(8443)
@@ -182,9 +190,13 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 		t.FailNow()
 	}
 	reconciler := controller.ModelRegistryReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	httpsPort := int32(8443)
@@ -305,9 +317,13 @@ func TestDeploymentWithResources(t *testing.T) {
 		t.FailNow()
 	}
 	reconciler := controller.ModelRegistryReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	httpsPort := int32(8443)
@@ -415,9 +431,13 @@ func TestCatalogDeployment(t *testing.T) {
 	config.SetDefaultDomain("example.com", nil, false)
 
 	catalogReconciler := controller.ModelCatalogReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	params := controller.ModelCatalogParams{
@@ -510,9 +530,13 @@ func TestCatalogPostgresSecret(t *testing.T) {
 	}
 
 	catalogReconciler := controller.ModelCatalogReconciler{
-		Log:         logr.Logger{},
-		Template:    templates,
-		IsOpenShift: true,
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: &controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+			HasRouteAPI: true,
+		},
 	}
 
 	params := controller.ModelCatalogParams{
