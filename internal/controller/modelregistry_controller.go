@@ -67,7 +67,7 @@ type ModelRegistryReconciler struct {
 	Log            logr.Logger
 	Template       *template.Template
 	EnableWebhooks bool
-	IsOpenShift    bool
+	Capabilities   ClusterCapabilities
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -251,7 +251,7 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&rbac.Role{}).
 		Owns(&networkingv1.NetworkPolicy{})
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		builder = builder.Owns(&rbac.RoleBinding{})
 
 		labelsPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
@@ -391,19 +391,33 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
-	if r.IsOpenShift {
-		// create default group and role binding in OpenShift cluster
-		result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
+	if r.Capabilities.IsOpenShift {
+		// Create OpenShift Group resource only if user API is available
+		// In BYOIDC mode (OpenShift 4.20+), user.openshift.io API is not available
+		if r.Capabilities.HasUserAPI {
+			// Traditional OpenShift: create user.openshift.io/v1 Group resource
+			result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
+			if err != nil {
+				return result2, fmt.Errorf("failed to create OpenShift Group: %w", err)
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		} else if r.Capabilities.IsBYOIDC() {
+			// BYOIDC mode: Skip Group creation
+			// RoleBinding will reference external IdP group name
+			log := klog.FromContext(ctx)
+			log.Info("skipping OpenShift Group creation in BYOIDC mode",
+				"registry", params.Name,
+				"expectedIdPGroup", params.Name+"-users")
 		}
 
+		// RoleBinding is created in both modes
+		// - Traditional OpenShift: references the Group resource created above
+		// - BYOIDC: references external IdP group (must be configured in IdP)
 		result2, err = r.createOrUpdateRoleBinding(ctx, params, registry, "role-binding.yaml.tmpl")
 		if err != nil {
-			return result2, err
+			return result2, fmt.Errorf("failed to create RoleBinding: %w", err)
 		}
 		if result2 != ResourceUnchanged {
 			result = result2
@@ -804,9 +818,15 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 	// of finalizers include performing backups and deleting
 	// resources that are not owned by this CR, like a PVC.
 
-	// delete cross-namespace resources
-	if err := r.Client.Delete(ctx, &userv1.Group{ObjectMeta: metav1.ObjectMeta{Name: registry.Name + "-users"}}); client.IgnoreNotFound(err) != nil {
-		return err
+	// Delete cross-namespace Group resource only if we created one
+	// In BYOIDC mode, we don't create Groups, so skip deletion
+	if r.Capabilities.IsOpenShift && r.Capabilities.HasUserAPI {
+		groupName := registry.Name + "-users"
+		if err := r.Client.Delete(ctx, &userv1.Group{
+			ObjectMeta: metav1.ObjectMeta{Name: groupName},
+		}); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to delete OpenShift Group %s: %w", groupName, err)
+		}
 	}
 
 	// Note: It is not recommended to use finalizers with the purpose of delete resources which are
@@ -841,7 +861,7 @@ type ModelRegistryParams struct {
 func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object any) error {
 	templateApplier := &TemplateApplier{
 		Template:    r.Template,
-		IsOpenShift: r.IsOpenShift,
+		IsOpenShift: r.Capabilities.IsOpenShift,
 	}
 	return templateApplier.Apply(params, templateName, object)
 }
@@ -904,7 +924,7 @@ func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context,
 		log.V(1).Info("Failed to delete old catalog service", "error", err)
 	}
 
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		// Delete old catalog route
 		if err := deleteObject(params.Name+"-catalog-https", &routev1.Route{}); err != nil {
 			log.V(1).Info("Failed to delete old catalog route", "error", err)

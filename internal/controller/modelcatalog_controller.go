@@ -45,7 +45,7 @@ type ModelCatalogReconciler struct {
 	Recorder              record.EventRecorder
 	Log                   logr.Logger
 	Template              *template.Template
-	IsOpenShift           bool
+	Capabilities          ClusterCapabilities
 	TargetNamespace       string
 	Enabled               bool
 	SkipCatalogDBCreation bool
@@ -235,7 +235,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		log.Info("Skipping catalog DB creation as configured")
 	}
 
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		// Create or update Route
 		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
@@ -364,7 +364,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 	}
 
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		// Delete OAuth Proxy Route (now uses kube-rbac-proxy templates)
 		result2, err = r.deleteFromTemplate(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", &routev1.Route{})
 		if err != nil {
@@ -820,7 +820,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	if r.templateApplier == nil {
 		r.templateApplier = &TemplateApplier{
 			Template:    r.Template,
-			IsOpenShift: r.IsOpenShift,
+			IsOpenShift: r.Capabilities.IsOpenShift,
 		}
 	}
 
@@ -950,7 +950,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Initialize shared utilities
 	r.templateApplier = &TemplateApplier{
 		Template:    r.Template,
-		IsOpenShift: r.IsOpenShift,
+		IsOpenShift: r.Capabilities.IsOpenShift,
 	}
 	r.resourceManager = &ResourceManager{
 		Client: r.Client,

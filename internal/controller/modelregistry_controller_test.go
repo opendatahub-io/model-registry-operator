@@ -434,7 +434,10 @@ var _ = Describe("ModelRegistry controller", func() {
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
-				modelRegistryReconciler.IsOpenShift = true
+				modelRegistryReconciler.Capabilities = ClusterCapabilities{
+					IsOpenShift: true,
+					HasUserAPI:  true,
+				}
 
 				Eventually(validateRegistryKubeRBACProxy(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
 					time.Minute, time.Second).Should(Succeed())
@@ -649,7 +652,10 @@ var _ = Describe("ModelRegistry controller", func() {
 
 					By("Performing reconciliation")
 					modelRegistryReconciler := initModelRegistryReconciler(template)
-					modelRegistryReconciler.IsOpenShift = true
+					modelRegistryReconciler.Capabilities = ClusterCapabilities{
+						IsOpenShift: true,
+						HasUserAPI:  true,
+					}
 
 					Eventually(func() error {
 						_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
@@ -733,6 +739,12 @@ func initModelRegistryReconciler(template *template.Template) *ModelRegistryReco
 		Recorder: &record.FakeRecorder{},
 		Log:      ctrl.Log.WithName("controller"),
 		Template: template,
+		Capabilities: ClusterCapabilities{
+			IsOpenShift: false,
+			HasUserAPI:  false,
+
+			HasConfigAPI: false,
+		},
 	}
 
 	return modelRegistryReconciler
@@ -803,7 +815,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 				}
 
 				// Mock route ingress conditions if KubeRBACProxy is configured and routes exist
-				if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
+				if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.Capabilities.IsOpenShift {
 					routes := &routev1.RouteList{}
 					rerr := k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
 						"app":       typeNamespaceName.Name,
@@ -842,7 +854,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
-		if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.IsOpenShift {
+		if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.Capabilities.IsOpenShift {
 			By("Checking if the Route was successfully created in the reconciliation")
 			routes := &routev1.RouteList{}
 			err = k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
@@ -941,7 +953,10 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 
 func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
-		modelRegistryReconciler.IsOpenShift = true
+		modelRegistryReconciler.Capabilities = ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+		}
 
 		Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
 
@@ -965,7 +980,10 @@ func validateRegistryOpenshift(ctx context.Context, typeNamespaceName types.Name
 
 func validateRegistryKubeRBACProxy(ctx context.Context, typeNamespaceName types.NamespacedName, modelRegistry *v1beta1.ModelRegistry, modelRegistryReconciler *ModelRegistryReconciler) func() error {
 	return func() error {
-		modelRegistryReconciler.IsOpenShift = true
+		modelRegistryReconciler.Capabilities = ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+		}
 
 		Eventually(validateRegistryOpenshift(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler)).Should(Succeed())
 
