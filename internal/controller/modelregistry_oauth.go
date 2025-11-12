@@ -69,7 +69,7 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 		}
 
 		// check if cluster is OpenShift for Route support
-		if r.IsOpenShift {
+		if r.Capabilities.IsOpenShift {
 			// create kube-rbac-proxy service route if enabled, delete if disabled
 			result2, err := r.createOrUpdateRoute(ctx, params, registry,
 				"kube-rbac-proxy-https-route.yaml.tmpl", registry.Spec.KubeRBACProxy.ServiceRoute)
@@ -108,7 +108,7 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 		if err = r.deleteProxyClusterRoleBinding(ctx, params); err != nil {
 			return result, err
 		}
-		if r.IsOpenShift {
+		if r.Capabilities.IsOpenShift {
 			if err = r.deleteProxyRoute(ctx, params); err != nil {
 				return result, err
 			}

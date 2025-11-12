@@ -69,6 +69,11 @@ var _ = Describe("ModelCatalog controller", func() {
 				Log:             ctrl.Log.WithName("modelcatalog-controller"),
 				Template:        template,
 				TargetNamespace: namespaceName,
+				Capabilities: ClusterCapabilities{
+					IsOpenShift:  false,
+					HasUserAPI:   false,
+					HasConfigAPI: false,
+				},
 			}
 		})
 
@@ -246,7 +251,10 @@ var _ = Describe("ModelCatalog controller", func() {
 
 			Context("On OpenShift", func() {
 				BeforeEach(func() {
-					catalogReconciler.IsOpenShift = true
+					catalogReconciler.Capabilities = ClusterCapabilities{
+						IsOpenShift: true,
+						HasUserAPI:  true,
+					}
 				})
 
 				It("Should create OpenShift-specific resources", func() {
@@ -354,7 +362,10 @@ var _ = Describe("ModelCatalog controller", func() {
 
 			Context("On OpenShift", func() {
 				BeforeEach(func() {
-					catalogReconciler.IsOpenShift = true
+					catalogReconciler.Capabilities = ClusterCapabilities{
+						IsOpenShift: true,
+						HasUserAPI:  true,
+					}
 				})
 
 				It("Should delete OpenShift-specific catalog resources", func() {
