@@ -184,7 +184,12 @@ func GetDefaultDomain() string {
 			klog.Log.Error(err, "error getting OpenShift domain name", fmt.Sprintf("%+v", ingress.GetObjectKind()), namespacedName)
 			return ""
 		}
-		defaultDomain = ingress.Spec.Domain
+		// try reading appsDomain if it is set
+		if ingress.Spec.AppsDomain != "" {
+			defaultDomain = ingress.Spec.AppsDomain
+		} else {
+			defaultDomain = ingress.Spec.Domain
+		}
 	}
 	return defaultDomain
 }
