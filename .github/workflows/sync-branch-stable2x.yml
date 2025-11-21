@@ -22,7 +22,7 @@ jobs:
           TO_BRANCH: "stable-2.x"
       - name: Add labels
         if: ${{ steps.pull.outputs.PULL_REQUEST_NUMBER != '' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             github.rest.issues.addLabels({
