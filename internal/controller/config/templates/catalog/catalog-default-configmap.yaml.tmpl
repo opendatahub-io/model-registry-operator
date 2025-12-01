@@ -17,6 +17,7 @@ data:
     catalogs:
       - name: Red Hat AI
         id: redhat_ai_models
+        enabled: false
         type: yaml
         properties:
           yamlCatalogPath: /shared-data/models-catalog.yaml
@@ -24,8 +25,17 @@ data:
           - Red Hat AI
       - name: Red Hat AI validated
         id: redhat_ai_validated_models
+        enabled: false
         type: yaml
         properties:
           yamlCatalogPath: /shared-data/validated-models-catalog.yaml
         labels:
           - Red Hat AI validated
+    labels:
+      - name: Red Hat AI validated
+        description: Third-party models with performance and compatibility verified by Red Hat.
+      - name: Red Hat AI
+        description: Red Hat models with full support and legal indemnification.
+      - name: null
+        displayName: Community and custom
+        description: A broad collection of third-party, community, and admin-configured models.
