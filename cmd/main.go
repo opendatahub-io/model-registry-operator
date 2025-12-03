@@ -151,18 +151,15 @@ func main() {
 	client := mgr.GetClient()
 
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
-	groups, err := discoveryClient.ServerGroups()
+	capabilities, err := controller.DetectClusterCapabilities(discoveryClient)
 	if err != nil {
-		setupLog.Error(err, "error discovering server groups")
+		setupLog.Error(err, "error detecting cluster capabilities")
 		os.Exit(1)
 	}
-	isOpenShift := false
-	for _, g := range groups.Groups {
-		if g.Name == "route.openshift.io" {
-			isOpenShift = true
-		}
-	}
-	setupLog.Info("cluster config", "isOpenShift", isOpenShift)
+	setupLog.Info("cluster capabilities detected",
+		"isOpenShift", capabilities.IsOpenShift,
+		"hasUserAPI", capabilities.HasUserAPI,
+		"hasConfigAPI", capabilities.HasConfigAPI)
 
 	clientset, err := kubernetes.NewForConfig(mgrRestConfig)
 	if err != nil {
@@ -177,7 +174,7 @@ func main() {
 
 	// set default values for defaulting webhook
 	config.SetRegistriesNamespace(registriesNamespace)
-	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
+	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), capabilities.IsOpenShift)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:         client,
@@ -187,24 +184,26 @@ func main() {
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
-		IsOpenShift:    isOpenShift,
+		Capabilities:   capabilities,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
 	}
 
 	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
-	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
+	skipCatalogDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
+	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipCatalogDBCreation)
 
 	if err = (&controller.ModelCatalogReconciler{
-		Client:          client,
-		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("modelcatalog-controller"),
-		Log:             ctrl.Log.WithName("modelcatalog-controller"),
-		Template:        template,
-		IsOpenShift:     isOpenShift,
-		TargetNamespace: config.GetRegistriesNamespace(),
-		Enabled:         enableModelCatalog,
+		Client:                client,
+		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorderFor("modelcatalog-controller"),
+		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
+		Template:              template,
+		Capabilities:          capabilities,
+		TargetNamespace:       config.GetRegistriesNamespace(),
+		Enabled:               enableModelCatalog,
+		SkipCatalogDBCreation: skipCatalogDBCreation,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)
