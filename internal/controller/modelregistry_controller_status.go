@@ -243,6 +243,33 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	}
 
 	if available {
+		// Verify service endpoints are ready before marking as available
+		// This ensures the Service has actual backing pods with ready addresses
+		endpoints := &corev1.Endpoints{}
+		if err := r.Get(ctx, key, endpoints); err != nil {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentUnavailable
+			condition.Message = fmt.Sprintf("Service endpoints not found: %v", err)
+			return condition, nil
+		}
+
+		// Check if endpoints has at least one ready address
+		hasReadyEndpoints := false
+		for _, subset := range endpoints.Subsets {
+			if len(subset.Addresses) > 0 {
+				hasReadyEndpoints = true
+				break
+			}
+		}
+
+		if !hasReadyEndpoints {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentUnavailable
+			condition.Message = "Service endpoints not ready - no ready addresses available"
+			return condition, nil
+		}
+
+		// All checks passed - deployment and endpoints are ready
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = ReasonDeploymentAvailable
 		condition.Message = "Deployment is available"

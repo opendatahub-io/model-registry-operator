@@ -814,6 +814,58 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					}
 				}
 
+				// Mock Service Endpoints to simulate ready pods
+				// In envtest, Endpoints are not automatically created by the Endpoints controller
+				endpoints := &corev1.Endpoints{}
+				eerr := k8sClient.Get(ctx, typeNamespaceName, endpoints)
+				if eerr != nil {
+					// Endpoints don't exist, create them
+					endpoints = &corev1.Endpoints{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      typeNamespaceName.Name,
+							Namespace: typeNamespaceName.Namespace,
+						},
+						Subsets: []corev1.EndpointSubset{
+							{
+								Addresses: []corev1.EndpointAddress{
+									{
+										IP: "10.0.0.1", // Mock IP address
+									},
+								},
+								Ports: []corev1.EndpointPort{
+									{
+										Name:     "https-api",
+										Port:     8443,
+										Protocol: corev1.ProtocolTCP,
+									},
+								},
+							},
+						},
+					}
+					err := k8sClient.Create(ctx, endpoints)
+					Expect(err).To(Succeed(), "Failed to create mock Endpoints")
+				} else if len(endpoints.Subsets) == 0 || (len(endpoints.Subsets) > 0 && len(endpoints.Subsets[0].Addresses) == 0) {
+					// Endpoints exist but don't have ready addresses yet, update them
+					endpoints.Subsets = []corev1.EndpointSubset{
+						{
+							Addresses: []corev1.EndpointAddress{
+								{
+									IP: "10.0.0.1", // Mock IP address
+								},
+							},
+							Ports: []corev1.EndpointPort{
+								{
+									Name:     "https-api",
+									Port:     8443,
+									Protocol: corev1.ProtocolTCP,
+								},
+							},
+						},
+					}
+					err := k8sClient.Update(ctx, endpoints)
+					Expect(err).To(Succeed(), "Failed to update mock Endpoints")
+				}
+
 				// Mock route ingress conditions if KubeRBACProxy is configured and routes exist
 				if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.Capabilities.IsOpenShift {
 					routes := &routev1.RouteList{}
