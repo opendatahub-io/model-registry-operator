@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -15,9 +16,12 @@ import (
 	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -1042,3 +1046,255 @@ catalogs:
 		})
 	})
 })
+
+// TestModelCatalogParamsWithAdminGroups tests the AdminGroups field in ModelCatalogParams
+func TestModelCatalogParamsWithAdminGroups(t *testing.T) {
+	params := &ModelCatalogParams{
+		Name:        "test-catalog",
+		Namespace:   "test-ns",
+		AdminGroups: []string{"admin-group1", "admin-group2"},
+	}
+
+	if len(params.AdminGroups) != 2 {
+		t.Errorf("Expected 2 admin groups, got %d", len(params.AdminGroups))
+	}
+
+	found := false
+	for _, group := range params.AdminGroups {
+		if group == "admin-group1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected to find 'admin-group1' in admin groups")
+	}
+}
+
+// TestFetchAuthConfig tests the fetchAuthConfig function
+func TestFetchAuthConfig(t *testing.T) {
+	authConfig := &unstructured.Unstructured{}
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "services.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Auth",
+	})
+	authConfig.SetName("auth")
+	authConfig.Object["spec"] = map[string]interface{}{
+		"adminGroups": []interface{}{"odh-admins", "system-admins"},
+	}
+
+	client := fake.NewClientBuilder().WithObjects(authConfig).Build()
+	reconciler := &ModelCatalogReconciler{
+		Client: client,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	groups, err := reconciler.fetchAuthConfig(context.TODO())
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if len(groups) != 2 {
+		t.Errorf("Expected 2 admin groups, got %d", len(groups))
+	}
+
+	found := false
+	for _, group := range groups {
+		if group == "odh-admins" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Expected to find 'odh-admins' in admin groups")
+	}
+}
+
+// TestFetchAuthConfigNotFound tests fetchAuthConfig when Auth CR doesn't exist
+func TestFetchAuthConfigNotFound(t *testing.T) {
+	client := fake.NewClientBuilder().Build()
+	reconciler := &ModelCatalogReconciler{
+		Client: client,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	groups, err := reconciler.fetchAuthConfig(context.TODO())
+	if err != nil {
+		t.Errorf("Expected no error when Auth CR is not found, got %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("Expected empty admin groups when Auth CR is not found, got %d", len(groups))
+	}
+}
+
+// TestFetchAuthConfigNoAdminGroups tests fetchAuthConfig when Auth CR exists but has no adminGroups
+func TestFetchAuthConfigNoAdminGroups(t *testing.T) {
+	authConfig := &unstructured.Unstructured{}
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "services.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Auth",
+	})
+	authConfig.SetName("auth")
+	authConfig.Object["spec"] = map[string]interface{}{
+		"allowedGroups": []interface{}{"system:authenticated"},
+	}
+
+	client := fake.NewClientBuilder().WithObjects(authConfig).Build()
+	reconciler := &ModelCatalogReconciler{
+		Client: client,
+		Log:    ctrl.Log.WithName("test"),
+	}
+
+	groups, err := reconciler.fetchAuthConfig(context.TODO())
+	if err != nil {
+		t.Errorf("Expected no error when adminGroups field is missing, got %v", err)
+	}
+	if len(groups) != 0 {
+		t.Errorf("Expected empty admin groups when adminGroups field is missing, got %d", len(groups))
+	}
+}
+
+// TestCreateOrUpdateAdminRole tests the createOrUpdateAdminRole function
+func TestCreateOrUpdateAdminRole(t *testing.T) {
+	// Set up template
+	template, err := config.ParseTemplates()
+	if err != nil {
+		t.Fatalf("Failed to parse templates: %v", err)
+	}
+
+	client := fake.NewClientBuilder().Build()
+	reconciler := &ModelCatalogReconciler{
+		Client:   client,
+		Log:      ctrl.Log.WithName("test"),
+		Template: template,
+	}
+
+	params := &ModelCatalogParams{
+		Name:        "test-catalog",
+		Namespace:   "test-ns",
+		AdminGroups: []string{"admin-group1"},
+	}
+
+	result, err := reconciler.createOrUpdateAdminRole(context.TODO(), params, nil)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if result != ResourceCreated {
+		t.Errorf("Expected ResourceCreated, got %v", result)
+	}
+}
+
+// TestCreateOrUpdateAdminRoleBinding tests the createOrUpdateAdminRoleBinding function
+func TestCreateOrUpdateAdminRoleBinding(t *testing.T) {
+	// Set up template
+	template, err := config.ParseTemplates()
+	if err != nil {
+		t.Fatalf("Failed to parse templates: %v", err)
+	}
+
+	client := fake.NewClientBuilder().Build()
+	reconciler := &ModelCatalogReconciler{
+		Client:   client,
+		Log:      ctrl.Log.WithName("test"),
+		Template: template,
+	}
+
+	t.Run("with admin groups", func(t *testing.T) {
+		params := &ModelCatalogParams{
+			Name:        "test-catalog",
+			Namespace:   "test-ns",
+			AdminGroups: []string{"admin-group1", "admin-group2"},
+		}
+
+		result, err := reconciler.createOrUpdateAdminRoleBinding(context.TODO(), params, nil)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != ResourceCreated {
+			t.Errorf("Expected ResourceCreated, got %v", result)
+		}
+	})
+
+	t.Run("without admin groups", func(t *testing.T) {
+		params := &ModelCatalogParams{
+			Name:        "test-catalog",
+			Namespace:   "test-ns",
+			AdminGroups: []string{},
+		}
+
+		result, err := reconciler.createOrUpdateAdminRoleBinding(context.TODO(), params, nil)
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result != ResourceUnchanged {
+			t.Errorf("Expected ResourceUnchanged when no admin groups, got %v", result)
+		}
+	})
+}
+
+// TestReconcileWithAdminGroups tests the reconcile integration with admin groups
+func TestReconcileWithAdminGroups(t *testing.T) {
+	// Set up template
+	template, err := config.ParseTemplates()
+	if err != nil {
+		t.Fatalf("Failed to parse templates: %v", err)
+	}
+
+	// Create auth config
+	authConfig := &unstructured.Unstructured{}
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "services.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Auth",
+	})
+	authConfig.SetName("auth")
+	authConfig.Object["spec"] = map[string]interface{}{
+		"adminGroups": []interface{}{"test-admin-group"},
+	}
+
+	client := fake.NewClientBuilder().WithObjects(authConfig).Build()
+	reconciler := &ModelCatalogReconciler{
+		Client:          client,
+		Log:             ctrl.Log.WithName("test"),
+		Template:        template,
+		TargetNamespace: "test-ns",
+	}
+
+	// Test admin groups are fetched during reconcile
+	adminGroups, err := reconciler.fetchAuthConfig(context.TODO())
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if len(adminGroups) != 1 {
+		t.Errorf("Expected 1 admin group, got %d", len(adminGroups))
+	}
+	if len(adminGroups) > 0 && adminGroups[0] != "test-admin-group" {
+		t.Errorf("Expected admin group 'test-admin-group', got '%s'", adminGroups[0])
+	}
+
+	// Test params with admin groups
+	params := &ModelCatalogParams{
+		Name:        "test-catalog",
+		Namespace:   "test-ns",
+		AdminGroups: adminGroups,
+	}
+
+	// Test admin role creation
+	result, err := reconciler.createOrUpdateAdminRole(context.TODO(), params, nil)
+	if err != nil {
+		t.Errorf("Expected no error creating admin role, got %v", err)
+	}
+	if result != ResourceCreated {
+		t.Errorf("Expected ResourceCreated for admin role, got %v", result)
+	}
+
+	// Test admin rolebinding creation
+	result, err = reconciler.createOrUpdateAdminRoleBinding(context.TODO(), params, nil)
+	if err != nil {
+		t.Errorf("Expected no error creating admin rolebinding, got %v", err)
+	}
+	if result != ResourceCreated {
+		t.Errorf("Expected ResourceCreated for admin rolebinding, got %v", result)
+	}
+}
