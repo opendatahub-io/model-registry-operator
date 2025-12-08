@@ -67,6 +67,7 @@ type ModelCatalogParams struct {
 	Namespace     string
 	Component     string
 	PostgresImage string
+	AdminGroups   []string
 }
 
 // createPostgresParams creates PostgreSQL-specific ModelCatalogParams.
@@ -101,10 +102,19 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	log.Info("Reconciling catalog")
 
+	// Fetch admin groups from auth CR
+	adminGroups, err := r.fetchAuthConfig(ctx)
+	if err != nil {
+		log.Error(err, "Failed to fetch auth config")
+		// Continue with empty admin groups rather than failing
+		adminGroups = []string{}
+	}
+
 	catalogParams := &ModelCatalogParams{
-		Name:      modelCatalogName,
-		Namespace: r.TargetNamespace,
-		Component: modelCatalogName,
+		Name:        modelCatalogName,
+		Namespace:   r.TargetNamespace,
+		Component:   modelCatalogName,
+		AdminGroups: adminGroups,
 	}
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
@@ -178,6 +188,26 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	// Create or update rolebinding
 	result2, err = r.createOrUpdateRoleBinding(ctx, catalogParams, "catalog-rolebinding.yaml.tmpl", deploymentOwner)
 	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update admin role
+	result2, err = r.createOrUpdateAdminRole(ctx, catalogParams, deploymentOwner)
+	if err != nil {
+		log.Error(err, "Failed to create admin role")
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
+	// Create or update admin rolebinding
+	result2, err = r.createOrUpdateAdminRoleBinding(ctx, catalogParams, deploymentOwner)
+	if err != nil {
+		log.Error(err, "Failed to create admin rolebinding")
 		return ctrl.Result{}, err
 	}
 	if result2 != ResourceUnchanged {
@@ -697,6 +727,55 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
 }
 
+// createOrUpdateAdminRole creates or updates the admin role for ConfigMap access
+func (r *ModelCatalogReconciler) createOrUpdateAdminRole(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
+	return r.createOrUpdateRole(ctx, params, "catalog-admin-role.yaml.tmpl", owner)
+}
+
+// createOrUpdateAdminRoleBinding creates or updates the admin rolebinding for configured admin groups
+func (r *ModelCatalogReconciler) createOrUpdateAdminRoleBinding(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
+	// If no admin groups are configured, delete any existing admin rolebinding
+	if len(params.AdminGroups) == 0 {
+		r.Log.Info("No admin groups configured, deleting any existing admin rolebinding")
+
+		// Create RoleBinding object from template to get correct name/namespace
+		var roleBinding rbac.RoleBinding
+		if err := r.Apply(params, "catalog-admin-rolebinding.yaml.tmpl", &roleBinding); err != nil {
+			return ResourceUnchanged, err
+		}
+
+		// First check if the RoleBinding exists
+		existingRoleBinding := rbac.RoleBinding{}
+		key := types.NamespacedName{
+			Name:      roleBinding.Name,
+			Namespace: roleBinding.Namespace,
+		}
+
+		err := r.Client.Get(ctx, key, &existingRoleBinding)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// RoleBinding doesn't exist, nothing to delete
+				return ResourceUnchanged, nil
+			}
+			// Other error occurred
+			return ResourceUnchanged, err
+		}
+
+		// RoleBinding exists, apply labels and owner reference for proper identification
+		r.applyLabels(&roleBinding.ObjectMeta, params)
+		r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
+
+		// Delete the rolebinding
+		if err := r.Client.Delete(ctx, &roleBinding); err != nil {
+			return ResourceUnchanged, err
+		}
+
+		// Return ResourceUpdated since we actually deleted an existing resource
+		return ResourceUpdated, nil
+	}
+	return r.createOrUpdateRoleBinding(ctx, params, "catalog-admin-rolebinding.yaml.tmpl", owner)
+}
+
 func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
 	result = ResourceUnchanged
 
@@ -859,6 +938,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresUser       string
 		PostgresPassword   string
 		PostgresDatabase   string
+		AdminGroups        []string
 	}{
 		Name:               params.Name,
 		Namespace:          params.Namespace,
@@ -869,6 +949,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+		AdminGroups:        params.AdminGroups,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -945,6 +1026,40 @@ func (r *ModelCatalogReconciler) fetchDefaultModelRegistry(ctx context.Context) 
 	}, nil
 }
 
+// fetchAuthConfig retrieves admin groups from the cluster-scoped Auth CR.
+// Returns a slice of admin group names, or an empty slice if the Auth CR is not found.
+func (r *ModelCatalogReconciler) fetchAuthConfig(ctx context.Context) ([]string, error) {
+	authConfig := &unstructured.Unstructured{}
+	authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "services.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Auth",
+	})
+
+	err := r.Client.Get(ctx, client.ObjectKey{
+		Name: "auth",
+		// Auth is cluster-scoped, so no namespace
+	}, authConfig)
+	if err != nil {
+		// If auth CR doesn't exist, return empty admin groups
+		if apierrors.IsNotFound(err) {
+			r.Log.Info("Auth CR not found, no admin groups configured")
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	// Extract admin groups from spec.adminGroups
+	adminGroups, found, err := unstructured.NestedStringSlice(authConfig.Object, "spec", "adminGroups")
+	if err != nil || !found {
+		r.Log.Info("No adminGroups found in auth CR spec")
+		return []string{}, nil
+	}
+
+	r.Log.Info("Found admin groups from auth CR", "groups", adminGroups)
+	return adminGroups, nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Initialize shared utilities
@@ -995,6 +1110,15 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		},
 	)
 
+	// Auth CR watch - maps to fixed catalog request when admin groups change
+	authGVK := schema.GroupVersionKind{
+		Group:   "services.platform.opendatahub.io",
+		Version: "v1alpha1",
+		Kind:    "Auth",
+	}
+	authObj := &unstructured.Unstructured{}
+	authObj.SetGroupVersionKind(authGVK)
+
 	c, err := ctrl.NewControllerManagedBy(mgr).
 		Named("modelcatalog").
 		// All watched resources now map to the same reconcile request for deduplication
@@ -1007,6 +1131,8 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		// Watch Auth CR to trigger reconciliation when admin groups change
+		Watches(authObj, mapToFixedCatalogRequest).
 		Build(r)
 	if err != nil {
 		return err
