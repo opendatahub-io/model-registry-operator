@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -14,10 +15,15 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -1025,6 +1031,277 @@ catalogs:
 				Expect(result).To(ContainSubstring("simple_catalog"))
 				Expect(result).To(ContainSubstring("complex_catalog"))
 				Expect(result).To(ContainSubstring("host: localhost"))
+			})
+		})
+
+		Context("ModelCatalogParams with AdminGroups", func() {
+			It("Should handle AdminGroups field correctly", func() {
+				params := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: []string{"admin-group1", "admin-group2"},
+				}
+
+				Expect(params.AdminGroups).To(HaveLen(2))
+
+				found := false
+				for _, group := range params.AdminGroups {
+					if group == "admin-group1" {
+						found = true
+						break
+					}
+				}
+				Expect(found).To(BeTrue(), "Expected to find 'admin-group1' in admin groups")
+			})
+		})
+
+		Context("Auth configuration management", func() {
+			var fakeClient client.Client
+
+			BeforeEach(func() {
+				// Create a new fake client for each test
+				fakeClient = fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).Build()
+			})
+
+			It("Should fetch admin groups from Auth config", func() {
+				authConfig := &unstructured.Unstructured{}
+				authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "services.platform.opendatahub.io",
+					Version: "v1alpha1",
+					Kind:    "Auth",
+				})
+				authConfig.SetName("auth")
+				authConfig.Object["spec"] = map[string]interface{}{
+					"adminGroups": []interface{}{"odh-admins", "system-admins"},
+				}
+
+				err := fakeClient.Create(ctx, authConfig)
+				Expect(err).To(Not(HaveOccurred()))
+
+				reconciler := &ModelCatalogReconciler{
+					Client: fakeClient,
+					Log:    ctrl.Log.WithName("test"),
+				}
+
+				groups, err := reconciler.fetchAuthConfig(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(groups).To(HaveLen(2))
+
+				found := false
+				for _, group := range groups {
+					if group == "odh-admins" {
+						found = true
+						break
+					}
+				}
+				Expect(found).To(BeTrue(), "Expected to find 'odh-admins' in admin groups")
+			})
+
+			It("Should handle Auth config not found gracefully", func() {
+				reconciler := &ModelCatalogReconciler{
+					Client: fakeClient,
+					Log:    ctrl.Log.WithName("test"),
+				}
+
+				groups, err := reconciler.fetchAuthConfig(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(groups).To(HaveLen(0), "Expected empty admin groups when Auth CR is not found")
+			})
+
+			It("Should handle Auth config without adminGroups field", func() {
+				authConfig := &unstructured.Unstructured{}
+				authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "services.platform.opendatahub.io",
+					Version: "v1alpha1",
+					Kind:    "Auth",
+				})
+				authConfig.SetName("auth")
+				authConfig.Object["spec"] = map[string]interface{}{
+					"allowedGroups": []interface{}{"system:authenticated"},
+				}
+
+				err := fakeClient.Create(ctx, authConfig)
+				Expect(err).To(Not(HaveOccurred()))
+
+				reconciler := &ModelCatalogReconciler{
+					Client: fakeClient,
+					Log:    ctrl.Log.WithName("test"),
+				}
+
+				groups, err := reconciler.fetchAuthConfig(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(groups).To(HaveLen(0), "Expected empty admin groups when adminGroups field is missing")
+			})
+		})
+
+		Context("Admin role management", func() {
+			var fakeClient client.Client
+			var template *template.Template
+
+			BeforeEach(func() {
+				var err error
+				template, err = config.ParseTemplates()
+				Expect(err).To(Not(HaveOccurred()))
+
+				fakeClient = fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).Build()
+			})
+
+			It("Should create admin role correctly", func() {
+				reconciler := &ModelCatalogReconciler{
+					Client:   fakeClient,
+					Log:      ctrl.Log.WithName("test"),
+					Template: template,
+				}
+
+				params := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: []string{"admin-group1"},
+				}
+
+				result, err := reconciler.createOrUpdateAdminRole(ctx, params, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceCreated))
+
+				// Verify the Role was created
+				role := &rbac.Role{}
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin", Namespace: "test-ns"}, role)
+				Expect(err).To(Not(HaveOccurred()))
+			})
+
+			It("Should create admin rolebinding with admin groups", func() {
+				reconciler := &ModelCatalogReconciler{
+					Client:   fakeClient,
+					Log:      ctrl.Log.WithName("test"),
+					Template: template,
+				}
+
+				params := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: []string{"admin-group1", "admin-group2"},
+				}
+
+				result, err := reconciler.createOrUpdateAdminRoleBinding(ctx, params, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceCreated))
+
+				// Verify the RoleBinding was created
+				rb := &rbac.RoleBinding{}
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin-binding", Namespace: "test-ns"}, rb)
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Verify subjects match admin groups
+				Expect(rb.Subjects).To(HaveLen(2))
+			})
+
+			It("Should handle admin rolebinding cleanup when admin groups are removed", func() {
+				reconciler := &ModelCatalogReconciler{
+					Client:   fakeClient,
+					Log:      ctrl.Log.WithName("test"),
+					Template: template,
+				}
+
+				// First create a rolebinding with admin groups
+				paramsWithGroups := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: []string{"admin-group1"},
+				}
+
+				result, err := reconciler.createOrUpdateAdminRoleBinding(ctx, paramsWithGroups, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceCreated))
+
+				// Verify the rolebinding was created
+				rb := &rbac.RoleBinding{}
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin-binding", Namespace: "test-ns"}, rb)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(rb.Subjects).To(HaveLen(1))
+
+				// Now remove admin groups and verify cleanup
+				paramsWithoutGroups := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: []string{},
+				}
+
+				result, err = reconciler.createOrUpdateAdminRoleBinding(ctx, paramsWithoutGroups, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceUpdated), "Expected ResourceUpdated when cleaning up existing rolebinding")
+
+				// Verify the rolebinding was deleted
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin-binding", Namespace: "test-ns"}, rb)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "Expected rolebinding to be deleted")
+			})
+		})
+
+		Context("Integration test with admin groups", func() {
+			var fakeClient client.Client
+			var template *template.Template
+
+			BeforeEach(func() {
+				var err error
+				template, err = config.ParseTemplates()
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Create auth config
+				authConfig := &unstructured.Unstructured{}
+				authConfig.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "services.platform.opendatahub.io",
+					Version: "v1alpha1",
+					Kind:    "Auth",
+				})
+				authConfig.SetName("auth")
+				authConfig.Object["spec"] = map[string]interface{}{
+					"adminGroups": []interface{}{"test-admin-group"},
+				}
+
+				fakeClient = fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithObjects(authConfig).Build()
+			})
+
+			It("Should integrate admin groups in full reconcile flow", func() {
+				reconciler := &ModelCatalogReconciler{
+					Client:          fakeClient,
+					Log:             ctrl.Log.WithName("test"),
+					Template:        template,
+					TargetNamespace: "test-ns",
+				}
+
+				// Test admin groups are fetched during reconcile
+				adminGroups, err := reconciler.fetchAuthConfig(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(adminGroups).To(HaveLen(1))
+				Expect(adminGroups[0]).To(Equal("test-admin-group"))
+
+				// Test params with admin groups
+				params := &ModelCatalogParams{
+					Name:        "test-catalog",
+					Namespace:   "test-ns",
+					AdminGroups: adminGroups,
+				}
+
+				// Test admin role creation
+				result, err := reconciler.createOrUpdateAdminRole(ctx, params, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceCreated))
+
+				// Test admin rolebinding creation
+				result, err = reconciler.createOrUpdateAdminRoleBinding(ctx, params, nil)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(ResourceCreated))
+
+				// Verify admin role was created
+				role := &rbac.Role{}
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin", Namespace: "test-ns"}, role)
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Verify admin rolebinding was created with correct subjects
+				rb := &rbac.RoleBinding{}
+				err = fakeClient.Get(ctx, types.NamespacedName{Name: "test-catalog-admin-binding", Namespace: "test-ns"}, rb)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(rb.Subjects).To(HaveLen(1))
+				Expect(rb.Subjects[0].Name).To(Equal("test-admin-group"))
 			})
 		})
 
