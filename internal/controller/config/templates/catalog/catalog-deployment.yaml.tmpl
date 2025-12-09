@@ -89,8 +89,8 @@ spec:
             - catalog
           args:
             - --listen=0.0.0.0:8080
-            - --catalogs-path=/data/user-sources/sources.yaml
             - --catalogs-path=/data/default-sources/sources.yaml
+            - --catalogs-path=/data/user-sources/sources.yaml
             - --performance-metrics=/shared-benchmark-data
           image: {{.Spec.Rest.Image}}
           ports:
