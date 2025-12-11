@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}-postgres
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}-postgres
+    component: model-registry-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}-postgres
+  template:
+    metadata:
+      labels:
+        app: {{.Name}}
+        component: model-registry
+        app.kubernetes.io/name: {{.Name}}-postgres
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: {{.Spec.Postgres.Image}}
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRESQL_DATABASE
+              value: "model_registry"
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres-credentials
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres-credentials
+                  key: password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/pgsql/data
+          readinessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /usr/libexec/check-container
+                - --live
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: {{.Name}}-postgres-storage
