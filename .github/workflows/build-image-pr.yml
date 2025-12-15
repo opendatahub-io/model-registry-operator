@@ -46,10 +46,6 @@ jobs:
           IMG: "model-registry-operator:${{ steps.tags.outputs.tag }}"
         run: |
           kind load docker-image -n chart-testing ${IMG}
-      - name: Remove AppArmor profile for MySQL 8.x in KinD on GHA # same as Kubeflow CI/GHA
-        run: |
-          set -x
-          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
       - name: Deploy Operator Image
         env:
           IMG_VERSION: ${{ steps.tags.outputs.tag }}
