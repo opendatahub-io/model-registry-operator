@@ -20,9 +20,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24.7'
       - name: Build
@@ -39,3 +39,8 @@ jobs:
           fi
       - name: Controller tests
         run: make test
+      - name: Validate kustomize build
+        run: |
+          echo "Testing kustomize build to catch configuration errors..."
+          kustomize build config/overlays/odh/ > /dev/null
+          echo "✅ Kustomize build successful"
