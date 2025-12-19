@@ -761,28 +761,20 @@ func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Conte
 	return result, nil
 }
 
-func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
+func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, params *ModelRegistryParams, owner *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
 	result := ResourceUnchanged
 	var cm corev1.ConfigMap
 	if err := r.Apply(params, templateName, &cm); err != nil {
 		return result, err
 	}
 
+	if owner != nil {
+		if err := ctrl.SetControllerReference(owner, &cm, r.Scheme); err != nil {
+			return result, err
+		}
+	}
+
 	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func (r *ModelRegistryReconciler) ensureSecretExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
-	result := ResourceUnchanged
-	var secret corev1.Secret
-	if err := r.Apply(params, templateName, &secret); err != nil {
-		return result, err
-	}
-
-	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
 	if err != nil {
 		return result, err
 	}
