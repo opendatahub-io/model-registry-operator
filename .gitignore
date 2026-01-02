@@ -27,3 +27,8 @@ Dockerfile.cross
 
 # gateway TLS certificates
 certs/**
+
+# Claude code
+.claude/
+CLAUDE.md
+.tasks/
