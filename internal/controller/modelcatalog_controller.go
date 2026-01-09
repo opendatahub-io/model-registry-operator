@@ -584,7 +584,10 @@ func (r *ModelCatalogReconciler) manageUserSourcesConfigmap(ctx context.Context,
 
 	existing.Data[sourcesFileName], err = r.removeDefaultSource(existing.Data[sourcesFileName])
 	if err != nil {
-		log.Error(err, "Unable to process sources configmap")
+		log.Error(err, "Unable to process sources configmap - user configmap may contain invalid catalog structure",
+			"configmap", existing.Name,
+			"namespace", existing.Namespace,
+			"file", sourcesFileName)
 		return result, nil
 	}
 
@@ -609,12 +612,16 @@ func (r *ModelCatalogReconciler) manageUserSourcesConfigmap(ctx context.Context,
 }
 
 func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error) {
+	// catalog represents the structure of catalog entries in the sources.yaml configmap.
+	// This struct is used to parse user-managed configmaps and remove the deprecated
+	// default_catalog entry during migration from pre-3.0 versions.
 	type catalog struct {
 		Name       string            `json:"name"`
 		ID         string            `json:"id"`
 		Type       string            `json:"type"`
 		Enabled    *bool             `json:"enabled,omitempty"`
 		Properties map[string]string `json:"properties,omitempty"`
+		Labels     []string          `json:"labels,omitempty"` // Catalog tags for filtering/organization
 	}
 	var sources struct {
 		Catalogs []catalog `json:"catalogs"`

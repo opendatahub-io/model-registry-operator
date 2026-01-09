@@ -1032,6 +1032,64 @@ catalogs:
 				Expect(result).To(ContainSubstring("complex_catalog"))
 				Expect(result).To(ContainSubstring("host: localhost"))
 			})
+
+			It("Should handle catalogs with labels field", func() {
+				input := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /custom/path.yaml
+    labels:
+      - Custom Label
+      - Another Label
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+    labels:
+      - Default Label`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+				Expect(result).To(ContainSubstring("Custom Label"))
+				Expect(result).To(ContainSubstring("Another Label"))
+				Expect(result).To(Not(ContainSubstring("Default Label")))
+			})
+
+			It("Should handle mixed catalogs - some with labels, some without", func() {
+				input := `catalogs:
+  - name: Catalog Without Labels
+    id: no_labels_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /path/without-labels.yaml
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+    labels:
+      - Default Label
+  - name: Catalog With Labels
+    id: with_labels_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /path/with-labels.yaml
+    labels:
+      - Custom Label`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("no_labels_catalog"))
+				Expect(result).To(ContainSubstring("with_labels_catalog"))
+				Expect(result).To(ContainSubstring("Custom Label"))
+				Expect(result).To(Not(ContainSubstring("Default Label")))
+			})
 		})
 
 		Context("ModelCatalogParams with AdminGroups", func() {
