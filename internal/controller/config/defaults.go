@@ -48,7 +48,7 @@ const (
 	PostgresImage             = "POSTGRES_IMAGE"
 	CatalogDataImage          = "CATALOG_DATA_IMAGE"
 	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
-	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage          = "quay.io/opendatahub/model-registry:v0.3.5"
 	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
 	DefaultPostgresImage      = "quay.io/sclorg/postgresql-16-c10s:latest"
