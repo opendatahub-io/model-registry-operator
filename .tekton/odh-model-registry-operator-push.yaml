@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/model-registry-operator: {{revision}}
+    value: quay.io/opendatahub/model-registry-operator:{{revision}}
   - name: dockerfile
     value: Dockerfile
   - name: additional-tags
