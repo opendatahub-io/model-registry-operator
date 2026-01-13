@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+	"time"
 
 	networkingv1 "k8s.io/api/networking/v1"
 
@@ -222,11 +223,20 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.logResultAsEvent(modelRegistry, result)
 
 	// set custom resource status
-	available := false
-	if available, err = r.setRegistryStatus(ctx, req, params, result); err != nil {
+	condition, err := r.setRegistryStatus(ctx, req, params, result)
+	if err != nil {
 		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
 	}
 	log.Info("status reconciled")
+
+	available := false
+	if condition != nil {
+		if condition.Reason == ReasonDeploymentCooldown {
+			// Requeue after a fixed delay to avoid exponential backoff.
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		available = condition.Status == metav1.ConditionTrue
+	}
 
 	// requeue to update status
 	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
