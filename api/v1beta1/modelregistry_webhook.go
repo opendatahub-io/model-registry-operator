@@ -115,7 +115,7 @@ func (r *ModelRegistry) RuntimeDefaults() {
 	modelregistrylog.Info("runtime defaults", "name", r.Name)
 
 	// Add deprecation warning for gRPC usage
-	if r.Spec.Grpc.Port != nil || len(r.Spec.Grpc.Image) > 0 || r.Spec.Grpc.Resources != nil {
+	if (r.Spec.Grpc.Port != nil && *r.Spec.Grpc.Port != 9090) || len(r.Spec.Grpc.Image) > 0 || r.Spec.Grpc.Resources != nil {
 		modelregistrylog.Info("DEPRECATION WARNING: gRPC configuration is deprecated and will be removed in a future release. Please migrate to REST-only configuration.", "name", r.Name)
 	}
 
