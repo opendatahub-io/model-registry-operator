@@ -223,17 +223,20 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.logResultAsEvent(modelRegistry, result)
 
 	// set custom resource status
-	available := false
-	if condition, err := r.setRegistryStatus(ctx, req, params, result); err != nil {
+	condition, err := r.setRegistryStatus(ctx, req, params, result)
+	if err != nil {
 		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
-	} else if condition != nil {
+	}
+	log.Info("status reconciled")
+
+	available := false
+	if condition != nil {
 		if condition.Reason == ReasonDeploymentCooldown {
 			// Requeue after a fixed delay to avoid exponential backoff.
 			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
 		available = condition.Status == metav1.ConditionTrue
 	}
-	log.Info("status reconciled")
 
 	// requeue to update status
 	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
