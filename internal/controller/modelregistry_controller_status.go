@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -63,6 +64,7 @@ const (
 	ReasonDeploymentUpdating    = "UpdatingDeployment"
 	ReasonDeploymentAvailable   = "DeploymentAvailable"
 	ReasonDeploymentUnavailable = "DeploymentUnavailable"
+	ReasonDeploymentCooldown    = "DeploymentCooldown"
 	ReasonConfigurationError    = "ConfigurationError"
 
 	ReasonResourcesCreated     = "CreatedResources"
@@ -80,13 +82,13 @@ const (
 // [Abseil documentation]: https://abseil.io/docs/cpp/guides/logging#CHECK
 var errRegexp = regexp.MustCompile("Check failed: absl::OkStatus\\(\\) == status \\(OK vs. ([^)]+)\\) (.*)")
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (bool, error) {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (*metav1.Condition, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &v1beta1.ModelRegistry{}
 	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
 		log.Error(err, "Failed to re-fetch modelRegistry")
-		return false, err
+		return nil, err
 	}
 
 	r.setRegistryStatusHosts(req, params, modelRegistry)
@@ -101,7 +103,7 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		modelRegistry.CleanupRuntimeDefaults()
 		if err := r.Client.Update(ctx, modelRegistry); err != nil {
 			log.Error(err, "Failed to update modelRegistry runtime defaults")
-			return false, err
+			return nil, err
 		}
 	}
 
@@ -129,7 +131,7 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	condition, err := r.checkDeploymentAvailability(ctx, req.NamespacedName, req.Name, "model-registry")
 	if err != nil {
 		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return false, err
+		return nil, err
 	}
 
 	// remove oauth proxy condition if it exists
@@ -144,13 +146,10 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)
 	if err := r.Status().Update(ctx, modelRegistry); err != nil {
 		log.Error(err, "Failed to update modelRegistry status")
-		return false, err
+		return nil, err
 	}
 
-	if condition.Status != metav1.ConditionTrue {
-		return false, nil
-	}
-	return true, nil
+	return &condition, nil
 }
 
 func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) {
@@ -192,6 +191,9 @@ func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta
 	return nil
 }
 
+// deploymentDelay is how long to wait after the deployment is available to consider it ready.
+const deploymentDelay = 5 * time.Second
+
 func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, deployment); err != nil {
@@ -206,6 +208,7 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	// check deployment conditions errors
 	// start with available=false to force DeploymentAvailable condition to set it to true later
 	available := false
+	var availableSince time.Time
 	failed := false
 	progressing := true
 	for _, c := range deployment.Status.Conditions {
@@ -215,6 +218,8 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 				available = c.Status == corev1.ConditionTrue
 				if !available {
 					condition.Message = c.Message
+				} else {
+					availableSince = c.LastTransitionTime.Time
 				}
 			}
 		case appsv1.DeploymentProgressing:
@@ -266,6 +271,13 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable
 			condition.Message = "Service endpoints not ready - no ready addresses available"
+			return condition, nil
+		}
+
+		if time.Now().Sub(availableSince) < deploymentDelay {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentCooldown
+			condition.Message = "Deployment only recently available"
 			return condition, nil
 		}
 
