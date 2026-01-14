@@ -35,6 +35,7 @@ spec:
       appProtocol: http
     {{- end}}
   selector:
-    app.kubernetes.io/name: {{.Name}}
+    app: {{.Name}}
     component: model-registry
+    app.kubernetes.io/name: {{.Name}}
   type: ClusterIP
