@@ -334,8 +334,7 @@ items:
           args:
             - --datadir
             - /var/lib/mysql/datadir
-            - --default-authentication-plugin=mysql_native_password
-          image: mysql:8.3.0
+          image: container-registry.oracle.com/mysql/community-server:8.4
           imagePullPolicy: IfNotPresent
           livenessProbe:
             exec:
@@ -392,6 +391,7 @@ kind: List
 metadata: {}
 EOF
 ```
+
 make sure the database in `available` state
 
 ```sh
@@ -405,13 +405,14 @@ If you encounter image pull limits, you could replace the sample db image with a
 > [!NOTE]
 > **gRPC Endpoint Deprecation**: The gRPC endpoint configuration is deprecated and will be removed in a future release. New deployments should use the REST endpoint configuration only. Existing deployments with gRPC will continue to work but should migrate to REST-only configurations.
 
-To install Model Registry use the following script. Create a namespace where you going to be installing the model registry
+Begin by switching to the `registriesNamespace` configured in the DSC:
 
 ```
-oc project odh-model-registries
+oc project $(oc get dsc default-dsc -o jsonpath='{.spec.components.modelregistry.registriesNamespace}')
 ```
 
-Create Model Registry
+Then use the following script:
+
 ```
 oc apply -f - <<EOF
 apiVersion: v1
@@ -433,7 +434,7 @@ items:
       database-name: model_registry
       database-password: TheBlurstOfTimes
       database-user: modelregistryuser
-  - apiVersion: modelregistry.opendatahub.io/v1alpha1
+  - apiVersion: modelregistry.opendatahub.io/v1beta1
     kind: ModelRegistry
     metadata:
       labels:
@@ -443,7 +444,6 @@ items:
         app.kubernetes.io/name: modelregistry
         app.kubernetes.io/part-of: model-registry-operator
       name: modelregistry-public
-      namespace: odh-model-registries
     spec:
       rest: {}
       istio:
