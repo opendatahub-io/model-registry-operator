@@ -119,23 +119,6 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 		return
 	}
 
-	// check grpc image against operator default grpc image repo
-	if len(r.Spec.Grpc.Image) != 0 {
-		defaultGrpcImage := config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
-		defaultGrpcImageRepo := strings.Split(defaultGrpcImage, tagSeparator)[0]
-
-		grpcImageRepo := strings.Split(r.Spec.Grpc.Image, tagSeparator)[0]
-		if grpcImageRepo == defaultGrpcImageRepo {
-			modelregistrylog.V(4).Info("reset image", "grpc repo", grpcImageRepo)
-			// remove image altogether as the MR repo matches operator repo,
-			// so that future operator version upgrades don't have to handle a hardcoded default
-			r.Spec.Grpc.Image = emptyValue
-
-			// also reset resource requirements
-			r.Spec.Grpc.Resources = nil
-		}
-	}
-
 	// check rest image against operator default rest image repo
 	if len(r.Spec.Rest.Image) != 0 {
 		defaultRestImage := config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)
@@ -164,15 +147,8 @@ func (r *ModelRegistry) CleanupRuntimeDefaults() {
 func (r *ModelRegistry) RuntimeDefaults() {
 	modelregistrylog.Info("runtime defaults", "name", r.Name)
 
-	if r.Spec.Grpc.Resources == nil {
-		r.Spec.Grpc.Resources = config.MlmdGRPCResourceRequirements.DeepCopy()
-	}
-	if len(r.Spec.Grpc.Image) == 0 {
-		r.Spec.Grpc.Image = config.GetStringConfigWithDefault(config.GrpcImage, config.DefaultGrpcImage)
-	}
-
 	if r.Spec.Rest.Resources == nil {
-		r.Spec.Rest.Resources = config.MlmdRestResourceRequirements.DeepCopy()
+		r.Spec.Rest.Resources = config.ModelRegistryRestResourceRequirements.DeepCopy()
 	}
 	if len(r.Spec.Rest.Image) == 0 {
 		r.Spec.Rest.Image = config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage)

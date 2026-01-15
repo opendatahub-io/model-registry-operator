@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  annotations:
+    openshift.io/display-name: Model Catalog Admin
+    openshift.io/description: Admin access to model catalog ConfigMaps
+  labels:
+    app: {{.Name}}
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/managed-by: model-registry-operator
+    app.kubernetes.io/name: {{.Name}}-admin
+    app.kubernetes.io/part-of: model-catalog
+    app.kubernetes.io/component: model-catalog-admin
+  name: {{.Name}}-admin
+  namespace: {{.Namespace}}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch

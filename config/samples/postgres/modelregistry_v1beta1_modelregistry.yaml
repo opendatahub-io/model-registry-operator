@@ -18,7 +18,7 @@ spec:
   postgres:
     host: model-registry-db
     database: model-registry
-    username: mlmduser
+    username: modelregistryuser
     passwordSecret:
       name: model-registry-db
       key: database-password
