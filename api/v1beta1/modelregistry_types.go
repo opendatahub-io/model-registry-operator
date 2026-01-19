@@ -312,9 +312,8 @@ type ModelRegistrySpec struct {
 	// Configuration for REST endpoint
 	Rest RestSpec `json:"rest"`
 
-	//+kubebuilder:required
-
 	// Deprecated: Configuration for gRPC endpoint is deprecated and will be removed in a future release
+	//+optional
 	Grpc GrpcSpec `json:"grpc"`
 
 	// PostgreSQL configuration options
