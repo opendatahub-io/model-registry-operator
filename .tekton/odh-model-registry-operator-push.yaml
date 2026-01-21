@@ -12,7 +12,7 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-model-registry-operator
+    appstudio.openshift.io/component: odh-model-registry-operator-ci
     pipelines.appstudio.openshift.io/type: build
   name: odh-model-registry-operator-on-push
   namespace: open-data-hub-tenant
