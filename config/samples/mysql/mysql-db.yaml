@@ -96,7 +96,7 @@ items:
               command:
                 - /bin/bash
                 - -c
-                - mysqladmin -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} ping
+                - mysqladmin -h 127.0.0.1 -u${MYSQL_USER} -p${MYSQL_ROOT_PASSWORD} ping
             initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
