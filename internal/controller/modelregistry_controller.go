@@ -20,7 +20,9 @@ import (
 	"context"
 	errors2 "errors"
 	"fmt"
+	"strings"
 	"text/template"
+	"time"
 
 	networkingv1 "k8s.io/api/networking/v1"
 
@@ -29,6 +31,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -65,7 +68,7 @@ type ModelRegistryReconciler struct {
 	Log            logr.Logger
 	Template       *template.Template
 	EnableWebhooks bool
-	IsOpenShift    bool
+	Capabilities   ClusterCapabilities
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -175,6 +178,19 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	// Migrate OAuth proxy to kube-rbac-proxy for existing registries
+	// This handles registries created before the migration or updated outside the webhook
+	if modelRegistry.Spec.OAuthProxy != nil {
+		log.Info("Migrating OAuthProxy to KubeRBACProxy")
+		modelRegistry.MigrateOAuthProxyToKubeRBACProxy()
+		if err = r.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry after OAuth proxy migration")
+			return ctrl.Result{}, err
+		}
+		// Requeue to process with the migrated configuration
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// remember original spec
 	originalSpec := modelRegistry.Spec.DeepCopy()
 	// set runtime default properties in memory for reconciliation
@@ -207,11 +223,20 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.logResultAsEvent(modelRegistry, result)
 
 	// set custom resource status
-	available := false
-	if available, err = r.setRegistryStatus(ctx, req, params, result); err != nil {
+	condition, err := r.setRegistryStatus(ctx, req, params, result)
+	if err != nil {
 		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
 	}
 	log.Info("status reconciled")
+
+	available := false
+	if condition != nil {
+		if condition.Reason == ReasonDeploymentCooldown {
+			// Requeue after a fixed delay to avoid exponential backoff.
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		available = condition.Status == metav1.ConditionTrue
+	}
 
 	// requeue to update status
 	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
@@ -236,7 +261,7 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&rbac.Role{}).
 		Owns(&networkingv1.NetworkPolicy{})
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		builder = builder.Owns(&rbac.RoleBinding{})
 
 		labelsPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
@@ -318,8 +343,9 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=endpoints,verbs=get;list;watch
-// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch
-// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=secrets,verbs=create;get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes;routes/custom-host,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=user.openshift.io,resources=groups,verbs=get;list;watch;create;update;patch;delete
@@ -338,6 +364,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	var result, result2 OperationResult
 
 	var err error
+
+	if registry.Spec.Postgres != nil && registry.Spec.Postgres.GenerateDeployment != nil && *registry.Spec.Postgres.GenerateDeployment {
+		result, err = r.createOrUpdatePostgres(ctx, params, registry)
+		if err != nil {
+			return result, err
+		}
+	}
+
 	result, err = r.createOrUpdateServiceAccount(ctx, params, registry, "serviceaccount.yaml.tmpl")
 	if err != nil {
 		return result, err
@@ -367,19 +401,33 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
-	if r.IsOpenShift {
-		// create default group and role binding in OpenShift cluster
-		result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
-		if err != nil {
-			return result2, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
+	if r.Capabilities.IsOpenShift {
+		// Create OpenShift Group resource only if user API is available
+		// In BYOIDC mode (OpenShift 4.20+), user.openshift.io API is not available
+		if r.Capabilities.HasUserAPI {
+			// Traditional OpenShift: create user.openshift.io/v1 Group resource
+			result2, err = r.createOrUpdateGroup(ctx, params, registry, "group.yaml.tmpl")
+			if err != nil {
+				return result2, fmt.Errorf("failed to create OpenShift Group: %w", err)
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		} else if r.Capabilities.IsBYOIDC() {
+			// BYOIDC mode: Skip Group creation
+			// RoleBinding will reference external IdP group name
+			log := klog.FromContext(ctx)
+			log.Info("skipping OpenShift Group creation in BYOIDC mode",
+				"registry", params.Name,
+				"expectedIdPGroup", params.Name+"-users")
 		}
 
+		// RoleBinding is created in both modes
+		// - Traditional OpenShift: references the Group resource created above
+		// - BYOIDC: references external IdP group (must be configured in IdP)
 		result2, err = r.createOrUpdateRoleBinding(ctx, params, registry, "role-binding.yaml.tmpl")
 		if err != nil {
-			return result2, err
+			return result2, fmt.Errorf("failed to create RoleBinding: %w", err)
 		}
 		if result2 != ResourceUnchanged {
 			result = result2
@@ -396,8 +444,10 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		}
 	}
 
-	// create or update oauth proxy config if enabled, delete if disabled
-	result2, err = r.createOrUpdateOAuthConfig(ctx, params, registry)
+	// create or update kube-rbac-proxy config if enabled, delete if disabled
+	// This also handles cleanup of OAuth proxy resources since they share the same
+	// ClusterRoleBinding, Route, and NetworkPolicy names
+	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err
 	}
@@ -408,6 +458,126 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	// Clean up old catalog resources from before it was moved to ModelCatalogReconciler
 	if err := r.deleteOldCatalogResources(ctx, params); err != nil {
 		return result, err
+	}
+
+	return result, nil
+}
+
+func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, params *ModelRegistryParams,
+	registry *v1beta1.ModelRegistry) (result OperationResult, err error) {
+	log := klog.FromContext(ctx)
+	log.Info("Creating or updating postgres database")
+	result = ResourceUnchanged
+	var secret corev1.Secret
+	secretName := params.Name + "-postgres-credentials"
+	err = r.Get(ctx, types.NamespacedName{Name: secretName, Namespace: params.Namespace}, &secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Create the secret
+			log.Info("Creating postgres secret", "secret", secretName)
+			secret = corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: params.Namespace,
+				},
+				StringData: map[string]string{
+					"username": "modelregistry",
+					"password": utils.RandBytes(16),
+				},
+			}
+			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
+				log.Error(err, "Failed to set controller reference on secret")
+				return result, err
+			}
+			if result, err = r.createOrUpdate(ctx, &corev1.Secret{}, &secret); err != nil {
+				log.Error(err, "Failed to create or update secret")
+				return result, err
+			}
+		} else {
+			log.Error(err, "Failed to get secret")
+			return result, err
+		}
+	}
+
+	log.Info("Creating or updating postgres PVC")
+	var pvc corev1.PersistentVolumeClaim
+	if err = r.Apply(params, "postgres-pvc.yaml.tmpl", &pvc); err != nil {
+		log.Error(err, "Failed to apply postgres PVC template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &pvc, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on PVC")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.PersistentVolumeClaim{}, &pvc); err != nil {
+		log.Error(err, "Failed to create or update PVC")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres deployment")
+	var deployment appsv1.Deployment
+	if err = r.Apply(params, "postgres-deployment.yaml.tmpl", &deployment); err != nil {
+		log.Error(err, "Failed to apply postgres deployment template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &deployment, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on deployment")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment); err != nil {
+		// Check if the error is due to immutable field conflicts
+		if errors.IsForbidden(err) || (errors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting postgres deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				log.Error(getErr, "Failed to get existing postgres deployment for deletion")
+				return result, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				log.Error(deleteErr, "Failed to delete existing postgres deployment")
+				return result, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			log.Info("postgres deployment deleted, will be recreated in next reconcile")
+			return ResourceUpdated, nil
+		}
+		log.Error(err, "Failed to create or update deployment")
+		return result, err
+	}
+
+	log.Info("Creating or updating postgres service")
+	var service corev1.Service
+	if err = r.Apply(params, "postgres-service.yaml.tmpl", &service); err != nil {
+		log.Error(err, "Failed to apply postgres service template")
+		return result, err
+	}
+	if err = ctrl.SetControllerReference(registry, &service, r.Scheme); err != nil {
+		log.Error(err, "Failed to set controller reference on service")
+		return result, err
+	}
+	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
+		log.Error(err, "Failed to create or update service")
+		return result, err
+	}
+
+	// Update the spec in memory
+	log.Info("Updating spec in memory with postgres details")
+	port := int32(5432)
+	registry.Spec.Postgres = &v1beta1.PostgresConfig{
+		Host:     params.Name + "-postgres",
+		Port:     &port,
+		Username: "modelregistry",
+		Database: "model_registry",
+		PasswordSecret: &v1beta1.SecretKeyValue{
+			Name: secretName,
+			Key:  "password",
+		},
 	}
 
 	return result, nil
@@ -491,6 +661,7 @@ func (r *ModelRegistryReconciler) createOrUpdateGroup(ctx context.Context, param
 
 func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, params *ModelRegistryParams,
 	registry *v1beta1.ModelRegistry, templateName string) (result OperationResult, err error) {
+	log := klog.FromContext(ctx)
 	result = ResourceUnchanged
 	var deployment appsv1.Deployment
 	if err = r.Apply(params, templateName, &deployment); err != nil {
@@ -502,6 +673,25 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 
 	result, err = r.createOrUpdate(ctx, &appsv1.Deployment{}, &deployment)
 	if err != nil {
+		// Check if the error is due to immutable field conflicts
+		if errors.IsForbidden(err) || (errors.IsInvalid(err) && strings.Contains(err.Error(), "field is immutable")) {
+			log.Info("deleting deployment due to immutable field conflicts", "name", deployment.Name, "error", err.Error())
+
+			// Get the existing deployment to delete it
+			var existingDeployment appsv1.Deployment
+			key := client.ObjectKeyFromObject(&deployment)
+			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+				return result, getErr
+			}
+
+			// Delete the existing deployment
+			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+				return result, deleteErr
+			}
+
+			// Return to trigger recreation in next reconcile
+			return ResourceUpdated, nil
+		}
 		return result, err
 	}
 	return result, nil
@@ -581,28 +771,20 @@ func (r *ModelRegistryReconciler) createOrUpdateServiceAccount(ctx context.Conte
 	return result, nil
 }
 
-func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
+func (r *ModelRegistryReconciler) ensureConfigMapExists(ctx context.Context, params *ModelRegistryParams, owner *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
 	result := ResourceUnchanged
 	var cm corev1.ConfigMap
 	if err := r.Apply(params, templateName, &cm); err != nil {
 		return result, err
 	}
 
+	if owner != nil {
+		if err := ctrl.SetControllerReference(owner, &cm, r.Scheme); err != nil {
+			return result, err
+		}
+	}
+
 	result, err := r.createIfNotExists(ctx, &corev1.ConfigMap{}, &cm)
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func (r *ModelRegistryReconciler) ensureSecretExists(ctx context.Context, params *ModelRegistryParams, _ *v1beta1.ModelRegistry, templateName string) (OperationResult, error) {
-	result := ResourceUnchanged
-	var secret corev1.Secret
-	if err := r.Apply(params, templateName, &secret); err != nil {
-		return result, err
-	}
-
-	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
 	if err != nil {
 		return result, err
 	}
@@ -638,9 +820,15 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 	// of finalizers include performing backups and deleting
 	// resources that are not owned by this CR, like a PVC.
 
-	// delete cross-namespace resources
-	if err := r.Client.Delete(ctx, &userv1.Group{ObjectMeta: metav1.ObjectMeta{Name: registry.Name + "-users"}}); client.IgnoreNotFound(err) != nil {
-		return err
+	// Delete cross-namespace Group resource only if we created one
+	// In BYOIDC mode, we don't create Groups, so skip deletion
+	if r.Capabilities.IsOpenShift && r.Capabilities.HasUserAPI {
+		groupName := registry.Name + "-users"
+		if err := r.Client.Delete(ctx, &userv1.Group{
+			ObjectMeta: metav1.ObjectMeta{Name: groupName},
+		}); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to delete OpenShift Group %s: %w", groupName, err)
+		}
 	}
 
 	// Note: It is not recommended to use finalizers with the purpose of delete resources which are
@@ -675,7 +863,7 @@ type ModelRegistryParams struct {
 func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateName string, object any) error {
 	templateApplier := &TemplateApplier{
 		Template:    r.Template,
-		IsOpenShift: r.IsOpenShift,
+		IsOpenShift: r.Capabilities.IsOpenShift,
 	}
 	return templateApplier.Apply(params, templateName, object)
 }
@@ -738,7 +926,7 @@ func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context,
 		log.V(1).Info("Failed to delete old catalog service", "error", err)
 	}
 
-	if r.IsOpenShift {
+	if r.Capabilities.IsOpenShift {
 		// Delete old catalog route
 		if err := deleteObject(params.Name+"-catalog-https", &routev1.Route{}); err != nil {
 			log.V(1).Info("Failed to delete old catalog route", "error", err)
