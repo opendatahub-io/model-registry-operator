@@ -1,6 +1,6 @@
 # Secure PostgreSQL Sample
 
-This sample demonstrates how to deploy a Model Registry instance with a PostgreSQL database that has TLS/SSL enabled.
+This sample demonstrates how to deploy a Model Registry instance with a PostgreSQL database that has TLS enabled.
 
 ## Prerequisites
 
@@ -10,12 +10,12 @@ The Model Registry operator is configured to watch a specific namespace. Before 
 
 **Check the operator configuration:**
 ```bash
-kubectl logs -n model-registry-operator-system deployment/model-registry-operator-controller-manager | grep "REGISTRIES_NAMESPACE"
+kubectl get deployment -n model-registry-operator-system model-registry-operator-controller-manager -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="REGISTRIES_NAMESPACE")].value}'
 ```
 
-**Look for output like:**
-```
-default registry config	{"REGISTRIES_NAMESPACE": "model-registry-test"}
+**This will output the namespace, for example:**
+```text
+model-registry-test
 ```
 
 **Set your context to this namespace:**
@@ -23,7 +23,7 @@ default registry config	{"REGISTRIES_NAMESPACE": "model-registry-test"}
 kubectl config set-context --current --namespace=model-registry-test
 ```
 
-> **Note:** For OpenShift AI or Open Data Hub deployments, the typical namespace is `rhoai-model-registries` or `odh-model-registries`. Deploying to an unwatched namespace will result in the ModelRegistry CR being created but not reconciled by the operator.
+> **Note:** For OpenShift AI or Open Data Hub deployments, the typical namespace is `rhoai-model-registries` or `odh-model-registries`. The operator's admission webhook will reject ModelRegistry CRs created in namespaces other than the configured namespace.
 
 ### 2. Generate TLS Certificates
 
@@ -55,21 +55,21 @@ kubectl apply -k config/samples/secure-db/postgres
 ```
 
 This will create:
-- A PostgreSQL database deployment with SSL enabled
+- A PostgreSQL database deployment with TLS enabled
 - A Model Registry instance configured to connect using `sslmode=verify-full`
 - Required secrets and services
 
 ## Configuration Details
 
-### PostgreSQL SSL Configuration
+### PostgreSQL TLS Configuration
 
-The PostgreSQL container is configured with the following SSL settings:
-- `ssl=on` - Enables SSL/TLS connections
+The PostgreSQL container is configured with the following TLS settings:
+- `ssl=on` - Enables TLS connections
 - `ssl_cert_file=/etc/server-cert/tls.crt` - Server certificate
 - `ssl_key_file=/etc/server-cert/tls.key` - Server private key
 - `ssl_ca_file=/etc/server-cert/ca.crt` - Certificate Authority certificate
 
-### Model Registry SSL Configuration
+### Model Registry TLS Configuration
 
 The Model Registry is configured to connect to PostgreSQL with:
 - `sslMode: verify-full` - Requires TLS and verifies the server certificate
