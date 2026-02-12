@@ -33,7 +33,7 @@ IMG_REPO ?= "model-registry-operator"
 IMG_VERSION ?= "latest"
 IMG ?= "${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}"
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.28.0
+ENVTEST_K8S_VERSION = 1.34
 
 # Kustomize overlay to use for deploy/undeploy
 OVERLAY ?= "default"
@@ -193,7 +193,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 CONVERSION_GEN ?= $(LOCALBIN)/conversion-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
-ENVTEST_VERSION ?= v0.0.0-20240320141353-395cfc7486e6
+ENVTEST_VERSION ?= release-0.22
 GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 GOVULNCHECK_VERSION ?= v1.1.4
 

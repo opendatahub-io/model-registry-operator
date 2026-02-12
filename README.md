@@ -51,6 +51,7 @@ make deploy
 * [Secure MySQL with OAuth Proxy](config/samples/secure-db/mysql-oauth) SSL secured MySQL database, and OAuth Proxy secured model registry service
 * [PostgreSQL](config/samples/postgres) plain Kubernetes model registry services with a sample PostgreSQL database
 * [PostgreSQL with OAuth Proxy](config/samples/oauth/postgres) PostgreSQL database, and OAuth Proxy secured model registry service
+* [Secure PostgreSQL](config/samples/secure-db/postgres) plain Kubernetes model registry services with a sample TLS secured PostgreSQL database
 
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
@@ -106,6 +107,7 @@ kubectl apply -k config/samples/secure-db/mysql
 kubectl apply -k config/samples/secure-db/mysql-oauth
 kubectl apply -k config/samples/postgres
 kubectl apply -k config/samples/oauth/postgres
+kubectl apply -k config/samples/secure-db/postgres
 ```
 
 This will create the appropriate database and model registry resources, which will be reconciled in the controller to create a model registry deployment with other Kubernetes, and OpenShift resources as needed.
@@ -198,6 +200,7 @@ kubectl delete -k config/samples/secure-db/mysql
 kubectl delete -k config/samples/secure-db/mysql-oauth
 kubectl delete -k config/samples/postgres
 kubectl delete -k config/samples/oauth/postgres
+kubectl delete -k config/samples/secure-db/postgres
 ```
 
 ### Building local docker image for development
