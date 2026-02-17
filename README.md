@@ -51,6 +51,7 @@ make deploy
 * [Secure MySQL with OAuth Proxy](config/samples/secure-db/mysql-oauth) SSL secured MySQL database, and OAuth Proxy secured model registry service
 * [PostgreSQL](config/samples/postgres) plain Kubernetes model registry services with a sample PostgreSQL database
 * [PostgreSQL with OAuth Proxy](config/samples/oauth/postgres) PostgreSQL database, and OAuth Proxy secured model registry service
+* [Secure PostgreSQL](config/samples/secure-db/postgres) plain Kubernetes model registry services with a sample TLS secured PostgreSQL database
 
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
@@ -92,7 +93,7 @@ make certificates/clean
 ```
 
 NOTE: The sample database secret `model-registry-db-credential` is created with the CA cert, server key and server cert. However, in production the model registry only needs a secret with the CA cert(s). The production database server will be configured with a secret containing the private key and server cert. 
-The sample certificates use a self-signed CA and does not do cert management like cert rotation, etc. Use your own certificate manager, e.g. https://cert-manager.io/ and create generic kubernetes secrets for REST, gRPC and database with the the keys `tls.key`, `tls.crt`, and `ca.crt`. 
+The sample certificates use a self-signed CA and does not do cert management like cert rotation, etc. Use your own certificate manager, e.g. https://cert-manager.io/ and create generic kubernetes secrets for REST and database with the the keys `tls.key`, `tls.crt`, and `ca.crt`.
 
 Install a model registry instance using **ONE** of the following commands:
 
@@ -106,6 +107,7 @@ kubectl apply -k config/samples/secure-db/mysql
 kubectl apply -k config/samples/secure-db/mysql-oauth
 kubectl apply -k config/samples/postgres
 kubectl apply -k config/samples/oauth/postgres
+kubectl apply -k config/samples/secure-db/postgres
 ```
 
 This will create the appropriate database and model registry resources, which will be reconciled in the controller to create a model registry deployment with other Kubernetes, and OpenShift resources as needed.
@@ -198,6 +200,7 @@ kubectl delete -k config/samples/secure-db/mysql
 kubectl delete -k config/samples/secure-db/mysql-oauth
 kubectl delete -k config/samples/postgres
 kubectl delete -k config/samples/oauth/postgres
+kubectl delete -k config/samples/secure-db/postgres
 ```
 
 ### Building local docker image for development

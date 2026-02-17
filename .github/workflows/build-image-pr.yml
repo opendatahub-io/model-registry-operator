@@ -19,11 +19,7 @@ jobs:
   build-and-test-image:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.7'
+      - uses: actions/checkout@v6
       - name: Generate Tag
         shell: bash
         id: tags
@@ -39,17 +35,13 @@ jobs:
         run: |
           make docker-build
       - name: Start Kind Cluster
-        uses: helm/kind-action@v1.10.0
+        uses: helm/kind-action@v1.13.0
       - name: Load Local Test Image
         env:
           IMG_VERSION: ${{ steps.tags.outputs.tag }}
           IMG: "model-registry-operator:${{ steps.tags.outputs.tag }}"
         run: |
           kind load docker-image -n chart-testing ${IMG}
-      - name: Remove AppArmor profile for MySQL 8.x in KinD on GHA # same as Kubeflow CI/GHA
-        run: |
-          set -x
-          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld
       - name: Deploy Operator Image
         env:
           IMG_VERSION: ${{ steps.tags.outputs.tag }}
@@ -65,4 +57,4 @@ jobs:
           ##debug
           #kubectl describe pods
           #kubectl logs -l name=model-registry-db || true
-          kubectl wait --for=condition=Available=true modelregistries/modelregistry-sample --timeout=5m || (kubectl describe mr; exit 1)
+          kubectl wait --for=condition=Available=true modelregistries/modelregistry-sample --timeout=5m || (kubectl describe mr; kubectl logs -n model-registry-operator-system -l control-plane=controller-manager ; exit 1)

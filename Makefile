@@ -1,6 +1,31 @@
 # Include images as env variables
 include ./config/overlays/odh/params.env
 
+# Cross-platform sed detection for macOS compatibility
+# macOS sed has different -i syntax than GNU sed. This detects the OS and uses:
+# - gsed if available on macOS (install with: brew install gnu-sed)
+# - native sed with appropriate -i syntax as fallback
+# - GNU sed on Linux/Unix systems
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+    # macOS - check if gsed is available, otherwise use sed with different syntax
+    GSED_EXISTS := $(shell command -v gsed 2> /dev/null)
+    ifdef GSED_EXISTS
+        SED := gsed
+    else
+        SED := sed
+        SED_INPLACE := -i ''
+    endif
+else
+    # Linux and other Unix-like systems
+    SED := sed
+endif
+
+# Set SED_INPLACE if not already set (for Linux/gsed compatibility)
+ifndef SED_INPLACE
+    SED_INPLACE := -i
+endif
+
 # Image URL to use all building/pushing image targets
 IMG_REGISTRY ?= "quay.io"
 IMG_ORG ?= "opendatahub"
@@ -8,7 +33,7 @@ IMG_REPO ?= "model-registry-operator"
 IMG_VERSION ?= "latest"
 IMG ?= "${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}"
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.28.0
+ENVTEST_K8S_VERSION = 1.34
 
 # Kustomize overlay to use for deploy/undeploy
 OVERLAY ?= "default"
@@ -63,14 +88,11 @@ IMAGES_REST_VERSION=$(lastword $(subst :, ,${IMAGES_REST_SERVICE}))
 .PHONY: sync-images
 sync-images:
 	# sync model-registry image
-	sed "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" -i ./config/manager/manager.yaml
-	sed "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+	$(SED) "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" $(SED_INPLACE) ./config/manager/manager.yaml
+	$(SED) "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" $(SED_INPLACE) ./internal/controller/config/defaults.go
 	# sync component_metadata.yaml model registry versions on line 6 and 9
-	sed -i "6s|: .*|: $(IMAGES_REST_VERSION)|" -i ./config/component_metadata.yaml
-	sed -i "9s|: .*|: $(IMAGES_REST_VERSION)|" -i ./config/component_metadata.yaml
-	# sync mlmd image
-	sed "s|quay.io/opendatahub/mlmd-grpc-server:.*|${IMAGES_GRPC_SERVICE}|" -i ./config/manager/manager.yaml
-	sed "s|\"quay.io/opendatahub/mlmd-grpc-server:.*\"|\"${IMAGES_GRPC_SERVICE}\"|" -i ./internal/controller/config/defaults.go
+	$(SED) $(SED_INPLACE) "6s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
+	$(SED) $(SED_INPLACE) "9s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
@@ -171,9 +193,9 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 CONVERSION_GEN ?= $(LOCALBIN)/conversion-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
-ENVTEST_VERSION ?= v0.0.0-20240320141353-395cfc7486e6
+ENVTEST_VERSION ?= release-0.22
 GOVULNCHECK ?= $(LOCALBIN)/govulncheck
-GOVULNCHECK_VERSION ?= v1.1.3
+GOVULNCHECK_VERSION ?= v1.1.4
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
@@ -208,7 +230,7 @@ $(ENVTEST): $(LOCALBIN)
 
 .PHONY: govulncheck
 govulncheck: $(GOVULNCHECK) ## Download govulncheck locally if necessary. If wrong version is installed, it will be removed before downloading.
-	$(GOVULNCHECK) ./...
+	@$(GOVULNCHECK) ./...
 
 $(GOVULNCHECK): $(LOCALBIN)
 	@if test -x $(LOCALBIN)/govulncheck && ! $(LOCALBIN)/govulncheck -version | grep -q $(GOVULNCHECK_VERSION); then \

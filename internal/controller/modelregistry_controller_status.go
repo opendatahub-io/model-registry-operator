@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -55,12 +56,15 @@ const (
 	ConditionTypeGateway = "GatewayAvailable"
 	// ConditionTypeOauthProxy represents the status of OAuth Proxy configuration.
 	ConditionTypeOAuthProxy = "OAuthProxyAvailable"
+	// ConditionTypeKubeRBACProxy represents the status of KubeRBACProxy configuration.
+	ConditionTypeKubeRBACProxy = "KubeRBACProxyAvailable"
 
 	ReasonDeploymentCreated     = "CreatedDeployment"
 	ReasonDeploymentCreating    = "CreatingDeployment"
 	ReasonDeploymentUpdating    = "UpdatingDeployment"
 	ReasonDeploymentAvailable   = "DeploymentAvailable"
 	ReasonDeploymentUnavailable = "DeploymentUnavailable"
+	ReasonDeploymentCooldown    = "DeploymentCooldown"
 	ReasonConfigurationError    = "ConfigurationError"
 
 	ReasonResourcesCreated     = "CreatedResources"
@@ -68,24 +72,23 @@ const (
 	ReasonResourcesUnavailable = "ResourcesUnavailable"
 	ReasonResourcesAlert       = "ResourcesAlert"
 
-	grpcContainerName       = "grpc-container"
 	restContainerName       = "rest-container"
 	containerCreatingReason = "ContainerCreating"
 )
 
-// errRegexp is based on the CHECK_EQ macro output used by mlmd container.
+// errRegexp is based on the CHECK_EQ macro output used by REST container.
 // For more details on Abseil logging and CHECK_EQ macro see [Abseil documentation].
 //
 // [Abseil documentation]: https://abseil.io/docs/cpp/guides/logging#CHECK
 var errRegexp = regexp.MustCompile("Check failed: absl::OkStatus\\(\\) == status \\(OK vs. ([^)]+)\\) (.*)")
 
-func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (bool, error) {
+func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (*metav1.Condition, error) {
 	log := klog.FromContext(ctx)
 
 	modelRegistry := &v1beta1.ModelRegistry{}
 	if err := r.Get(ctx, req.NamespacedName, modelRegistry); err != nil {
 		log.Error(err, "Failed to re-fetch modelRegistry")
-		return false, err
+		return nil, err
 	}
 
 	r.setRegistryStatusHosts(req, params, modelRegistry)
@@ -100,7 +103,7 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		modelRegistry.CleanupRuntimeDefaults()
 		if err := r.Client.Update(ctx, modelRegistry); err != nil {
 			log.Error(err, "Failed to update modelRegistry runtime defaults")
-			return false, err
+			return nil, err
 		}
 	}
 
@@ -128,39 +131,40 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 	condition, err := r.checkDeploymentAvailability(ctx, req.NamespacedName, req.Name, "model-registry")
 	if err != nil {
 		log.Error(err, "Failed to get modelRegistry deployment", "name", req.NamespacedName)
-		return false, err
+		return nil, err
 	}
 
-	if condition.Status == metav1.ConditionTrue {
-		if modelRegistry.Spec.OAuthProxy != nil {
-			condition.Status, condition.Reason, condition.Message = r.SetOauthProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
-		}
+	// remove oauth proxy condition if it exists
+	meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeOAuthProxy)
 
+	if condition.Status == metav1.ConditionTrue {
+		if modelRegistry.Spec.KubeRBACProxy != nil {
+			condition.Status, condition.Reason, condition.Message = r.SetKubeRBACProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
+		}
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)
 	if err := r.Status().Update(ctx, modelRegistry); err != nil {
 		log.Error(err, "Failed to update modelRegistry status")
-		return false, err
+		return nil, err
 	}
 
-	if condition.Status != metav1.ConditionTrue {
-		return false, nil
-	}
-	return true, nil
+	return &condition, nil
 }
 
 func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) {
 
 	var hosts []string
 
-	oAuthProxy := registry.Spec.OAuthProxy
 	name := req.Name
-	if oAuthProxy != nil && oAuthProxy.ServiceRoute == config.RouteEnabled {
-		// use domain from the reconciled registry with runtime defaults
-		domain := params.Spec.OAuthProxy.Domain
+
+	// Check kube-rbac-proxy for HTTPS route
+	if registry.Spec.KubeRBACProxy != nil && registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
+		// use domain from the kube-rbac-proxy configuration
+		domain := params.Spec.KubeRBACProxy.Domain
 		hosts = append(hosts, fmt.Sprintf("%s-rest.%s", name, domain))
 	}
+
 	namespace := req.Namespace
 	hosts = append(hosts, fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace))
 	hosts = append(hosts, fmt.Sprintf("%s.%s", name, namespace))
@@ -187,6 +191,9 @@ func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta
 	return nil
 }
 
+// deploymentDelay is how long to wait after the deployment is available to consider it ready.
+const deploymentDelay = 5 * time.Second
+
 func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, deployment); err != nil {
@@ -201,6 +208,7 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	// check deployment conditions errors
 	// start with available=false to force DeploymentAvailable condition to set it to true later
 	available := false
+	var availableSince time.Time
 	failed := false
 	progressing := true
 	for _, c := range deployment.Status.Conditions {
@@ -210,6 +218,8 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 				available = c.Status == corev1.ConditionTrue
 				if !available {
 					condition.Message = c.Message
+				} else {
+					availableSince = c.LastTransitionTime.Time
 				}
 			}
 		case appsv1.DeploymentProgressing:
@@ -238,6 +248,40 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	}
 
 	if available {
+		// Verify service endpoints are ready before marking as available
+		// This ensures the Service has actual backing pods with ready addresses
+		endpoints := &corev1.Endpoints{}
+		if err := r.Get(ctx, key, endpoints); err != nil {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentUnavailable
+			condition.Message = fmt.Sprintf("Service endpoints not found: %v", err)
+			return condition, nil
+		}
+
+		// Check if endpoints has at least one ready address
+		hasReadyEndpoints := false
+		for _, subset := range endpoints.Subsets {
+			if len(subset.Addresses) > 0 {
+				hasReadyEndpoints = true
+				break
+			}
+		}
+
+		if !hasReadyEndpoints {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentUnavailable
+			condition.Message = "Service endpoints not ready - no ready addresses available"
+			return condition, nil
+		}
+
+		if time.Now().Sub(availableSince) < deploymentDelay {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentCooldown
+			condition.Message = "Deployment only recently available"
+			return condition, nil
+		}
+
+		// All checks passed - deployment and endpoints are ready
 		condition.Status = metav1.ConditionTrue
 		condition.Reason = ReasonDeploymentAvailable
 		condition.Message = "Deployment is available"
@@ -258,33 +302,13 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": app, "component": component}, client.InNamespace(namespace))
 	if err != nil {
 		// log K8s error
-		r.Log.Error(err, "failed to get grpc container error")
+		r.Log.Error(err, "failed to list pods")
 	}
 	for _, p := range pods.Items {
 		// look for not ready container status first
 		failedContainers := make(map[string]string)
 		for _, s := range p.Status.ContainerStatuses {
 			if !s.Ready {
-				// look for MLMD container errors, make sure it has also been created
-				if s.Name == grpcContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
-					// check container log for MLMD errors
-					dbError, err := r.getContainerDBerror(ctx, p, grpcContainerName)
-					if err != nil {
-						// log K8s error
-						r.Log.Error(err, "failed to get grpc container error")
-					}
-					if dbError != nil {
-						if strings.Contains(dbError.Error(), "{{ALERT}}") {
-							condition.Reason = ReasonResourcesAlert
-							condition.Message = fmt.Sprintf("grpc container alert: %s", dbError)
-							return condition
-						}
-						// MLMD errors take priority
-						condition.Reason = ReasonConfigurationError
-						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
-						return condition
-					}
-				}
 				// check for schema migration errors within rest containers
 				if s.Name == restContainerName && s.State.Waiting != nil && s.State.Waiting.Reason != containerCreatingReason {
 					// check container log for schema migration errors
@@ -301,7 +325,7 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 						}
 						// if not a schema migration error, return a generic configuration error
 						condition.Reason = ReasonConfigurationError
-						condition.Message = fmt.Sprintf("metadata database configuration error: %s", dbError)
+						condition.Message = fmt.Sprintf("database configuration error: %s", dbError)
 						return condition
 					}
 				}
@@ -380,27 +404,27 @@ func (r *ModelRegistryReconciler) getContainerDBerror(ctx context.Context, pod c
 	return nil, nil
 }
 
-func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, req ctrl.Request,
+func (r *ModelRegistryReconciler) SetKubeRBACProxyCondition(ctx context.Context, req ctrl.Request,
 	modelRegistry *v1beta1.ModelRegistry,
 	status metav1.ConditionStatus, reason string, message string) (metav1.ConditionStatus, string, string) {
 
 	log := klog.FromContext(ctx)
 
-	if modelRegistry.Spec.OAuthProxy != nil {
+	if modelRegistry.Spec.KubeRBACProxy != nil {
 
-		// verify that Deployment pod has 2 containers including the oauth proxy
+		// verify that Deployment pod has kube-rbac-proxy container
 		name := req.NamespacedName
 		reason2 := ReasonResourcesCreated
-		message2 := "OAuth Proxy was successfully created"
-		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "OAuth", log, message2, reason2, status)
+		message2 := "kube-rbac-proxy was successfully created"
+		message2, reason2, status2 := r.CheckDeploymentPods(ctx, name, "kube-rbac-proxy", log, message2, reason2, status)
 
-		// set OAuth proxy available condition
+		// set kube-rbac-proxy available condition
 		if status2 == metav1.ConditionTrue {
 
 			reason2 = ReasonResourcesAvailable
 
-			// also check Oauth proxy route if enabled
-			if modelRegistry.Spec.OAuthProxy.ServiceRoute == config.RouteEnabled {
+			// also check kube-rbac-proxy route if enabled
+			if modelRegistry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
 				// get proxy route
 				var routeList routev1.RouteList
 				err := r.Client.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{
@@ -408,7 +432,7 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 				}))
 				if err != nil {
 					// log K8s error
-					r.Log.Error(err, "failed to get oauth proxy route")
+					r.Log.Error(err, "failed to get kube-rbac-proxy route")
 				}
 				routeAvailable := make(map[string]bool)
 				routeMessage := make(map[string]string)
@@ -418,23 +442,19 @@ func (r *ModelRegistryReconciler) SetOauthProxyCondition(ctx context.Context, re
 				if !routeAvailable[routeType] {
 					status2 = metav1.ConditionFalse
 					reason2 = ReasonResourcesUnavailable
-					message2 = fmt.Sprintf("OAuthProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
+					message2 = fmt.Sprintf("KubeRBACProxy Route %s is unavailable: %s", routeName, routeMessage[routeType])
 				}
 			}
 		}
 
-		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeOAuthProxy,
+		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{Type: ConditionTypeKubeRBACProxy,
 			Status: status2, Reason: reason2, Message: message2})
 
-		if status2 == metav1.ConditionFalse && status == metav1.ConditionFalse {
-			status = status2
-			reason = reason2
-			message = "OAuth Proxy resources are unavailable"
+		if status2 != metav1.ConditionTrue {
+			return status2, reason2, message2
 		}
-	} else {
-		meta.RemoveStatusCondition(&modelRegistry.Status.Conditions, ConditionTypeOAuthProxy)
+		return status, reason, message
 	}
-
 	return status, reason, message
 }
 
@@ -442,7 +462,7 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 	log logr.Logger, message string, reason string, status metav1.ConditionStatus) (string, string, metav1.ConditionStatus) {
 	pods := corev1.PodList{}
 	if err := r.Client.List(ctx, &pods,
-		client.MatchingLabels{"app": name.Name, "component": "model-registry"},
+		client.MatchingLabels{"app": name.Name, "component": "model-registry", "app.kubernetes.io/name": name.Name},
 		client.InNamespace(name.Namespace)); err != nil {
 
 		log.Error(err, "Failed to get model registry pods", "name", name)

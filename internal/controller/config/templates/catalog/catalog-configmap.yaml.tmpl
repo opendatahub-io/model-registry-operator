@@ -10,13 +10,8 @@ metadata:
     app.kubernetes.io/instance: {{.Name}}
     app.kubernetes.io/component: model-catalog
     app.kubernetes.io/created-by: model-registry-operator
-    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
 data:
   sources.yaml: |-
-    catalogs:
-      - name: Default Catalog
-        id: default_catalog
-        type: yaml
-        properties:
-          yamlCatalogPath: /shared-data/default-catalog.yaml
+    catalogs: []
