@@ -22,9 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Setup Go
+        id: setup-go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.24.7'
+          go-version: '1.25.7'
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: bin
+          key: localbin-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            localbin-go${{ steps.setup-go.outputs.go-version }}
       - name: Build
         run: make build
       - name: Check if there are uncommitted file changes

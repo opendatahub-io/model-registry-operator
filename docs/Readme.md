@@ -12,5 +12,6 @@ The below are links more documentation on Model Registry
 3. [Install and using Model Registry using UI](./how-to-use-ui.md)
 4. [How to use Model Registry Python library](./getting-started.md)
 5. [Deploy a model using UI](./deploy-model.md)
+6. [Operator environment variables](./operator-environment-variables.md)
 
 
