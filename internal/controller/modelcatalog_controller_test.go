@@ -521,6 +521,59 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(postgresPVC.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
 				Expect(postgresPVC.Spec.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			})
+
+			It("Should create PostgreSQL NetworkPolicy with correct configuration", func() {
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Checking if the PostgreSQL NetworkPolicy was created")
+				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				// Verify NetworkPolicy targets postgres pods with correct podSelector
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("app", modelCatalogName),
+					"NetworkPolicy podSelector should match postgres pod app label")
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("component", modelCatalogName),
+					"NetworkPolicy podSelector should match postgres pod component label")
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", modelCatalogName+"-postgres"),
+					"NetworkPolicy podSelector should match postgres pod app.kubernetes.io/name label")
+
+				// Verify NetworkPolicy has ingress policy type
+				Expect(postgresNetworkPolicy.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress),
+					"NetworkPolicy should have Ingress policy type")
+
+				// Verify ingress rules allow only Model Catalog API pods
+				Expect(postgresNetworkPolicy.Spec.Ingress).To(HaveLen(1),
+					"NetworkPolicy should have exactly one ingress rule")
+				ingressRule := postgresNetworkPolicy.Spec.Ingress[0]
+				Expect(ingressRule.From).To(HaveLen(1),
+					"NetworkPolicy ingress rule should have exactly one from selector")
+
+				// Verify ingress from selector matches Model Catalog API pods
+				fromSelector := ingressRule.From[0].PodSelector
+				Expect(fromSelector).ToNot(BeNil(), "NetworkPolicy ingress from should use podSelector")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("app", modelCatalogName),
+					"NetworkPolicy ingress selector should match catalog API app label")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("component", "model-catalog"),
+					"NetworkPolicy ingress selector should match catalog API component label")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", modelCatalogName),
+					"NetworkPolicy ingress selector should match catalog API app.kubernetes.io/name label")
+
+				// Verify port restriction to PostgreSQL port 5432
+				Expect(ingressRule.Ports).To(HaveLen(1),
+					"NetworkPolicy ingress rule should restrict to one port")
+				port := ingressRule.Ports[0]
+				Expect(port.Protocol).ToNot(BeNil(),
+					"NetworkPolicy port protocol should be specified")
+				Expect(*port.Protocol).To(Equal(corev1.ProtocolTCP),
+					"NetworkPolicy port should use TCP protocol")
+				Expect(port.Port.IntVal).To(Equal(int32(5432)),
+					"NetworkPolicy port should be 5432 (PostgreSQL)")
+			})
 		})
 
 		Context("cleanupCatalogResources method", func() {

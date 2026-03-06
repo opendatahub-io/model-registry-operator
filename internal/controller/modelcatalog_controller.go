@@ -264,6 +264,16 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
+		// Create or update PostgreSQL NetworkPolicy
+		log.Info("Creating or updating postgres NetworkPolicy")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, postgresParams, "catalog-postgres-network-policy.yaml.tmpl", postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	} else {
 		log.Info("Skipping catalog DB creation as configured")
 	}
