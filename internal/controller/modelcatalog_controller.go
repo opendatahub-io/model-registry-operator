@@ -3,10 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
-	"maps"
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
