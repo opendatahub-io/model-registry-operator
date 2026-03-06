@@ -242,6 +242,18 @@ var _ = Describe("Model Registry validating webhook", func() {
 			return nil
 		}).Should(Succeed())
 	})
+
+	It("Should support creating MR instance with KubeRBACProxy configured", func(ctx context.Context) {
+		Eventually(func() error {
+			config.SetRegistriesNamespace(namespaceBase)
+			mr := newModelRegistry(ctx, mrNameBase, namespaceBase)
+			mr.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{}
+			Expect(k8sClient.Create(ctx, mr)).Should(Succeed())
+			Expect(k8sClient.Delete(ctx, mr)).Should(Succeed())
+
+			return nil
+		}).Should(Succeed())
+	})
 })
 
 func newModelRegistry(ctx context.Context, name string, namespace string) *v1beta1.ModelRegistry {

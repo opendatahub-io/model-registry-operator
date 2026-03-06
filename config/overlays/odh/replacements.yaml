@@ -12,16 +12,6 @@
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
-    fieldPath: data.IMAGES_GRPC_SERVICE
-  targets:
-    - select:
-        kind: Deployment
-        name: controller-manager
-      fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=GRPC_IMAGE].value
-- source:
-    kind: ConfigMap
-    name: model-registry-operator-parameters
     fieldPath: data.IMAGES_REST_SERVICE
   targets:
     - select:
@@ -42,6 +32,26 @@
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
+    fieldPath: data.kube-rbac-proxy
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=KUBE_RBAC_PROXY_IMAGE].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.IMAGES_POSTGRES
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=POSTGRES_IMAGE].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
     fieldPath: data.IMAGES_CATALOG_DATA
   targets:
     - select:
@@ -49,6 +59,16 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=CATALOG_DATA_IMAGE].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.IMAGES_BENCHMARK_DATA
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=BENCHMARK_DATA_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -79,6 +99,26 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=ENABLE_MODEL_CATALOG].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.SKIP_MODEL_CATALOG_DB_CREATION
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=SKIP_MODEL_CATALOG_DB_CREATION].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.GATEWAY_DOMAIN
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=GATEWAY_DOMAIN].value
 # Metrics service name replacements for auth proxy serving cert
 - source:
     kind: Service

@@ -22,11 +22,19 @@ import (
 
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
+	routev1 "github.com/openshift/api/route/v1"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -117,8 +125,51 @@ func main() {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
+	capabilities, err := getCapabilities()
+	if err != nil {
+		setupLog.Error(err, "error detecting cluster capabilities")
+		os.Exit(1)
+	}
+	setupLog.Info("cluster capabilities detected",
+		"isOpenShift", capabilities.IsOpenShift,
+		"hasUserAPI", capabilities.HasUserAPI,
+		"hasConfigAPI", capabilities.HasConfigAPI)
+
+	registriesNamespace := os.Getenv(config.RegistriesNamespace)
+	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
+	defaultDomain := os.Getenv(config.DefaultDomain)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
+
+	// set default values for defaulting webhook
+	config.SetRegistriesNamespace(registriesNamespace)
+
+	// Only cache the instances of these objects that are created by this operator.
+	objOptions := cache.ByObject{
+		Label: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/created-by": "model-registry-operator",
+		}),
+	}
+	cacheOptions := cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&appsv1.Deployment{}:            objOptions,
+			&corev1.ConfigMap{}:             objOptions,
+			&corev1.PersistentVolumeClaim{}: objOptions,
+			&corev1.ServiceAccount{}:        objOptions,
+			&corev1.Service{}:               objOptions,
+			&networkingv1.NetworkPolicy{}:   objOptions,
+			&rbacv1.ClusterRoleBinding{}:    objOptions,
+			&rbacv1.RoleBinding{}:           objOptions,
+			&rbacv1.Role{}:                  objOptions,
+		},
+	}
+
+	if capabilities.IsOpenShift {
+		cacheOptions.ByObject[&routev1.Route{}] = objOptions
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
+		Cache:                  cacheOptions,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -150,34 +201,13 @@ func main() {
 	mgrRestConfig := mgr.GetConfig()
 	client := mgr.GetClient()
 
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(mgrRestConfig)
-	groups, err := discoveryClient.ServerGroups()
-	if err != nil {
-		setupLog.Error(err, "error discovering server groups")
-		os.Exit(1)
-	}
-	isOpenShift := false
-	for _, g := range groups.Groups {
-		if g.Name == "route.openshift.io" {
-			isOpenShift = true
-		}
-	}
-	setupLog.Info("cluster config", "isOpenShift", isOpenShift)
-
 	clientset, err := kubernetes.NewForConfig(mgrRestConfig)
 	if err != nil {
 		setupLog.Error(err, "error getting kubernetes clientset")
 		os.Exit(1)
 	}
 
-	registriesNamespace := os.Getenv(config.RegistriesNamespace)
-	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
-	defaultDomain := os.Getenv(config.DefaultDomain)
-	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
-
-	// set default values for defaulting webhook
-	config.SetRegistriesNamespace(registriesNamespace)
-	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), isOpenShift)
+	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), capabilities.IsOpenShift)
 
 	if err = (&controller.ModelRegistryReconciler{
 		Client:         client,
@@ -187,24 +217,26 @@ func main() {
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
-		IsOpenShift:    isOpenShift,
+		Capabilities:   capabilities,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
 	}
 
 	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
-	setupLog.Info("model catalog config", config.EnableModelCatalog, enableModelCatalog)
+	skipCatalogDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
+	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipCatalogDBCreation)
 
 	if err = (&controller.ModelCatalogReconciler{
-		Client:          client,
-		Scheme:          mgr.GetScheme(),
-		Recorder:        mgr.GetEventRecorderFor("modelcatalog-controller"),
-		Log:             ctrl.Log.WithName("modelcatalog-controller"),
-		Template:        template,
-		IsOpenShift:     isOpenShift,
-		TargetNamespace: config.GetRegistriesNamespace(),
-		Enabled:         enableModelCatalog,
+		Client:                client,
+		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorderFor("modelcatalog-controller"),
+		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
+		Template:              template,
+		Capabilities:          capabilities,
+		TargetNamespace:       config.GetRegistriesNamespace(),
+		Enabled:               enableModelCatalog,
+		SkipCatalogDBCreation: skipCatalogDBCreation,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)
@@ -236,4 +268,16 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getCapabilities() (controller.ClusterCapabilities, error) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return controller.ClusterCapabilities{}, err
+	}
+	client, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return controller.ClusterCapabilities{}, err
+	}
+	return controller.DetectClusterCapabilities(client)
 }
