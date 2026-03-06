@@ -131,7 +131,14 @@ func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
 		"b64enc":           b64enc,
 		"quantityToString": utils.QuantityToString,
-		"randBytes":        utils.RandBytes,
+		"randBytes": func(n int) string {
+			// Template function wrapper - panics on error as per template convention
+			result, err := utils.RandBytes(n)
+			if err != nil {
+				panic(err)
+			}
+			return result
+		},
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",

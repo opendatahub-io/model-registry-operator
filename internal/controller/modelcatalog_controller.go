@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -737,7 +738,8 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 
 // createOrUpdatePostgresSecret creates the catalog PostgreSQL secret with a randomly generated password.
 // This method implements idempotent secret creation - the password is generated only on initial creation
-// and preserved across reconciliations, following the same pattern as model registry password generation.
+// and preserved across reconciliations. It also reconciles existing secrets to ensure labels, owner
+// references, and required keys are present.
 func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
 	log := klog.FromContext(ctx)
 	result := ResourceUnchanged
@@ -752,8 +754,78 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 	}, existingSecret)
 
 	if err == nil {
-		// Secret exists - preserve it (don't regenerate password)
-		log.V(1).Info("Postgres secret already exists, preserving", "secret", secretName)
+		// Secret exists - reconcile it to ensure labels, owner refs, and required keys are present
+		log.V(1).Info("Postgres secret already exists, reconciling", "secret", secretName)
+
+		needsUpdate := false
+
+		// Ensure Data map exists
+		if existingSecret.Data == nil {
+			existingSecret.Data = make(map[string][]byte)
+		}
+
+		// Check and add missing required keys (preserve existing values)
+		requiredKeys := map[string]string{
+			"database-name": config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+			"database-user": config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+		}
+
+		for key, defaultValue := range requiredKeys {
+			if _, exists := existingSecret.Data[key]; !exists {
+				log.Info("Adding missing key to existing secret", "secret", secretName, "key", key)
+				existingSecret.Data[key] = []byte(defaultValue)
+				needsUpdate = true
+			}
+		}
+
+		// Generate password only if missing
+		if _, exists := existingSecret.Data["database-password"]; !exists {
+			log.Info("Generating missing password for existing secret", "secret", secretName)
+			password, err := utils.RandBytes(16)
+			if err != nil {
+				log.Error(err, "Failed to generate random password for secret", "secret", secretName)
+				return result, fmt.Errorf("failed to generate random password: %w", err)
+			}
+			existingSecret.Data["database-password"] = []byte(password)
+			needsUpdate = true
+		}
+
+		// Apply labels and owner reference
+		originalLabels := make(map[string]string)
+		for k, v := range existingSecret.Labels {
+			originalLabels[k] = v
+		}
+		r.applyLabels(&existingSecret.ObjectMeta, params)
+
+		// Check if labels changed
+		if !reflect.DeepEqual(originalLabels, existingSecret.Labels) {
+			log.V(1).Info("Updating labels on existing secret", "secret", secretName)
+			needsUpdate = true
+		}
+
+		// Apply owner reference if not present
+		hasOwnerRef := false
+		for _, ref := range existingSecret.OwnerReferences {
+			if ref.UID == owner.UID {
+				hasOwnerRef = true
+				break
+			}
+		}
+		if !hasOwnerRef {
+			log.V(1).Info("Adding owner reference to existing secret", "secret", secretName)
+			r.applyOwnerReference(&existingSecret.ObjectMeta, owner)
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			if err := r.Client.Update(ctx, existingSecret); err != nil {
+				log.Error(err, "Failed to update existing secret", "secret", secretName)
+				return result, err
+			}
+			log.Info("Successfully reconciled existing secret", "secret", secretName)
+			return ResourceUpdated, nil
+		}
+
 		return ResourceUnchanged, nil
 	}
 
@@ -764,6 +836,13 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 
 	// Secret doesn't exist - create with random password
 	log.Info("Creating postgres secret with random password", "secret", secretName)
+
+	password, err := utils.RandBytes(16)
+	if err != nil {
+		log.Error(err, "Failed to generate random password for new secret", "secret", secretName)
+		return result, fmt.Errorf("failed to generate random password: %w", err)
+	}
+
 	newSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
@@ -772,7 +851,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 		StringData: map[string]string{
 			"database-name":     config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 			"database-user":     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
-			"database-password": utils.RandBytes(16), // Generate cryptographically secure random password
+			"database-password": password,
 		},
 	}
 

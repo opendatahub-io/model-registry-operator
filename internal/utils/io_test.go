@@ -26,7 +26,10 @@ func TestRandBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := RandBytes(tt.length)
+			result, err := RandBytes(tt.length)
+			if err != nil {
+				t.Fatalf("RandBytes() error = %v", err)
+			}
 
 			// Check that result is not empty
 			if len(result) == 0 {
@@ -59,7 +62,10 @@ func TestRandBytesUniqueness(t *testing.T) {
 	seen := make(map[string]bool)
 
 	for i := 0; i < iterations; i++ {
-		result := RandBytes(16)
+		result, err := RandBytes(16)
+		if err != nil {
+			t.Fatalf("RandBytes() error = %v", err)
+		}
 		if seen[result] {
 			t.Errorf("RandBytes() generated duplicate value: %q", result)
 		}
