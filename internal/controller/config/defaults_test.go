@@ -514,7 +514,6 @@ func TestCatalogDeployment(t *testing.T) {
 func TestCatalogPostgresSecret(t *testing.T) {
 	// Clear any env vars from previous tests
 	os.Unsetenv(config.CatalogPostgresUser)
-	os.Unsetenv(config.CatalogPostgresPassword)
 	os.Unsetenv(config.CatalogPostgresDatabase)
 
 	// parse all templates
@@ -587,34 +586,10 @@ func TestCatalogPostgresSecret(t *testing.T) {
 			}
 		}
 
-		// Verify data fields exist and contain base64 encoded values
-		if result.Data == nil {
-			t.Errorf("Secret data should not be nil")
-			return
-		}
-
-		requiredDataKeys := []string{"database-name", "database-password", "database-user"}
-		for _, key := range requiredDataKeys {
-			if _, exists := result.Data[key]; !exists {
-				t.Errorf("Secret should contain data key: %s", key)
-			}
-		}
-
-		// Verify the base64 encoded values decode to expected defaults
-		expectedValues := map[string]string{
-			"database-name":     config.DefaultCatalogPostgresDatabase,
-			"database-password": config.DefaultCatalogPostgresPassword,
-			"database-user":     config.DefaultCatalogPostgresUser,
-		}
-
-		for dataKey, expectedValue := range expectedValues {
-			if encodedValue, exists := result.Data[dataKey]; exists {
-				decodedValue := string(encodedValue)
-				if decodedValue != expectedValue {
-					t.Errorf("Decoded %s = %v, want %v", dataKey, decodedValue, expectedValue)
-				}
-			}
-		}
+		// Note: Secret data is now created directly in createOrUpdatePostgresSecret()
+		// with randomly generated passwords using utils.RandBytes(16).
+		// This template is only used for metadata during deletion operations,
+		// so we don't verify data fields here.
 	})
 }
 

@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -218,7 +221,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	// Create PostgreSQL resources only if not skipping DB creation
 	if !r.SkipCatalogDBCreation {
-		result2, err := r.createOrUpdateSecret(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", crOwner)
+		result2, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -255,6 +258,16 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			UID:        postgresDeployment.UID,
 		}
 		result2, err = r.createOrUpdateService(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", postgresDeploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		// Create or update PostgreSQL NetworkPolicy
+		log.Info("Creating or updating postgres NetworkPolicy")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, postgresParams, "catalog-postgres-network-policy.yaml.tmpl", postgresDeploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -734,6 +747,129 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
 }
 
+// createOrUpdatePostgresSecret creates the catalog PostgreSQL secret with a randomly generated password.
+// This method implements idempotent secret creation - the password is generated only on initial creation
+// and preserved across reconciliations. It also reconciles existing secrets to ensure labels, owner
+// references, and required keys are present.
+func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
+	log := klog.FromContext(ctx)
+	result := ResourceUnchanged
+
+	secretName := params.Name + "-postgres"
+
+	// Check if secret already exists
+	existingSecret := &corev1.Secret{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      secretName,
+		Namespace: params.Namespace,
+	}, existingSecret)
+
+	if err == nil {
+		// Secret exists - reconcile it to ensure labels, owner refs, and required keys are present
+		log.V(1).Info("Postgres secret already exists, reconciling", "secret", secretName)
+
+		needsUpdate := false
+
+		// Ensure Data map exists
+		if existingSecret.Data == nil {
+			existingSecret.Data = make(map[string][]byte)
+		}
+
+		// Check and add missing required keys (preserve existing values)
+		requiredKeys := map[string]string{
+			"database-name": config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+			"database-user": config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+		}
+
+		for key, defaultValue := range requiredKeys {
+			if _, exists := existingSecret.Data[key]; !exists {
+				log.Info("Adding missing key to existing secret", "secret", secretName, "key", key)
+				existingSecret.Data[key] = []byte(defaultValue)
+				needsUpdate = true
+			}
+		}
+
+		// Generate password only if missing
+		if _, exists := existingSecret.Data["database-password"]; !exists {
+			log.Info("Generating missing password for existing secret", "secret", secretName)
+			password, err := utils.RandBytes(16)
+			if err != nil {
+				log.Error(err, "Failed to generate random password for secret", "secret", secretName)
+				return result, fmt.Errorf("failed to generate random password: %w", err)
+			}
+			existingSecret.Data["database-password"] = []byte(password)
+			needsUpdate = true
+		}
+
+		// Apply labels and owner reference
+		originalLabels := make(map[string]string, len(existingSecret.Labels))
+		maps.Copy(originalLabels, existingSecret.Labels)
+		r.applyLabels(&existingSecret.ObjectMeta, params)
+
+		// Check if labels changed
+		if !reflect.DeepEqual(originalLabels, existingSecret.Labels) {
+			log.V(1).Info("Updating labels on existing secret", "secret", secretName)
+			needsUpdate = true
+		}
+
+		// Apply owner reference if not present
+		hasOwnerRef := false
+		for _, ref := range existingSecret.OwnerReferences {
+			if ref.UID == owner.UID {
+				hasOwnerRef = true
+				break
+			}
+		}
+		if !hasOwnerRef {
+			log.V(1).Info("Adding owner reference to existing secret", "secret", secretName)
+			r.applyOwnerReference(&existingSecret.ObjectMeta, owner)
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			if err := r.Client.Update(ctx, existingSecret); err != nil {
+				log.Error(err, "Failed to update existing secret", "secret", secretName)
+				return result, err
+			}
+			log.Info("Successfully reconciled existing secret", "secret", secretName)
+			return ResourceUpdated, nil
+		}
+
+		return ResourceUnchanged, nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		// Unexpected error
+		return result, err
+	}
+
+	// Secret doesn't exist - create with random password
+	log.Info("Creating postgres secret with random password", "secret", secretName)
+
+	password, err := utils.RandBytes(16)
+	if err != nil {
+		log.Error(err, "Failed to generate random password for new secret", "secret", secretName)
+		return result, fmt.Errorf("failed to generate random password: %w", err)
+	}
+
+	newSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: params.Namespace,
+		},
+		StringData: map[string]string{
+			"database-name":     config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+			"database-user":     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+			"database-password": password,
+		},
+	}
+
+	r.applyLabels(&newSecret.ObjectMeta, params)
+	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
+
+	return r.createOrUpdate(ctx, &corev1.Secret{}, newSecret)
+}
+
 // createOrUpdateAdminRole creates or updates the admin role for ConfigMap access
 func (r *ModelCatalogReconciler) createOrUpdateAdminRole(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
 	return r.createOrUpdateRole(ctx, params, "catalog-admin-role.yaml.tmpl", owner)
@@ -943,7 +1079,6 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		BenchmarkDataImage string
 		PostgresImage      string
 		PostgresUser       string
-		PostgresPassword   string
 		PostgresDatabase   string
 		AdminGroups        []string
 	}{
@@ -954,7 +1089,6 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresImage:      config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
-		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
 	}

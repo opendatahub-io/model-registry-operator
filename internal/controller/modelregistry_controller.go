@@ -475,6 +475,11 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		if errors.IsNotFound(err) {
 			// Create the secret
 			log.Info("Creating postgres secret", "secret", secretName)
+			password, randErr := utils.RandBytes(16)
+			if randErr != nil {
+				log.Error(randErr, "Failed to generate random password for secret", "secret", secretName)
+				return result, fmt.Errorf("failed to generate random password: %w", randErr)
+			}
 			secret = corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      secretName,
@@ -482,7 +487,7 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 				},
 				StringData: map[string]string{
 					"username": "modelregistry",
-					"password": utils.RandBytes(16),
+					"password": password,
 				},
 			}
 			if err = ctrl.SetControllerReference(registry, &secret, r.Scheme); err != nil {
@@ -564,6 +569,16 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 	if _, err = r.createOrUpdate(ctx, &corev1.Service{}, &service); err != nil {
 		log.Error(err, "Failed to create or update service")
 		return result, err
+	}
+
+	log.Info("Creating or updating postgres NetworkPolicy")
+	result2, err := r.createOrUpdateNetworkPolicy(ctx, params, registry, "postgres-network-policy.yaml.tmpl")
+	if err != nil {
+		log.Error(err, "Failed to create or update postgres NetworkPolicy")
+		return result, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	// Update the spec in memory

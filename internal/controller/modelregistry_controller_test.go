@@ -526,6 +526,102 @@ var _ = Describe("ModelRegistry controller", func() {
 					found := &corev1.PersistentVolumeClaim{}
 					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-storage", Namespace: namespace.Name}, found)
 				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the Postgres NetworkPolicy was successfully created in the reconciliation")
+				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, postgresNetworkPolicy)
+				}, time.Minute, time.Second).Should(Succeed())
+
+				// Verify NetworkPolicy targets postgres pods with correct podSelector
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("app", registryName),
+					"NetworkPolicy podSelector should match postgres pod app label")
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("component", "model-registry"),
+					"NetworkPolicy podSelector should match postgres pod component label")
+				Expect(postgresNetworkPolicy.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", registryName+"-postgres"),
+					"NetworkPolicy podSelector should match postgres pod app.kubernetes.io/name label")
+
+				// Verify NetworkPolicy has ingress policy type
+				Expect(postgresNetworkPolicy.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress),
+					"NetworkPolicy should have Ingress policy type")
+
+				// Verify ingress rules allow only API server pods
+				Expect(postgresNetworkPolicy.Spec.Ingress).To(HaveLen(1),
+					"NetworkPolicy should have exactly one ingress rule")
+				ingressRule := postgresNetworkPolicy.Spec.Ingress[0]
+				Expect(ingressRule.From).To(HaveLen(1),
+					"NetworkPolicy ingress rule should have exactly one from selector")
+
+				// Verify ingress from selector matches API server pods
+				fromSelector := ingressRule.From[0].PodSelector
+				Expect(fromSelector).ToNot(BeNil(), "NetworkPolicy ingress from should use podSelector")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("app", registryName),
+					"NetworkPolicy ingress selector should match API server app label")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("component", "model-registry"),
+					"NetworkPolicy ingress selector should match API server component label")
+				Expect(fromSelector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", registryName),
+					"NetworkPolicy ingress selector should match API server app.kubernetes.io/name label")
+
+				// Verify port restriction to PostgreSQL port 5432
+				Expect(ingressRule.Ports).To(HaveLen(1),
+					"NetworkPolicy ingress rule should restrict to one port")
+				port := ingressRule.Ports[0]
+				Expect(port.Protocol).ToNot(BeNil(),
+					"NetworkPolicy port protocol should be specified")
+				Expect(*port.Protocol).To(Equal(corev1.ProtocolTCP),
+					"NetworkPolicy port should use TCP protocol")
+				Expect(port.Port.IntVal).To(Equal(int32(5432)),
+					"NetworkPolicy port should be 5432 (PostgreSQL)")
+			})
+
+			It("When using external PostgreSQL database should not create NetworkPolicy", func() {
+				registryName = "model-registry-external-postgres"
+				specInit()
+
+				port := int32(5432)
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "external-postgres.example.com",
+					Port:     &port,
+					Username: "externaluser",
+					Database: "externaldb",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "external-postgres-secret",
+						Key:  "password",
+					},
+				}
+
+				// Create the external postgres secret
+				secret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "external-postgres-secret",
+						Namespace: namespace.Name,
+					},
+					StringData: map[string]string{
+						"password": "externalpassword",
+					},
+				}
+				err = k8sClient.Create(ctx, secret)
+				Expect(err).To(Not(HaveOccurred()))
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Verifying that Postgres NetworkPolicy was NOT created for external database")
+				Consistently(func() error {
+					found := &networkingv1.NetworkPolicy{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, 5*time.Second, time.Second).ShouldNot(Succeed())
+
+				By("Verifying that Postgres Deployment was NOT created for external database")
+				Consistently(func() error {
+					found := &appsv1.Deployment{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, 5*time.Second, time.Second).ShouldNot(Succeed())
 			})
 
 			Context("Legacy catalog resource cleanup", func() {
