@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -218,7 +219,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	// Create PostgreSQL resources only if not skipping DB creation
 	if !r.SkipCatalogDBCreation {
-		result2, err := r.createOrUpdateSecret(ctx, postgresParams, "catalog-postgres-secret.yaml.tmpl", crOwner)
+		result2, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -734,6 +735,53 @@ func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, param
 	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
 }
 
+// createOrUpdatePostgresSecret creates the catalog PostgreSQL secret with a randomly generated password.
+// This method implements idempotent secret creation - the password is generated only on initial creation
+// and preserved across reconciliations, following the same pattern as model registry password generation.
+func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
+	log := klog.FromContext(ctx)
+	result := ResourceUnchanged
+
+	secretName := params.Name + "-postgres"
+
+	// Check if secret already exists
+	existingSecret := &corev1.Secret{}
+	err := r.Client.Get(ctx, types.NamespacedName{
+		Name:      secretName,
+		Namespace: params.Namespace,
+	}, existingSecret)
+
+	if err == nil {
+		// Secret exists - preserve it (don't regenerate password)
+		log.V(1).Info("Postgres secret already exists, preserving", "secret", secretName)
+		return ResourceUnchanged, nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		// Unexpected error
+		return result, err
+	}
+
+	// Secret doesn't exist - create with random password
+	log.Info("Creating postgres secret with random password", "secret", secretName)
+	newSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: params.Namespace,
+		},
+		StringData: map[string]string{
+			"database-name":     config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
+			"database-user":     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
+			"database-password": utils.RandBytes(16), // Generate cryptographically secure random password
+		},
+	}
+
+	r.applyLabels(&newSecret.ObjectMeta, params)
+	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
+
+	return r.createOrUpdate(ctx, &corev1.Secret{}, newSecret)
+}
+
 // createOrUpdateAdminRole creates or updates the admin role for ConfigMap access
 func (r *ModelCatalogReconciler) createOrUpdateAdminRole(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
 	return r.createOrUpdateRole(ctx, params, "catalog-admin-role.yaml.tmpl", owner)
@@ -943,7 +991,6 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		BenchmarkDataImage string
 		PostgresImage      string
 		PostgresUser       string
-		PostgresPassword   string
 		PostgresDatabase   string
 		AdminGroups        []string
 	}{
@@ -954,7 +1001,6 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresImage:      config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
-		PostgresPassword:   config.GetStringConfigWithDefault(config.CatalogPostgresPassword, config.DefaultCatalogPostgresPassword),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
 	}

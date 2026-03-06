@@ -67,13 +67,13 @@ const (
 
 	// PostgreSQL config env variables
 	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
-	CatalogPostgresPassword = "CATALOG_POSTGRES_PASSWORD"
 	CatalogPostgresDatabase = "CATALOG_POSTGRES_DATABASE"
 
 	// Default PostgreSQL values
 	DefaultCatalogPostgresUser     = "catalog_user"
-	DefaultCatalogPostgresPassword = "catalog_password_change_me"
 	DefaultCatalogPostgresDatabase = "model_catalog"
+	// Note: PostgreSQL password is generated securely using utils.RandBytes(16)
+	// in createOrUpdatePostgresSecret() - no hardcoded default password is used
 )
 
 var (

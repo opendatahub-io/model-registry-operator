@@ -439,7 +439,11 @@ var _ = Describe("ModelCatalog controller", func() {
 				// Verify secret values match expected defaults
 				Expect(string(postgresSecret.Data["database-name"])).To(Equal(config.DefaultCatalogPostgresDatabase))
 				Expect(string(postgresSecret.Data["database-user"])).To(Equal(config.DefaultCatalogPostgresUser))
-				Expect(string(postgresSecret.Data["database-password"])).To(Equal(config.DefaultCatalogPostgresPassword))
+
+				// Verify password is randomly generated
+				actualPassword := string(postgresSecret.Data["database-password"])
+				Expect(actualPassword).ToNot(BeEmpty(), "password should be generated")
+				Expect(len(actualPassword)).To(BeNumerically(">", 10), "password should be sufficiently long")
 
 				By("Verifying PostgreSQL deployment has correct environment variables")
 				postgresDeployment := &appsv1.Deployment{}
