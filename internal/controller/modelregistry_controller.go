@@ -571,6 +571,16 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		return result, err
 	}
 
+	log.Info("Creating or updating postgres NetworkPolicy")
+	result2, err := r.createOrUpdateNetworkPolicy(ctx, params, registry, "postgres-network-policy.yaml.tmpl")
+	if err != nil {
+		log.Error(err, "Failed to create or update postgres NetworkPolicy")
+		return result, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Update the spec in memory
 	log.Info("Updating spec in memory with postgres details")
 	port := int32(5432)
