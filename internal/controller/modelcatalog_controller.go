@@ -791,10 +791,8 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 		}
 
 		// Apply labels and owner reference
-		originalLabels := make(map[string]string)
-		for k, v := range existingSecret.Labels {
-			originalLabels[k] = v
-		}
+		originalLabels := make(map[string]string, len(existingSecret.Labels))
+		maps.Copy(originalLabels, existingSecret.Labels)
 		r.applyLabels(&existingSecret.ObjectMeta, params)
 
 		// Check if labels changed
