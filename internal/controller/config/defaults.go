@@ -67,13 +67,13 @@ const (
 
 	// PostgreSQL config env variables
 	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
-	CatalogPostgresPassword = "CATALOG_POSTGRES_PASSWORD"
 	CatalogPostgresDatabase = "CATALOG_POSTGRES_DATABASE"
 
 	// Default PostgreSQL values
 	DefaultCatalogPostgresUser     = "catalog_user"
-	DefaultCatalogPostgresPassword = "catalog_password_change_me"
 	DefaultCatalogPostgresDatabase = "model_catalog"
+	// Note: PostgreSQL password is generated securely using utils.RandBytes(16)
+	// in createOrUpdatePostgresSecret() - no hardcoded default password is used
 )
 
 var (
@@ -131,7 +131,14 @@ func ParseTemplates() (*template.Template, error) {
 	tmpl := (&template.Template{}).Funcs(template.FuncMap{
 		"b64enc":           b64enc,
 		"quantityToString": utils.QuantityToString,
-		"randBytes":        utils.RandBytes,
+		"randBytes": func(n int) string {
+			// Template function wrapper - panics on error as per template convention
+			result, err := utils.RandBytes(n)
+			if err != nil {
+				panic(err)
+			}
+			return result
+		},
 	})
 	tmpl, err := tmpl.ParseFS(templateFS,
 		"templates/*.yaml.tmpl",
