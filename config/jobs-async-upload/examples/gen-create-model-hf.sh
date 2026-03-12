@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 MR_BASE_URL="https://model-registry-rest.apps.rosa.my-cluster.019m.p3.openshiftapps.com"
 
@@ -16,4 +16,5 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_SOURCE_URI="hf://RedHatAI/granite-3.1-8b-instruct-quantized.w4a16" \
   -p MODEL_SYNC_DESTINATION_OCI_URI="default-route-openshift-image-registry.apps.rosa.my-cluster.019m.p3.openshiftapps.com/project3/granite-v1:latest" \
   -p DESTINATION_CONNECTION=oci-credentials \
+  -p SOURCE_CONNECTION=hf-credentials \
   -o yaml > job.yaml
