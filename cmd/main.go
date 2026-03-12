@@ -160,7 +160,6 @@ func main() {
 			&rbacv1.ClusterRoleBinding{}:    objOptions,
 			&rbacv1.RoleBinding{}:           objOptions,
 			&rbacv1.Role{}:                  objOptions,
-			&corev1.Secret{}:                {Namespaces: map[string]cache.Config{}},
 		},
 	}
 
@@ -169,8 +168,13 @@ func main() {
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Cache:                  cacheOptions,
+		Scheme: scheme,
+		Cache:  cacheOptions,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}},
+			},
+		},
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
