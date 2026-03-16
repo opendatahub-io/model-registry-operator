@@ -46,6 +46,30 @@ func TestGetStringConfigWithDefault(t *testing.T) {
 	}
 }
 
+func TestGetBoolConfigWithDefault(t *testing.T) {
+	const configName = "TEST_BOOL_CONFIG"
+	tests := []struct {
+		name         string
+		envValue     string
+		defaultValue bool
+		want         bool
+	}{
+		{name: "unset env returns false default", envValue: "", defaultValue: false, want: false},
+		{name: "unset env returns true default", envValue: "", defaultValue: true, want: true},
+		{name: "env set to true returns true", envValue: "true", defaultValue: false, want: true},
+		{name: "env set to false returns false", envValue: "false", defaultValue: true, want: false},
+		{name: "env set to non-boolean returns false", envValue: "yes", defaultValue: true, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(configName, tt.envValue)
+			if got := config.GetBoolConfigWithDefault(configName, tt.defaultValue); got != tt.want {
+				t.Errorf("GetBoolConfigWithDefault() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseTemplates(t *testing.T) {
 	tests := []struct {
 		name    string
