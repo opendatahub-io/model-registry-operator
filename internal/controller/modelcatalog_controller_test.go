@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/yaml"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -621,6 +622,34 @@ var _ = Describe("ModelCatalog controller", func() {
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
 
+			It("Should create mcp-catalog-sources ConfigMap", func() {
+				By("Creating catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Checking if the MCP ConfigMap was created")
+				configMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "mcp-catalog-sources",
+					Namespace: namespaceName,
+				}, configMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(configMap.Labels["component"]).To(Equal("model-catalog"))
+				Expect(configMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+
+				By("Verifying MCP ConfigMap has correct structure")
+				Expect(configMap.Data).To(HaveKey("sources.yaml"))
+				var sources map[string]interface{}
+				err = yaml.Unmarshal([]byte(configMap.Data["sources.yaml"]), &sources)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(sources).To(HaveKey("mcp_catalogs"))
+
+				// Verify it's an empty array by default
+				mcpCatalogs, ok := sources["mcp_catalogs"].([]interface{})
+				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
+				Expect(mcpCatalogs).To(HaveLen(0), "mcp_catalogs should be empty by default")
+			})
+
 			It("Should set correct ownerReferences on catalog resources", func() {
 				By("First creating catalog resources")
 				_, err := catalogReconciler.ensureCatalogResources(ctx)
@@ -915,7 +944,7 @@ catalogs:
 				}
 			})
 
-			It("Should correctly configure deployment volumes for both ConfigMaps", func() {
+			It("Should correctly configure deployment volumes for all ConfigMaps", func() {
 				By("Creating catalog resources")
 				_, err := catalogReconciler.ensureCatalogResources(ctx)
 				Expect(err).To(Not(HaveOccurred()))
@@ -928,46 +957,59 @@ catalogs:
 				}, deployment)
 				Expect(err).To(Not(HaveOccurred()))
 
-				By("Verifying deployment has both user and default sources volumes")
+				By("Verifying deployment has user-model-sources, user-mcp-sources, and default-sources volumes")
 				volumes := deployment.Spec.Template.Spec.Volumes
-				var userSourcesVolume, defaultSourcesVolume *corev1.Volume
+				var userModelSourcesVolume, userMcpSourcesVolume, defaultSourcesVolume *corev1.Volume
 				for i := range volumes {
-					if volumes[i].Name == "user-sources" {
-						userSourcesVolume = &volumes[i]
+					if volumes[i].Name == "user-model-sources" {
+						userModelSourcesVolume = &volumes[i]
+					}
+					if volumes[i].Name == "user-mcp-sources" {
+						userMcpSourcesVolume = &volumes[i]
 					}
 					if volumes[i].Name == "default-sources" {
 						defaultSourcesVolume = &volumes[i]
 					}
 				}
 
-				Expect(userSourcesVolume).To(Not(BeNil()))
-				Expect(userSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-sources"))
+				Expect(userModelSourcesVolume).To(Not(BeNil()), "user-model-sources volume should exist")
+				Expect(userModelSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-sources"))
 
-				Expect(defaultSourcesVolume).To(Not(BeNil()))
+				Expect(userMcpSourcesVolume).To(Not(BeNil()), "user-mcp-sources volume should exist")
+				Expect(userMcpSourcesVolume.ConfigMap.Name).To(Equal("mcp-catalog-sources"))
+
+				Expect(defaultSourcesVolume).To(Not(BeNil()), "default-sources volume should exist")
 				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-default-sources"))
 
-				By("Verifying catalog container has both volume mounts")
+				By("Verifying catalog container has all volume mounts")
 				catalogContainer := deployment.Spec.Template.Spec.Containers[0]
-				var userSourcesMount, defaultSourcesMount *corev1.VolumeMount
+				var userModelSourcesMount, userMcpSourcesMount, defaultSourcesMount *corev1.VolumeMount
 				for i := range catalogContainer.VolumeMounts {
-					if catalogContainer.VolumeMounts[i].Name == "user-sources" {
-						userSourcesMount = &catalogContainer.VolumeMounts[i]
+					if catalogContainer.VolumeMounts[i].Name == "user-model-sources" {
+						userModelSourcesMount = &catalogContainer.VolumeMounts[i]
+					}
+					if catalogContainer.VolumeMounts[i].Name == "user-mcp-sources" {
+						userMcpSourcesMount = &catalogContainer.VolumeMounts[i]
 					}
 					if catalogContainer.VolumeMounts[i].Name == "default-sources" {
 						defaultSourcesMount = &catalogContainer.VolumeMounts[i]
 					}
 				}
 
-				Expect(userSourcesMount).To(Not(BeNil()))
-				Expect(userSourcesMount.MountPath).To(Equal("/data/user-sources"))
+				Expect(userModelSourcesMount).To(Not(BeNil()), "user-model-sources mount should exist")
+				Expect(userModelSourcesMount.MountPath).To(Equal("/data/user-model-sources"))
 
-				Expect(defaultSourcesMount).To(Not(BeNil()))
+				Expect(userMcpSourcesMount).To(Not(BeNil()), "user-mcp-sources mount should exist")
+				Expect(userMcpSourcesMount.MountPath).To(Equal("/data/user-mcp-sources"))
+
+				Expect(defaultSourcesMount).To(Not(BeNil()), "default-sources mount should exist")
 				Expect(defaultSourcesMount.MountPath).To(Equal("/data/default-sources"))
 
-				By("Verifying catalog container has both catalogs-path arguments")
+				By("Verifying catalog container has all three catalogs-path arguments")
 				args := catalogContainer.Args
-				Expect(args).To(ContainElement("--catalogs-path=/data/user-sources/sources.yaml"))
 				Expect(args).To(ContainElement("--catalogs-path=/data/default-sources/sources.yaml"))
+				Expect(args).To(ContainElement("--catalogs-path=/data/user-model-sources/sources.yaml"))
+				Expect(args).To(ContainElement("--catalogs-path=/data/user-mcp-sources/sources.yaml"))
 			})
 		})
 
