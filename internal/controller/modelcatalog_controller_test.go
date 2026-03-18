@@ -1189,6 +1189,87 @@ catalogs:
 				Expect(result).To(ContainSubstring("Custom Label"))
 				Expect(result).To(Not(ContainSubstring("Default Label")))
 			})
+
+			It("Should handle mcp_catalogs field without error", func() {
+				input := `mcp_catalogs:
+  - name: My MCP Server
+    id: my_mcp_server
+    type: mcp`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "mcp_catalogs should not trigger updates (no default_catalog to remove)")
+			})
+
+			It("Should handle empty mcp_catalogs array", func() {
+				input := `mcp_catalogs: []`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "empty mcp_catalogs should not trigger updates")
+			})
+
+			It("Should handle model_catalogs field and remove default_catalog", func() {
+				input := `model_catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+  - name: Custom Model Catalog
+    id: custom_model_catalog
+    type: yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()), "should return non-empty result when default_catalog is removed")
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_model_catalog"))
+				Expect(result).To(ContainSubstring("model_catalogs"))
+			})
+
+			It("Should handle all three catalog types (catalogs, model_catalogs, mcp_catalogs)", func() {
+				input := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+model_catalogs:
+  - name: Custom Model Catalog
+    id: custom_model_catalog
+    type: yaml
+mcp_catalogs:
+  - name: My MCP Server
+    id: my_mcp_server
+    type: mcp`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "no default_catalog to remove, should return empty string")
+			})
+
+			It("Should handle all three catalog types with default_catalog in legacy catalogs field", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+model_catalogs:
+  - name: Custom Model Catalog
+    id: custom_model_catalog
+    type: yaml
+mcp_catalogs:
+  - name: My MCP Server
+    id: my_mcp_server
+    type: mcp`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()), "should return non-empty result when default_catalog is removed")
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+				Expect(result).To(ContainSubstring("custom_model_catalog"))
+				Expect(result).To(ContainSubstring("my_mcp_server"))
+			})
 		})
 
 		Context("ModelCatalogParams with AdminGroups", func() {
