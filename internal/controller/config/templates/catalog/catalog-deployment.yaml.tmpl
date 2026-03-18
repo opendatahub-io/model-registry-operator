@@ -33,9 +33,12 @@ spec:
           type: RuntimeDefault
         runAsNonRoot: true
       volumes:
-      - name: user-sources
+      - name: user-model-sources
         configMap:
           name: model-catalog-sources
+      - name: user-mcp-sources
+        configMap:
+          name: mcp-catalog-sources
       - name: default-sources
         configMap:
           name: model-catalog-default-sources
@@ -90,7 +93,8 @@ spec:
           args:
             - --listen=0.0.0.0:8080
             - --catalogs-path=/data/default-sources/sources.yaml
-            - --catalogs-path=/data/user-sources/sources.yaml
+            - --catalogs-path=/data/user-model-sources/sources.yaml
+            - --catalogs-path=/data/user-mcp-sources/sources.yaml
             - --performance-metrics=/shared-benchmark-data
           image: {{.Spec.Rest.Image}}
           ports:
@@ -129,8 +133,10 @@ spec:
               drop:
                 - ALL
           volumeMounts:
-          - name: user-sources
-            mountPath: /data/user-sources
+          - name: user-model-sources
+            mountPath: /data/user-model-sources
+          - name: user-mcp-sources
+            mountPath: /data/user-mcp-sources
           - name: default-sources
             mountPath: /data/default-sources
           - name: catalog-data

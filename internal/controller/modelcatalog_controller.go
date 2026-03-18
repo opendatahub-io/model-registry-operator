@@ -150,6 +150,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create the user-managed MCP sources ConfigMap if it doesn't exist
+	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-mcp-configmap.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Create or update Deployment
 	result2, deployment, err := r.createOrUpdateDeployment(ctx, catalogParams, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
@@ -636,8 +645,14 @@ func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error)
 		Properties map[string]string `json:"properties,omitempty"`
 		Labels     []string          `json:"labels,omitempty"` // Catalog tags for filtering/organization
 	}
+	// Support all valid catalog field names:
+	// - catalogs: legacy field (aliased to model_catalogs in catalog server)
+	// - model_catalogs: new field name for model catalogs
+	// - mcp_catalogs: MCP server catalogs (new, never had default_catalog)
 	var sources struct {
-		Catalogs []catalog `json:"catalogs"`
+		Catalogs      []catalog `json:"catalogs,omitempty"`
+		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
+		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
 	}
 
 	err := yaml.UnmarshalStrict([]byte(doc), &sources)
@@ -645,13 +660,20 @@ func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error)
 		return "", err
 	}
 
-	originalLen := len(sources.Catalogs)
+	// Only check for default_catalog in model catalog fields (Catalogs and ModelCatalogs)
+	// MCP catalogs are new and never had a default_catalog entry
+	originalCatalogsLen := len(sources.Catalogs)
+	originalModelCatalogsLen := len(sources.ModelCatalogs)
+
 	sources.Catalogs = slices.DeleteFunc(sources.Catalogs, func(c catalog) bool {
 		return c.ID == "default_catalog"
 	})
+	sources.ModelCatalogs = slices.DeleteFunc(sources.ModelCatalogs, func(c catalog) bool {
+		return c.ID == "default_catalog"
+	})
 
-	if len(sources.Catalogs) == originalLen {
-		// Nothing to do
+	// If nothing was removed, return empty string to signal no update needed
+	if len(sources.Catalogs) == originalCatalogsLen && len(sources.ModelCatalogs) == originalModelCatalogsLen {
 		return "", nil
 	}
 
