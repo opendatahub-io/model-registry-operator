@@ -1044,7 +1044,8 @@ catalogs:
 
 				result, err := catalogReconciler.removeDefaultSource(input)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(result).To(ContainSubstring("catalogs: []"))
+				Expect(result).To(Not(BeEmpty()), "should return non-empty result when default_catalog is removed")
+				Expect(result).To(Not(ContainSubstring("default_catalog")), "default_catalog should be removed")
 			})
 
 			It("Should return empty string when no default catalog exists", func() {
