@@ -150,6 +150,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create the user-managed MCP sources ConfigMap if it doesn't exist
+	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-mcp-configmap.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Create or update Deployment
 	result2, deployment, err := r.createOrUpdateDeployment(ctx, catalogParams, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
