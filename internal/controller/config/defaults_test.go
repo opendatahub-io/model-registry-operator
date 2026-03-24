@@ -3,6 +3,7 @@ package config_test
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -263,13 +264,7 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 		}
 
 		for _, expectedArg := range expectedArgs {
-			found := false
-			for _, arg := range kubeRBACProxyContainer.Args {
-				if arg == expectedArg {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(kubeRBACProxyContainer.Args, expectedArg)
 			if !found {
 				t.Errorf("Expected argument %s not found in kube-rbac-proxy container args: %v", expectedArg, kubeRBACProxyContainer.Args)
 			}
