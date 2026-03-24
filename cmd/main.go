@@ -222,7 +222,7 @@ func main() {
 		Client:         client,
 		ClientSet:      clientset,
 		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorderFor("modelregistry-controller"),
+		Recorder:       mgr.GetEventRecorder("modelregistry-controller"),
 		Log:            ctrl.Log.WithName("controller"),
 		Template:       template,
 		EnableWebhooks: enableWebhooks,
@@ -239,7 +239,7 @@ func main() {
 	if err = (&controller.ModelCatalogReconciler{
 		Client:                client,
 		Scheme:                mgr.GetScheme(),
-		Recorder:              mgr.GetEventRecorderFor("modelcatalog-controller"),
+		Recorder:              mgr.GetEventRecorder("modelcatalog-controller"),
 		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
 		Template:              template,
 		Capabilities:          capabilities,

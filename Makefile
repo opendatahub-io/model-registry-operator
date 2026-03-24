@@ -33,7 +33,7 @@ IMG_REPO ?= "model-registry-operator"
 IMG_VERSION ?= "latest"
 IMG ?= "${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}"
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.34
+ENVTEST_K8S_VERSION = 1.35
 
 # Kustomize overlay to use for deploy/undeploy
 OVERLAY ?= "default"
@@ -197,7 +197,7 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 CONVERSION_GEN ?= $(LOCALBIN)/conversion-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
-ENVTEST_VERSION ?= release-0.22
+ENVTEST_VERSION ?= release-0.23
 GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 GOVULNCHECK_VERSION ?= v1.1.4
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
@@ -205,8 +205,8 @@ GOLANGCI_LINT_VERSION ?= v2.1.6
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
-CONTROLLER_TOOLS_VERSION ?= v0.17.3
-CONVERSION_GEN_VERSION ?= v0.32.4
+CONTROLLER_TOOLS_VERSION ?= v0.20.1
+CONVERSION_GEN_VERSION ?= v0.35.3
 
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
