@@ -30,5 +30,5 @@ certs/**
 
 # Claude code
 .claude/
-CLAUDE.md
+CLAUDE.local.md
 .tasks/

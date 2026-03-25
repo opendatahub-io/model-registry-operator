@@ -1,0 +1,3 @@
+export IMG_REGISTRY=$(oc get route default-route -n openshift-image-registry --template='{{ .spec.host }}')
+export DOCKER_USER=$(oc whoami)
+export DOCKER_PWD=$(oc whoami -t)
