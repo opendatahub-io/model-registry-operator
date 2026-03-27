@@ -29,11 +29,11 @@ graph TD
 
     subgraph "Model Catalog (single shared instance, optional)"
         direction LR
+        CAT_PG[("Catalog PostgreSQL<br/>(PVC-backed)")]
         CAT_DEP["Catalog Deployment<br/>(catalog service +<br/>kube-rbac-proxy)"]
         CAT_SUPPORT["Service · Route (OCP)<br/>ConfigMaps (sources)<br/>ServiceAccount · Roles<br/>NetworkPolicy"]
-        CAT_PG[("Catalog PostgreSQL<br/>(PVC-backed)")]
     end
 
-    CAT_DEP --> CAT_SUPPORT
     CAT_DEP --> CAT_PG
+    CAT_DEP --> CAT_SUPPORT
 ```
