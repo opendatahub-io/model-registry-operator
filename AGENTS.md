@@ -50,39 +50,9 @@ Test against a pre-configured OpenShift dev cluster:
 Kubebuilder-based operator that deploys Model Registry instances from `ModelRegistry` Custom Resources.
 
 ### Context & Upstream Dependencies
-This repo is one piece of a larger system:
+This repo is one piece of a larger system — see [docs/architecture.md](docs/architecture.md) for a diagram.
 - **[opendatahub-io/model-registry](https://github.com/opendatahub-io/model-registry)** — the actual Model Registry server (Go/REST). This operator deploys it via the `REST_IMAGE` container image.
 - **[opendatahub-io/opendatahub-operator](https://github.com/opendatahub-io/opendatahub-operator)** — the parent ODH operator. It deploys *this* operator via the `config/overlays/odh/` kustomize overlay when `modelregistry.managementState: Managed` is set in the DataScienceCluster CR.
-
-```mermaid
-graph TD
-    ODH["opendatahub-operator<br/>(DataScienceCluster CR)"]
-    MRO["model-registry-operator<br/><i>This repo</i>"]
-
-    ODH -->|"deploys (kustomize overlay)"| MRO
-    MRO -->|watches| CR["ModelRegistry CR"]
-    MRO -->|"manages (channel source,<br/>ENABLE_MODEL_CATALOG)"| CAT_DEP
-
-    subgraph "Created per ModelRegistry CR"
-        direction LR
-        DEP["Deployment<br/>(REST server +<br/>kube-rbac-proxy)"]
-        SUPPORT["Service · Route (OCP)<br/>ServiceAccount · Role<br/>Group (OCP) · NetworkPolicy"]
-    end
-
-    CR --> DEP
-    CR --> SUPPORT
-    DEP -->|connects to| DB[("Database<br/>user-provided PG/MySQL or<br/>auto-deployed PG pod")]
-
-    subgraph "Model Catalog (single shared instance, optional)"
-        direction LR
-        CAT_DEP["Catalog Deployment<br/>(catalog service +<br/>kube-rbac-proxy)"]
-        CAT_SUPPORT["Service · Route (OCP)<br/>ConfigMaps (sources)<br/>ServiceAccount · Roles<br/>NetworkPolicy"]
-        CAT_PG[("Catalog PostgreSQL<br/>(PVC-backed)")]
-    end
-
-    CAT_DEP --> CAT_SUPPORT
-    CAT_DEP --> CAT_PG
-```
 
 ### Controllers
 - **ModelRegistryReconciler** (`internal/controller/modelregistry_controller.go`) - Reconciles each `ModelRegistry` CR into a Deployment, Service, ServiceAccount, Role, Route, NetworkPolicy, and kube-rbac-proxy config.
