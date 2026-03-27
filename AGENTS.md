@@ -49,6 +49,41 @@ Test against a pre-configured OpenShift dev cluster:
 
 Kubebuilder-based operator that deploys Model Registry instances from `ModelRegistry` Custom Resources.
 
+### Context & Upstream Dependencies
+This repo is one piece of a larger system:
+- **[opendatahub-io/model-registry](https://github.com/opendatahub-io/model-registry)** — the actual Model Registry server (Go/REST). This operator deploys it via the `REST_IMAGE` container image.
+- **[opendatahub-io/opendatahub-operator](https://github.com/opendatahub-io/opendatahub-operator)** — the parent ODH operator. It deploys *this* operator via the `config/overlays/odh/` kustomize overlay when `modelregistry.managementState: Managed` is set in the DataScienceCluster CR.
+
+```
+┌─────────────────────────────┐
+│  opendatahub-operator       │  Manages DSC components
+│  (DataScienceCluster CR)    │
+└──────────┬──────────────────┘
+           │ deploys (kustomize overlay)
+           ▼
+┌─────────────────────────────┐
+│  model-registry-operator    │  This repo
+│  (Deployment + webhooks)    │
+└──────────┬──────────────────┘
+           │ watches ModelRegistry CRs
+           ▼
+┌─────────────────────────────────────────────┐
+│  Per ModelRegistry CR, creates:             │
+│  ┌───────────┐ ┌─────────┐ ┌─────────────┐ │
+│  │ Deployment│ │ Service │ │ Route (OCP) │ │
+│  │ (REST srv)│ │         │ │             │ │
+│  └───────────┘ └─────────┘ └─────────────┘ │
+│  + ServiceAccount, Role, NetworkPolicy,     │
+│    Group (OCP), kube-rbac-proxy sidecar     │
+└─────────────────────────────────────────────┘
+           │ connects to
+           ▼
+┌─────────────────────────────┐
+│  User-provided Database     │
+│  (PostgreSQL or MySQL)      │
+└─────────────────────────────┘
+```
+
 ### Controllers
 - **ModelRegistryReconciler** (`internal/controller/modelregistry_controller.go`) - Reconciles each `ModelRegistry` CR into a Deployment, Service, ServiceAccount, Role, Route, NetworkPolicy, and kube-rbac-proxy config.
 - **ModelCatalogReconciler** (`internal/controller/modelcatalog_controller.go`) - Manages a single shared model catalog. Triggered by a channel source, not a CR. Deploys catalog service, postgres, and MCP server.
@@ -100,6 +135,15 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `DEFAULT_DOMAIN` - Route domain override
 - `ENABLE_MODEL_CATALOG` - Toggle catalog controller
 - Image overrides: `REST_IMAGE`, `KUBE_RBAC_PROXY_IMAGE`, `POSTGRES_IMAGE`, `CATALOG_DATA_IMAGE`
+
+### Kustomize Layout (`config/`)
+- `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)
+- `config/default/` — Base kustomization that composes CRD, manager, RBAC, webhook, and cert-manager
+- `config/overlays/odh/` — Production overlay used by the ODH operator; adds auth proxy, webhook patches, Istio config, and `params.env` for image/domain overrides
+- `config/manager/` — Operator Deployment manifest
+- `config/rbac/` — ClusterRole, ServiceAccount, and role bindings for the operator itself
+- `config/webhook/` — Mutating/validating/conversion webhook configurations
+- `config/samples/` — Example `ModelRegistry` CRs with various DB and auth combinations
 
 ## Testing
 
