@@ -780,16 +780,20 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(mcpLabel["displayName"]).To(Equal("Red Hat"))
 
 				By("Verifying model labels have assetType set to models")
+				labelIndex := make(map[string]map[string]any)
 				for _, l := range labels {
 					labelMap, ok := l.(map[string]any)
 					if !ok {
 						continue
 					}
 					name, _ := labelMap["name"].(string)
-					if name == "Red Hat AI" || name == "Red Hat AI validated" || name == "" {
-						Expect(labelMap["assetType"]).To(Equal("models"),
-							"label %q should have assetType 'models'", name)
-					}
+					labelIndex[name] = labelMap
+				}
+				for _, expectedName := range []string{"Red Hat AI", "Red Hat AI validated", ""} {
+					labelMap, found := labelIndex[expectedName]
+					Expect(found).To(BeTrue(), "expected label %q to exist", expectedName)
+					Expect(labelMap["assetType"]).To(Equal("models"),
+						"label %q should have assetType 'models'", expectedName)
 				}
 			})
 

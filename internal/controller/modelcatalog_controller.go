@@ -652,11 +652,11 @@ func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error)
 	// Additional top-level fields (labels, namedQueries) are captured to avoid
 	// UnmarshalStrict failures when user configmaps include them.
 	var sources struct {
-		Catalogs      []catalog        `json:"catalogs,omitempty"`
-		ModelCatalogs []catalog        `json:"model_catalogs,omitempty"`
-		McpCatalogs   []catalog        `json:"mcp_catalogs,omitempty"`
-		Labels        []map[string]any `json:"labels,omitempty"`
-		NamedQueries  map[string]any   `json:"namedQueries,omitempty"`
+		Catalogs      []catalog `json:"catalogs,omitempty"`
+		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
+		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
+		Labels        any       `json:"labels,omitempty"`
+		NamedQueries  any       `json:"namedQueries,omitempty"`
 	}
 
 	err := yaml.UnmarshalStrict([]byte(doc), &sources)
