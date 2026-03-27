@@ -55,29 +55,36 @@ This repo is one piece of a larger system:
 - **[opendatahub-io/opendatahub-operator](https://github.com/opendatahub-io/opendatahub-operator)** — the parent ODH operator. It deploys *this* operator via the `config/overlays/odh/` kustomize overlay when `modelregistry.managementState: Managed` is set in the DataScienceCluster CR.
 
 ```mermaid
-graph LR
-    ODH["opendatahub-operator<br/>(DataScienceCluster CR)"] -->|"deploys<br/>(kustomize overlay)"| MRO
+graph TD
+    ODH["opendatahub-operator<br/>(DataScienceCluster CR)"]
+    MRO["model-registry-operator<br/><i>This repo</i>"]
+    CR["ModelRegistry CR"]
 
-    MRO["model-registry-operator<br/><i>This repo</i>"] -->|watches| CR["ModelRegistry CR"]
+    ODH -->|"deploys (kustomize overlay)"| MRO
+    MRO -->|watches| CR
 
-    CR --> MR_RES
-
-    subgraph MR_RES ["Created per ModelRegistry CR"]
-        direction TB
-        DEP["Deployment (REST server + kube-rbac-proxy)<br/>Service · Route (OCP)"]
-        AUTH["ServiceAccount · Role · RoleBinding<br/>Group (OCP) · NetworkPolicy"]
+    subgraph "Created per ModelRegistry CR"
+        DEP["Deployment<br/>(REST server + kube-rbac-proxy)"]
+        SVC[Service]
+        RT["Route (OCP)"]
+        MISC["ServiceAccount · Role · Group (OCP)<br/>NetworkPolicy · RoleBinding"]
     end
 
-    DEP -->|connects to| DB[("Database<br/>user-provided PG/MySQL or<br/>auto-deployed PG pod")]
+    CR --> DEP & SVC & RT & MISC
 
-    MRO -->|"manages<br/>(ENABLE_MODEL_CATALOG)"| CAT
+    DB[("Database<br/>user-provided PostgreSQL/MySQL<br/><i>or</i> auto-deployed PG pod<br/>when generateDeployment: true")]
+    DEP -->|connects to| DB
 
-    subgraph CAT ["Model Catalog (single shared instance, optional)"]
-        direction TB
-        CAT_DEP["Catalog Deployment<br/>(catalog service + kube-rbac-proxy)<br/>Service · Route (OCP)"]
-        CAT_CFG["ConfigMaps (default · user · MCP sources)<br/>ServiceAccount · Roles · NetworkPolicy"]
-        CAT_PG[("Catalog PostgreSQL<br/>(PVC-backed)")]
+    subgraph "Model Catalog (single shared instance, optional)"
+        CAT_DEP["Catalog Deployment<br/>(catalog service + kube-rbac-proxy)"]
+        CAT_PG[("Catalog PostgreSQL<br/>(auto-deployed, PVC-backed)")]
+        CAT_SVC["Service · Route (OCP)"]
+        CAT_CFG["ConfigMaps<br/>(default sources · user sources · MCP)"]
+        CAT_MISC["ServiceAccount · Roles<br/>NetworkPolicy"]
     end
+
+    MRO -->|"manages (channel source,<br/>enabled via ENABLE_MODEL_CATALOG)"| CAT_DEP
+    CAT_DEP --> CAT_PG & CAT_SVC & CAT_CFG & CAT_MISC
 ```
 
 ### Controllers
