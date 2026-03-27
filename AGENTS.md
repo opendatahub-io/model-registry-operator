@@ -54,34 +54,29 @@ This repo is one piece of a larger system:
 - **[opendatahub-io/model-registry](https://github.com/opendatahub-io/model-registry)** — the actual Model Registry server (Go/REST). This operator deploys it via the `REST_IMAGE` container image.
 - **[opendatahub-io/opendatahub-operator](https://github.com/opendatahub-io/opendatahub-operator)** — the parent ODH operator. It deploys *this* operator via the `config/overlays/odh/` kustomize overlay when `modelregistry.managementState: Managed` is set in the DataScienceCluster CR.
 
-```
-┌─────────────────────────────┐
-│  opendatahub-operator       │  Manages DSC components
-│  (DataScienceCluster CR)    │
-└──────────┬──────────────────┘
-           │ deploys (kustomize overlay)
-           ▼
-┌─────────────────────────────┐
-│  model-registry-operator    │  This repo
-│  (Deployment + webhooks)    │
-└──────────┬──────────────────┘
-           │ watches ModelRegistry CRs
-           ▼
-┌─────────────────────────────────────────────┐
-│  Per ModelRegistry CR, creates:             │
-│  ┌───────────┐ ┌─────────┐ ┌─────────────┐ │
-│  │ Deployment│ │ Service │ │ Route (OCP) │ │
-│  │ (REST srv)│ │         │ │             │ │
-│  └───────────┘ └─────────┘ └─────────────┘ │
-│  + ServiceAccount, Role, NetworkPolicy,     │
-│    Group (OCP), kube-rbac-proxy sidecar     │
-└─────────────────────────────────────────────┘
-           │ connects to
-           ▼
-┌─────────────────────────────┐
-│  User-provided Database     │
-│  (PostgreSQL or MySQL)      │
-└─────────────────────────────┘
+```mermaid
+graph TD
+    ODH["opendatahub-operator<br/>(DataScienceCluster CR)"]
+    MRO["model-registry-operator<br/><i>This repo</i>"]
+    CR["ModelRegistry CR"]
+
+    ODH -->|"deploys (kustomize overlay)"| MRO
+    MRO -->|watches| CR
+
+    subgraph "Created per ModelRegistry CR"
+        DEP["Deployment<br/>(REST server)"]
+        SVC[Service]
+        RT["Route (OCP)"]
+        MISC["ServiceAccount · Role<br/>NetworkPolicy · Group (OCP)<br/>kube-rbac-proxy sidecar"]
+    end
+
+    CR --> DEP
+    CR --> SVC
+    CR --> RT
+    CR --> MISC
+
+    DB[("User-provided Database<br/>(PostgreSQL or MySQL)")]
+    DEP -->|connects to| DB
 ```
 
 ### Controllers
