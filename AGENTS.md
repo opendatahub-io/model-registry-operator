@@ -144,6 +144,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `config/rbac/` — ClusterRole, ServiceAccount, and role bindings for the operator itself
 - `config/webhook/` — Mutating/validating/conversion webhook configurations
 - `config/samples/` — Example `ModelRegistry` CRs with various DB and auth combinations
+- `config/jobs-async-upload/` — OpenShift Templates for async model upload jobs (S3/URI/HF to OCI); see its own [README](config/jobs-async-upload/README.md)
 
 ## Testing
 
