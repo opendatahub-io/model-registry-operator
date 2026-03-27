@@ -19,14 +19,13 @@ graph TD
 
     subgraph "Created per ModelRegistry CR"
         direction LR
-        DB[("Database<br/>user-provided PG/MySQL<br/>or auto-deployed PG pod")]
         DEP["Deployment<br/>(REST server +<br/>kube-rbac-proxy)"]
         SUPPORT["Service · Route (OCP)<br/>ServiceAccount · Role<br/>Group (OCP) · NetworkPolicy"]
     end
 
     CR --> DEP
     CR --> SUPPORT
-    DEP --> DB
+    DEP -->|connects to| DB[("Database<br/>user-provided PG/MySQL or<br/>auto-deployed PG pod")]
 
     subgraph "Model Catalog (single shared instance, optional)"
         direction LR
