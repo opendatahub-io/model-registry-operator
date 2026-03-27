@@ -64,33 +64,27 @@ graph TD
     MRO -->|watches| CR
 
     subgraph "Created per ModelRegistry CR"
-        DEP["Deployment<br/>(REST server)"]
+        DEP["Deployment<br/>(REST server + kube-rbac-proxy)"]
         SVC[Service]
         RT["Route (OCP)"]
-        MISC["ServiceAccount · Role<br/>NetworkPolicy · Group (OCP)<br/>kube-rbac-proxy sidecar"]
+        MISC["ServiceAccount · Role · Group (OCP)<br/>NetworkPolicy · RoleBinding"]
     end
 
-    CR --> DEP
-    CR --> SVC
-    CR --> RT
-    CR --> MISC
+    CR --> DEP & SVC & RT & MISC
 
-    DB[("Database<br/>(user-provided PostgreSQL/MySQL<br/>or non-prod deployed PG pod)")]
+    DB[("Database<br/>user-provided PostgreSQL/MySQL<br/><i>or</i> auto-deployed PG pod<br/>when generateDeployment: true")]
     DEP -->|connects to| DB
 
-    subgraph "Model Catalog (single shared instance)"
-        CAT_DEP["Catalog Deployment"]
-        CAT_SVC["Catalog Service"]
-        CAT_PG["Catalog PostgreSQL<br/>(PVC-backed)"]
-        CAT_MCP["MCP Server ConfigMap"]
-        CAT_MISC["ServiceAccount · Roles<br/>NetworkPolicy · Route (OCP)"]
+    subgraph "Model Catalog (single shared instance, optional)"
+        CAT_DEP["Catalog Deployment<br/>(catalog service + kube-rbac-proxy)"]
+        CAT_PG[("Catalog PostgreSQL<br/>(auto-deployed, PVC-backed)")]
+        CAT_SVC["Service · Route (OCP)"]
+        CAT_CFG["ConfigMaps<br/>(default sources · user sources · MCP)"]
+        CAT_MISC["ServiceAccount · Roles<br/>NetworkPolicy"]
     end
 
-    MRO -->|"manages (channel source)"| CAT_DEP
-    CAT_DEP --> CAT_PG
-    CAT_DEP --> CAT_SVC
-    CAT_DEP --> CAT_MCP
-    CAT_DEP --> CAT_MISC
+    MRO -->|"manages (channel source,<br/>enabled via ENABLE_MODEL_CATALOG)"| CAT_DEP
+    CAT_DEP --> CAT_PG & CAT_SVC & CAT_CFG & CAT_MISC
 ```
 
 ### Controllers
