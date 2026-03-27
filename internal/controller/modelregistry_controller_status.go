@@ -80,7 +80,7 @@ const (
 // For more details on Abseil logging and CHECK_EQ macro see [Abseil documentation].
 //
 // [Abseil documentation]: https://abseil.io/docs/cpp/guides/logging#CHECK
-var errRegexp = regexp.MustCompile("Check failed: absl::OkStatus\\(\\) == status \\(OK vs. ([^)]+)\\) (.*)")
+var errRegexp = regexp.MustCompile(`Check failed: absl::OkStatus\(\) == status \(OK vs. ([^)]+)\) (.*)`)
 
 func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctrl.Request, params *ModelRegistryParams, operationResult OperationResult) (*metav1.Condition, error) {
 	log := klog.FromContext(ctx)
@@ -101,7 +101,7 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		// this is an exception to the rule to not modify a resource in reconcile,
 		// because mutatingwebhook is not triggered on status update since it's a subresource
 		modelRegistry.CleanupRuntimeDefaults()
-		if err := r.Client.Update(ctx, modelRegistry); err != nil {
+		if err := r.Update(ctx, modelRegistry); err != nil {
 			log.Error(err, "Failed to update modelRegistry runtime defaults")
 			return nil, err
 		}
@@ -274,7 +274,7 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 			return condition, nil
 		}
 
-		if time.Now().Sub(availableSince) < deploymentDelay {
+		if time.Since(availableSince) < deploymentDelay {
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentCooldown
 			condition.Message = "Deployment only recently available"
@@ -299,7 +299,7 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 
 	// find the not ready pod and get message
 	var pods corev1.PodList
-	err := r.Client.List(ctx, &pods, client.MatchingLabels{"app": app, "component": component}, client.InNamespace(namespace))
+	err := r.List(ctx, &pods, client.MatchingLabels{"app": app, "component": component}, client.InNamespace(namespace))
 	if err != nil {
 		// log K8s error
 		r.Log.Error(err, "failed to list pods")
@@ -427,7 +427,7 @@ func (r *ModelRegistryReconciler) SetKubeRBACProxyCondition(ctx context.Context,
 			if modelRegistry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
 				// get proxy route
 				var routeList routev1.RouteList
-				err := r.Client.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{
+				err := r.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{
 					"app": req.Name, "component": "model-registry",
 				}))
 				if err != nil {
@@ -461,7 +461,7 @@ func (r *ModelRegistryReconciler) SetKubeRBACProxyCondition(ctx context.Context,
 func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name types.NamespacedName, proxyType string,
 	log logr.Logger, message string, reason string, status metav1.ConditionStatus) (string, string, metav1.ConditionStatus) {
 	pods := corev1.PodList{}
-	if err := r.Client.List(ctx, &pods,
+	if err := r.List(ctx, &pods,
 		client.MatchingLabels{"app": name.Name, "component": "model-registry", "app.kubernetes.io/name": name.Name},
 		client.InNamespace(name.Namespace)); err != nil {
 

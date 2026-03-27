@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -320,7 +319,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, deployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				By("Verifying PostgreSQL resources are deleted")
@@ -330,7 +329,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresDeployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				postgresService := &corev1.Service{}
@@ -339,7 +338,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresService)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				postgresSecret := &corev1.Secret{}
@@ -348,7 +347,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresSecret)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				By("Verifying PVC deletion was attempted")
@@ -364,7 +363,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					// Ensure the cleanup method completed without error
 					Expect(postgresPVC.Name).To(Equal(modelCatalogName + "-postgres"))
 				} else {
-					Expect(errors.IsNotFound(err)).To(BeTrue())
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
 				}
 			})
 
@@ -406,7 +405,7 @@ var _ = Describe("ModelCatalog controller", func() {
 							Name:      modelCatalogName + "-https",
 							Namespace: namespaceName,
 						}, route)
-						return errors.IsNotFound(err)
+						return apierrors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 					Eventually(func() bool {
@@ -414,7 +413,7 @@ var _ = Describe("ModelCatalog controller", func() {
 							Name:      modelCatalogName + "-https-route",
 							Namespace: namespaceName,
 						}, networkPolicy)
-						return errors.IsNotFound(err)
+						return apierrors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 				})
 			})
@@ -619,7 +618,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, deployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
 

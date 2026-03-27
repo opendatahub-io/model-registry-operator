@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	certName = "test-cert"
-	domain   = "example.com"
+	domain = "example.com"
 )
 
 func TestValidateNamespace(t *testing.T) {
