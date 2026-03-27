@@ -75,8 +75,22 @@ graph TD
     CR --> RT
     CR --> MISC
 
-    DB[("User-provided Database<br/>(PostgreSQL or MySQL)")]
+    DB[("Database<br/>(user-provided PostgreSQL/MySQL<br/>or non-prod deployed PG pod)")]
     DEP -->|connects to| DB
+
+    subgraph "Model Catalog (single shared instance)"
+        CAT_DEP["Catalog Deployment"]
+        CAT_SVC["Catalog Service"]
+        CAT_PG["Catalog PostgreSQL<br/>(PVC-backed)"]
+        CAT_MCP["MCP Server ConfigMap"]
+        CAT_MISC["ServiceAccount · Roles<br/>NetworkPolicy · Route (OCP)"]
+    end
+
+    MRO -->|"manages (channel source)"| CAT_DEP
+    CAT_DEP --> CAT_PG
+    CAT_DEP --> CAT_SVC
+    CAT_DEP --> CAT_MCP
+    CAT_DEP --> CAT_MISC
 ```
 
 ### Controllers
