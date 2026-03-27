@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -639,13 +640,13 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				By("Verifying MCP ConfigMap has correct structure")
 				Expect(configMap.Data).To(HaveKey("sources.yaml"))
-				var sources map[string]interface{}
+				var sources map[string]any
 				err = yaml.Unmarshal([]byte(configMap.Data["sources.yaml"]), &sources)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(sources).To(HaveKey("mcp_catalogs"))
 
 				// Verify it's an empty array by default
-				mcpCatalogs, ok := sources["mcp_catalogs"].([]interface{})
+				mcpCatalogs, ok := sources["mcp_catalogs"].([]any)
 				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
 				Expect(mcpCatalogs).To(HaveLen(0), "mcp_catalogs should be empty by default")
 			})
@@ -1283,13 +1284,7 @@ mcp_catalogs:
 
 				Expect(params.AdminGroups).To(HaveLen(2))
 
-				found := false
-				for _, group := range params.AdminGroups {
-					if group == "admin-group1" {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(params.AdminGroups, "admin-group1")
 				Expect(found).To(BeTrue(), "Expected to find 'admin-group1' in admin groups")
 			})
 		})
@@ -1310,8 +1305,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"adminGroups": []interface{}{"odh-admins", "system-admins"},
+				authConfig.Object["spec"] = map[string]any{
+					"adminGroups": []any{"odh-admins", "system-admins"},
 				}
 
 				err := fakeClient.Create(ctx, authConfig)
@@ -1326,13 +1321,7 @@ mcp_catalogs:
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(groups).To(HaveLen(2))
 
-				found := false
-				for _, group := range groups {
-					if group == "odh-admins" {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(groups, "odh-admins")
 				Expect(found).To(BeTrue(), "Expected to find 'odh-admins' in admin groups")
 			})
 
@@ -1355,8 +1344,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"allowedGroups": []interface{}{"system:authenticated"},
+				authConfig.Object["spec"] = map[string]any{
+					"allowedGroups": []any{"system:authenticated"},
 				}
 
 				err := fakeClient.Create(ctx, authConfig)
@@ -1492,8 +1481,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"adminGroups": []interface{}{"test-admin-group"},
+				authConfig.Object["spec"] = map[string]any{
+					"adminGroups": []any{"test-admin-group"},
 				}
 
 				fakeClient = fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithObjects(authConfig).Build()
