@@ -741,6 +741,56 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/models-catalog.yaml"))
+
+				By("Verifying default sources ConfigMap contains MCP catalog sources")
+				var defaultSources map[string]any
+				err = yaml.Unmarshal([]byte(defaultConfigMap.Data["sources.yaml"]), &defaultSources)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Expect(defaultSources).To(HaveKey("mcp_catalogs"))
+				mcpCatalogs, ok := defaultSources["mcp_catalogs"].([]any)
+				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
+				Expect(mcpCatalogs).To(HaveLen(1))
+				mcpEntry, ok := mcpCatalogs[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpEntry["name"]).To(Equal("Red Hat MCP Servers"))
+				Expect(mcpEntry["id"]).To(Equal("rh_mcp_servers"))
+				Expect(mcpEntry["type"]).To(Equal("yaml"))
+				Expect(mcpEntry["enabled"]).To(BeTrue())
+				mcpProps, ok := mcpEntry["properties"].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpProps["yamlCatalogPath"]).To(Equal("/shared-data/redhat-mcp-servers-catalog.yaml"))
+				mcpLabels, ok := mcpEntry["labels"].([]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpLabels).To(ContainElement("Red Hat"))
+
+				By("Verifying default sources ConfigMap contains MCP label definition with assetType")
+				labels, ok := defaultSources["labels"].([]any)
+				Expect(ok).To(BeTrue(), "labels should be an array")
+				var mcpLabel map[string]any
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if ok && labelMap["name"] == "Red Hat" {
+						mcpLabel = labelMap
+						break
+					}
+				}
+				Expect(mcpLabel).To(Not(BeNil()), "should have a 'Red Hat' label definition")
+				Expect(mcpLabel["assetType"]).To(Equal("mcp_servers"))
+				Expect(mcpLabel["displayName"]).To(Equal("Red Hat"))
+
+				By("Verifying model labels have assetType set to models")
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if !ok {
+						continue
+					}
+					name, _ := labelMap["name"].(string)
+					if name == "Red Hat AI" || name == "Red Hat AI validated" || name == "" {
+						Expect(labelMap["assetType"]).To(Equal("models"),
+							"label %q should have assetType 'models'", name)
+					}
+				}
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
@@ -1271,6 +1321,84 @@ mcp_catalogs:
 				Expect(result).To(ContainSubstring("custom_catalog"))
 				Expect(result).To(ContainSubstring("custom_model_catalog"))
 				Expect(result).To(ContainSubstring("my_mcp_server"))
+			})
+
+			It("Should preserve mcp_catalogs when removing default_catalog from catalogs", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+mcp_catalogs:
+  - name: Red Hat MCP Servers
+    id: rh_mcp_servers
+    type: yaml
+    enabled: true
+    properties:
+      yamlCatalogPath: /shared-data/redhat-mcp-servers-catalog.yaml
+    labels:
+      - Red Hat`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+				Expect(result).To(ContainSubstring("rh_mcp_servers"))
+				Expect(result).To(ContainSubstring("Red Hat MCP Servers"))
+				Expect(result).To(ContainSubstring("Red Hat"))
+			})
+
+			It("Should not fail when configmap contains labels and namedQueries fields", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+labels:
+  - name: Red Hat AI
+    assetType: models
+    description: Red Hat models with full support.
+  - name: Red Hat
+    assetType: mcp_servers
+    displayName: Red Hat
+    description: Official Red Hat MCP servers.
+namedQueries:
+  default-performance-filters:
+    artifacts.use_case.string_value:
+      operator: "="
+      value: chatbot`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+			})
+
+			It("Should not fail when configmap contains only labels and namedQueries without default_catalog", func() {
+				input := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+labels:
+  - name: Red Hat AI
+    assetType: models
+namedQueries:
+  some-query:
+    field:
+      operator: "="
+      value: test`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "no default_catalog to remove, should return empty string")
 			})
 		})
 
