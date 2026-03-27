@@ -11,7 +11,7 @@ This repo is one piece of a larger system:
 ```mermaid
 graph TD
     ODH["opendatahub-operator<br/>(DataScienceCluster CR)"]
-    MRO["model-registry-operator<br/><i>This repo</i>"]
+    MRO["model-registry-operator<br/><i>(this repo)</i>"]
 
     ODH -->|"deploys (kustomize overlay)"| MRO
     MRO -->|watches| CR["ModelRegistry CR"]
