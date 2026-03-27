@@ -58,33 +58,30 @@ This repo is one piece of a larger system:
 graph TD
     ODH["opendatahub-operator<br/>(DataScienceCluster CR)"]
     MRO["model-registry-operator<br/><i>This repo</i>"]
-    CR["ModelRegistry CR"]
 
     ODH -->|"deploys (kustomize overlay)"| MRO
-    MRO -->|watches| CR
+    MRO -->|watches| CR["ModelRegistry CR"]
+    MRO -->|"manages (channel source,<br/>ENABLE_MODEL_CATALOG)"| CAT_DEP
 
     subgraph "Created per ModelRegistry CR"
-        DEP["Deployment<br/>(REST server + kube-rbac-proxy)"]
-        SVC[Service]
-        RT["Route (OCP)"]
-        MISC["ServiceAccount · Role · Group (OCP)<br/>NetworkPolicy · RoleBinding"]
+        direction LR
+        DEP["Deployment<br/>(REST server +<br/>kube-rbac-proxy)"]
+        SUPPORT["Service · Route (OCP)<br/>ServiceAccount · Role<br/>Group (OCP) · NetworkPolicy"]
     end
 
-    CR --> DEP & SVC & RT & MISC
-
-    DB[("Database<br/>user-provided PostgreSQL/MySQL<br/><i>or</i> auto-deployed PG pod<br/>when generateDeployment: true")]
-    DEP -->|connects to| DB
+    CR --> DEP
+    CR --> SUPPORT
+    DEP -->|connects to| DB[("Database<br/>user-provided PG/MySQL or<br/>auto-deployed PG pod")]
 
     subgraph "Model Catalog (single shared instance, optional)"
-        CAT_DEP["Catalog Deployment<br/>(catalog service + kube-rbac-proxy)"]
-        CAT_PG[("Catalog PostgreSQL<br/>(auto-deployed, PVC-backed)")]
-        CAT_SVC["Service · Route (OCP)"]
-        CAT_CFG["ConfigMaps<br/>(default sources · user sources · MCP)"]
-        CAT_MISC["ServiceAccount · Roles<br/>NetworkPolicy"]
+        direction LR
+        CAT_DEP["Catalog Deployment<br/>(catalog service +<br/>kube-rbac-proxy)"]
+        CAT_SUPPORT["Service · Route (OCP)<br/>ConfigMaps (sources)<br/>ServiceAccount · Roles<br/>NetworkPolicy"]
+        CAT_PG[("Catalog PostgreSQL<br/>(PVC-backed)")]
     end
 
-    MRO -->|"manages (channel source,<br/>enabled via ENABLE_MODEL_CATALOG)"| CAT_DEP
-    CAT_DEP --> CAT_PG & CAT_SVC & CAT_CFG & CAT_MISC
+    CAT_DEP --> CAT_SUPPORT
+    CAT_DEP --> CAT_PG
 ```
 
 ### Controllers
