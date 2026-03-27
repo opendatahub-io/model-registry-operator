@@ -19,6 +19,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -117,14 +118,12 @@ func (m *ManualStrategy) verifyMigrationComplete(ctx context.Context, crd *apiex
 	}
 
 	// Check if source version is still in storedVersions
-	for _, version := range updatedCRD.Status.StoredVersions {
-		if version == m.SourceVersion {
-			log.Info("Source version still present in storedVersions - migration may need more time",
-				"sourceVersion", m.SourceVersion,
-				"storedVersions", updatedCRD.Status.StoredVersions)
-			// This is not necessarily an error - etcd cleanup happens asynchronously
-			return nil
-		}
+	if slices.Contains(updatedCRD.Status.StoredVersions, m.SourceVersion) {
+		log.Info("Source version still present in storedVersions - migration may need more time",
+			"sourceVersion", m.SourceVersion,
+			"storedVersions", updatedCRD.Status.StoredVersions)
+		// This is not necessarily an error - etcd cleanup happens asynchronously
+		return nil
 	}
 
 	log.Info("Migration verification successful - source version no longer in storedVersions",
