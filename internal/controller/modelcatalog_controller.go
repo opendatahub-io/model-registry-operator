@@ -649,10 +649,14 @@ func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error)
 	// - catalogs: legacy field (aliased to model_catalogs in catalog server)
 	// - model_catalogs: new field name for model catalogs
 	// - mcp_catalogs: MCP server catalogs (new, never had default_catalog)
+	// Additional top-level fields (labels, namedQueries) are captured to avoid
+	// UnmarshalStrict failures when user configmaps include them.
 	var sources struct {
 		Catalogs      []catalog `json:"catalogs,omitempty"`
 		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
 		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
+		Labels        any       `json:"labels,omitempty"`
+		NamedQueries  any       `json:"namedQueries,omitempty"`
 	}
 
 	err := yaml.UnmarshalStrict([]byte(doc), &sources)
