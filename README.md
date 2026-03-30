@@ -5,7 +5,7 @@
 The Model Registry Operator is a controller for deploying [OpenShift AI Model Registry](https://github.com/opendatahub-io/model-registry) in a Kubernetes namespace. 
 
 ## Description
-The controller reconciles `ModelRegistry` Custom Resources to deploy a Model Registry instance and creates a service for its API. 
+The controller reconciles `ModelRegistry` Custom Resources to deploy a Model Registry instance and creates a service for its API. See [docs/architecture.md](docs/architecture.md) for an architecture overview and diagram.
 
 ## Getting Started
 You’ll need a Kubernetes cluster to run against. You can use [KIND](https://sigs.k8s.io/kind) to get a local cluster for testing, or run against a remote cluster.
@@ -52,6 +52,7 @@ make deploy
 * [PostgreSQL](config/samples/postgres) plain Kubernetes model registry services with a sample PostgreSQL database
 * [PostgreSQL with OAuth Proxy](config/samples/oauth/postgres) PostgreSQL database, and OAuth Proxy secured model registry service
 * [Secure PostgreSQL](config/samples/secure-db/postgres) plain Kubernetes model registry services with a sample TLS secured PostgreSQL database
+* [Async Upload Jobs](config/jobs-async-upload) OpenShift Templates for running async model upload jobs (S3, URI, or Hugging Face to OCI)
 
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
