@@ -40,6 +40,12 @@ import (
 
 const modelCatalogName = "model-catalog"
 const modelCatalogPostgresName = "model-catalog-postgres"
+const catalogSourceLabel = "opendatahub.io/catalog-source"
+
+// LabeledSource represents a user-defined ConfigMap discovered via the catalogSourceLabel label.
+type LabeledSource struct {
+	Name string
+}
 
 // ModelCatalogReconciler reconciles a single model catalog instance
 type ModelCatalogReconciler struct {
@@ -66,11 +72,12 @@ type ModelCatalogReconciler struct {
 
 // ModelCatalogParams is a wrapper for template parameters
 type ModelCatalogParams struct {
-	Name          string
-	Namespace     string
-	Component     string
-	PostgresImage string
-	AdminGroups   []string
+	Name           string
+	Namespace      string
+	Component      string
+	PostgresImage  string
+	AdminGroups    []string
+	LabeledSources []LabeledSource
 }
 
 // createPostgresParams creates PostgreSQL-specific ModelCatalogParams.
@@ -116,11 +123,18 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 	}
 
+	labeledSources, err := r.discoverLabeledSources(ctx)
+	if err != nil {
+		log.Error(err, "Failed to discover labeled catalog sources, continuing without them")
+		labeledSources = []LabeledSource{}
+	}
+
 	catalogParams := &ModelCatalogParams{
-		Name:        modelCatalogName,
-		Namespace:   r.TargetNamespace,
-		Component:   modelCatalogName,
-		AdminGroups: adminGroups,
+		Name:           modelCatalogName,
+		Namespace:      r.TargetNamespace,
+		Component:      modelCatalogName,
+		AdminGroups:    adminGroups,
+		LabeledSources: labeledSources,
 	}
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
@@ -1093,6 +1107,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresUser       string
 		PostgresDatabase   string
 		AdminGroups        []string
+		LabeledSources     []LabeledSource
 	}{
 		Name:               params.Name,
 		Namespace:          params.Namespace,
@@ -1103,6 +1118,7 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
+		LabeledSources:     params.LabeledSources,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -1179,6 +1195,41 @@ func (r *ModelCatalogReconciler) fetchDefaultModelRegistry(ctx context.Context) 
 	}, nil
 }
 
+// discoverLabeledSources lists ConfigMaps labeled with catalogSourceLabel in the target namespace.
+// Only ConfigMaps that contain a "sources.yaml" data key are included. Results are sorted
+// alphabetically by name so that precedence is deterministic.
+func (r *ModelCatalogReconciler) discoverLabeledSources(ctx context.Context) ([]LabeledSource, error) {
+	log := klog.FromContext(ctx)
+	var cmList corev1.ConfigMapList
+	if err := r.List(ctx, &cmList,
+		client.InNamespace(r.TargetNamespace),
+		client.MatchingLabels{catalogSourceLabel: "true"},
+	); err != nil {
+		return nil, fmt.Errorf("failed to list labeled catalog configmaps: %w", err)
+	}
+
+	// Kubernetes volume names are DNS labels: max 63 characters.
+	// Our volume names are "labeled-<configmap-name>", so the configmap name must be at most 55 chars.
+	const maxCMNameLen = 63 - len("labeled-")
+
+	sources := make([]LabeledSource, 0, len(cmList.Items))
+	for _, cm := range cmList.Items {
+		if len(cm.Name) > maxCMNameLen {
+			log.Info("Labeled catalog configmap name too long for volume name, skipping", "configmap", cm.Name, "maxLen", maxCMNameLen)
+			continue
+		}
+		if _, ok := cm.Data["sources.yaml"]; !ok {
+			log.Info("Labeled catalog configmap missing sources.yaml key, skipping", "configmap", cm.Name)
+			continue
+		}
+		sources = append(sources, LabeledSource{Name: cm.Name})
+	}
+	slices.SortFunc(sources, func(a, b LabeledSource) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return sources, nil
+}
+
 // fetchAuthConfig retrieves admin groups from the cluster-scoped Auth CR.
 // Returns a slice of admin group names, or an empty slice if the Auth CR is not found.
 func (r *ModelCatalogReconciler) fetchAuthConfig(ctx context.Context) ([]string, error) {
@@ -1243,12 +1294,18 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	// only watch resources in the target namespace
-	combinedPredicate := predicate.And(
-		labels,
-		predicate.NewPredicateFuncs(func(object client.Object) bool {
-			return object.GetNamespace() == r.TargetNamespace
-		}),
-	)
+	namespacePredicate := predicate.NewPredicateFuncs(func(object client.Object) bool {
+		return object.GetNamespace() == r.TargetNamespace
+	})
+	combinedPredicate := predicate.And(labels, namespacePredicate)
+
+	catalogSourceLabels, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
+		MatchLabels: map[string]string{catalogSourceLabel: "true"},
+	})
+	if err != nil {
+		return err
+	}
+	catalogSourcePredicate := predicate.And(catalogSourceLabels, namespacePredicate)
 
 	// Custom mapper that maps ALL watched objects to the same reconcile request
 	// This enables workqueue deduplication to prevent reconcile storms
@@ -1267,7 +1324,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named("modelcatalog").
 		// All watched resources now map to the same reconcile request for deduplication
 		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
-		Watches(&corev1.ConfigMap{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
+		Watches(&corev1.ConfigMap{}, mapToFixedCatalogRequest, builder.WithPredicates(predicate.Or(combinedPredicate, catalogSourcePredicate))).
 		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
