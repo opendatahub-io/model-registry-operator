@@ -1248,16 +1248,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		},
 	)
 
-	// Auth CR watch - maps to fixed catalog request when admin groups change
-	authGVK := schema.GroupVersionKind{
-		Group:   "services.platform.opendatahub.io",
-		Version: "v1alpha1",
-		Kind:    "Auth",
-	}
-	authObj := &unstructured.Unstructured{}
-	authObj.SetGroupVersionKind(authGVK)
-
-	c, err := ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("modelcatalog").
 		// All watched resources now map to the same reconcile request for deduplication
 		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
@@ -1269,9 +1260,22 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
-		// Watch Auth CR to trigger reconciliation when admin groups change
-		Watches(authObj, mapToFixedCatalogRequest).
-		Build(r)
+		Watches(&networkingv1.NetworkPolicy{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate))
+
+	// Auth CR watch - maps to fixed catalog request when admin groups change
+	// Only watch when running on OpenShift where the Auth API is available
+	if r.Capabilities.IsOpenShift {
+		authGVK := schema.GroupVersionKind{
+			Group:   "services.platform.opendatahub.io",
+			Version: "v1alpha1",
+			Kind:    "Auth",
+		}
+		authObj := &unstructured.Unstructured{}
+		authObj.SetGroupVersionKind(authGVK)
+		b = b.Watches(authObj, mapToFixedCatalogRequest)
+	}
+
+	c, err := b.Build(r)
 	if err != nil {
 		return err
 	}
