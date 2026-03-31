@@ -103,7 +103,7 @@ func Convert_v1alpha1_ModelRegistrySpec_To_v1beta1_ModelRegistrySpec(in *ModelRe
 	if err := Convert_v1alpha1_RestSpec_To_v1beta1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1alpha1_GrpcSpec_To_v1beta1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
+	if err := Convert_v1alpha1_GrpcSpec_To_v1beta1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil { //nolint:staticcheck // deprecated field required for API conversion
 		return err
 	}
 	if err := s.Convert(&in.Postgres, &out.Postgres); err != nil {
@@ -143,7 +143,7 @@ func Convert_v1beta1_ModelRegistrySpec_To_v1alpha1_ModelRegistrySpec(in *v1beta1
 	if err := Convert_v1beta1_RestSpec_To_v1alpha1_RestSpec(&in.Rest, &out.Rest, s); err != nil {
 		return err
 	}
-	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil {
+	if err := Convert_v1beta1_GrpcSpec_To_v1alpha1_GrpcSpec(&in.Grpc, &out.Grpc, s); err != nil { //nolint:staticcheck // deprecated field required for API conversion
 		return err
 	}
 	if err := s.Convert(&in.Postgres, &out.Postgres); err != nil {

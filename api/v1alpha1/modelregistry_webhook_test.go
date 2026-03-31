@@ -18,9 +18,7 @@ var (
 	authLabelKey   = "test-auth-labels"
 	authLabelValue = "true"
 
-	domain       = "example.com"
-	controlPlane = "test-smcp"
-	istioIngress = config.DefaultIstioIngressName
+	domain = "example.com"
 )
 
 func TestValidateNamespace(t *testing.T) {

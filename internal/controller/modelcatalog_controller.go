@@ -465,12 +465,12 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 			// Get the existing deployment to delete it
 			var existingDeployment appsv1.Deployment
 			key := client.ObjectKeyFromObject(&deployment)
-			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+			if getErr := r.Get(ctx, key, &existingDeployment); getErr != nil {
 				return result, nil, getErr
 			}
 
 			// Delete the existing deployment
-			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+			if deleteErr := r.Delete(ctx, &existingDeployment); deleteErr != nil {
 				return result, nil, deleteErr
 			}
 
@@ -482,7 +482,7 @@ func (r *ModelCatalogReconciler) createOrUpdateDeployment(ctx context.Context, p
 
 	// Fetch the deployment to get the updated metadata (including UID)
 	var actualDeployment appsv1.Deployment
-	err = r.Client.Get(ctx, types.NamespacedName{
+	err = r.Get(ctx, types.NamespacedName{
 		Name:      deployment.Name,
 		Namespace: deployment.Namespace,
 	}, &actualDeployment)
@@ -624,7 +624,7 @@ func (r *ModelCatalogReconciler) manageUserSourcesConfigmap(ctx context.Context,
 	if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existing); err != nil {
 		return result, err
 	}
-	err = r.Client.Update(ctx, &existing)
+	err = r.Update(ctx, &existing)
 	if err != nil {
 		return result, err
 	}
@@ -718,22 +718,6 @@ func (r *ModelCatalogReconciler) createOrUpdateClusterRoleBinding(ctx context.Co
 	return r.createOrUpdate(ctx, &rbac.ClusterRoleBinding{}, &roleBinding)
 }
 
-func (r *ModelCatalogReconciler) ensureSecretExists(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
-	result := ResourceUnchanged
-	var secret corev1.Secret
-	if err := r.Apply(params, templateName, &secret); err != nil {
-		return result, err
-	}
-
-	r.applyLabels(&secret.ObjectMeta, params)
-
-	result, err := r.createIfNotExists(ctx, &corev1.Secret{}, &secret)
-	if err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
 func (r *ModelCatalogReconciler) createOrUpdateRole(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (result OperationResult, err error) {
 	result = ResourceUnchanged
 	var role rbac.Role
@@ -760,19 +744,6 @@ func (r *ModelCatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, 
 	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &roleBinding)
 }
 
-func (r *ModelCatalogReconciler) createOrUpdateSecret(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
-	result := ResourceUnchanged
-	var newSecret corev1.Secret
-	if err := r.Apply(params, templateName, &newSecret); err != nil {
-		return result, err
-	}
-
-	r.applyLabels(&newSecret.ObjectMeta, params)
-	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
-
-	return r.createOrUpdate(ctx, &corev1.Secret{}, &newSecret)
-}
-
 // createOrUpdatePostgresSecret creates the catalog PostgreSQL secret with a randomly generated password.
 // This method implements idempotent secret creation - the password is generated only on initial creation
 // and preserved across reconciliations. It also reconciles existing secrets to ensure labels, owner
@@ -785,7 +756,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 
 	// Check if secret already exists
 	existingSecret := &corev1.Secret{}
-	err := r.Client.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, types.NamespacedName{
 		Name:      secretName,
 		Namespace: params.Namespace,
 	}, existingSecret)
@@ -853,7 +824,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresSecret(ctx context.Contex
 		}
 
 		if needsUpdate {
-			if err := r.Client.Update(ctx, existingSecret); err != nil {
+			if err := r.Update(ctx, existingSecret); err != nil {
 				log.Error(err, "Failed to update existing secret", "secret", secretName)
 				return result, err
 			}
@@ -920,7 +891,7 @@ func (r *ModelCatalogReconciler) createOrUpdateAdminRoleBinding(ctx context.Cont
 			Namespace: roleBinding.Namespace,
 		}
 
-		err := r.Client.Get(ctx, key, &existingRoleBinding)
+		err := r.Get(ctx, key, &existingRoleBinding)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				// RoleBinding doesn't exist, nothing to delete
@@ -935,7 +906,7 @@ func (r *ModelCatalogReconciler) createOrUpdateAdminRoleBinding(ctx context.Cont
 		r.applyOwnerReference(&roleBinding.ObjectMeta, owner)
 
 		// Delete the rolebinding
-		if err := r.Client.Delete(ctx, &roleBinding); err != nil {
+		if err := r.Delete(ctx, &roleBinding); err != nil {
 			return ResourceUnchanged, err
 		}
 
@@ -955,7 +926,7 @@ func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params 
 			Namespace: params.Namespace,
 		},
 	}
-	if err := r.Client.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
+	if err := r.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
 		return result, err
 	}
 
@@ -963,7 +934,7 @@ func (r *ModelCatalogReconciler) cleanupOAuthConfig(ctx context.Context, params 
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.Context, params *ModelCatalogParams, owner *metav1.OwnerReference) (result OperationResult, err error) {
-	result = ResourceUnchanged
+	result = ResourceUnchanged //nolint:ineffassign // explicit initialization for clarity
 
 	// create kube-rbac-proxy config
 	result, err = r.createOrUpdateConfigmap(ctx, params, "catalog-kube-rbac-proxy-config.yaml.tmpl", owner)
@@ -984,7 +955,7 @@ func (r *ModelCatalogReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.C
 }
 
 func (r *ModelCatalogReconciler) cleanupKubeRBACProxyConfig(ctx context.Context, params *ModelCatalogParams) (result OperationResult, err error) {
-	result = ResourceUnchanged
+	result = ResourceUnchanged //nolint:ineffassign // explicit initialization for clarity
 
 	// delete kube-rbac-proxy config
 	result, err = r.deleteFromTemplate(ctx, params, "catalog-kube-rbac-proxy-config.yaml.tmpl", &corev1.ConfigMap{})
@@ -1018,14 +989,14 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, 
 	var existingPVC corev1.PersistentVolumeClaim
 	key := client.ObjectKeyFromObject(&newPVC)
 
-	if err := r.Client.Get(ctx, key, &existingPVC); err != nil {
+	if err := r.Get(ctx, key, &existingPVC); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// PVC doesn't exist, create it
 			result = ResourceCreated
 			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newPVC); err != nil {
 				return result, err
 			}
-			return result, r.Client.Create(ctx, &newPVC)
+			return result, r.Create(ctx, &newPVC)
 		}
 		return result, err
 	}
@@ -1056,7 +1027,7 @@ func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, 
 		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingPVC); err != nil {
 			return result, err
 		}
-		return result, r.Client.Update(ctx, &existingPVC)
+		return result, r.Update(ctx, &existingPVC)
 	}
 
 	return result, nil
@@ -1142,7 +1113,7 @@ func (r *ModelCatalogReconciler) deleteFromTemplate(ctx context.Context, params 
 	if err := r.Apply(params, templateName, obj); err != nil {
 		return ResourceUnchanged, err
 	}
-	err := r.Client.Delete(ctx, obj)
+	err := r.Delete(ctx, obj)
 	if err != nil {
 		return ResourceUnchanged, client.IgnoreNotFound(err)
 	}
@@ -1177,7 +1148,7 @@ func (r *ModelCatalogReconciler) fetchDefaultModelRegistry(ctx context.Context) 
 		Kind:    "ModelRegistry",
 	})
 
-	err := r.Client.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, types.NamespacedName{
 		Name:      "default-modelregistry",
 		Namespace: r.TargetNamespace,
 	}, modelRegistry)
@@ -1203,7 +1174,7 @@ func (r *ModelCatalogReconciler) fetchAuthConfig(ctx context.Context) ([]string,
 		Kind:    "Auth",
 	})
 
-	err := r.Client.Get(ctx, client.ObjectKey{
+	err := r.Get(ctx, client.ObjectKey{
 		Name: "auth",
 		// Auth is cluster-scoped, so no namespace
 	}, authConfig)
