@@ -1694,7 +1694,7 @@ namedQueries:
 					Name:      modelCatalogName + "-postgres",
 					Namespace: namespaceName,
 				}, deletedNetworkPolicy)
-				Expect(errors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
 
 				By("Running reconciliation to recreate the NetworkPolicy")
 				_, err = catalogReconciler.ensureCatalogResources(ctx)
@@ -1761,7 +1761,7 @@ namedQueries:
 						Name:      modelCatalogName + "-https-route",
 						Namespace: namespaceName,
 					}, deletedNetworkPolicy)
-					Expect(errors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
+					Expect(apierrors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
 
 					By("Running reconciliation to recreate the NetworkPolicy")
 					_, err = catalogReconciler.ensureCatalogResources(ctx)
