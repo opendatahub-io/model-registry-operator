@@ -105,12 +105,16 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	log.Info("Reconciling catalog")
 
-	// Fetch admin groups from auth CR
-	adminGroups, err := r.fetchAuthConfig(ctx)
-	if err != nil {
-		log.Error(err, "Failed to fetch auth config")
-		// Continue with empty admin groups rather than failing
-		adminGroups = []string{}
+	// Fetch admin groups from auth CR (only when the Auth API is available)
+	var adminGroups []string
+	if r.Capabilities.HasAuthAPI {
+		var err error
+		adminGroups, err = r.fetchAuthConfig(ctx)
+		if err != nil {
+			log.Error(err, "Failed to fetch auth config")
+			// Continue with empty admin groups rather than failing
+			adminGroups = []string{}
+		}
 	}
 
 	catalogParams := &ModelCatalogParams{
@@ -1263,8 +1267,8 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&networkingv1.NetworkPolicy{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate))
 
 	// Auth CR watch - maps to fixed catalog request when admin groups change
-	// Only watch when running on OpenShift where the Auth API is available
-	if r.Capabilities.IsOpenShift {
+	// Only watch when the Auth CRD (services.platform.opendatahub.io) is available
+	if r.Capabilities.HasAuthAPI {
 		authGVK := schema.GroupVersionKind{
 			Group:   "services.platform.opendatahub.io",
 			Version: "v1alpha1",

@@ -263,6 +263,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					catalogReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
+						HasAuthAPI:  true,
 					}
 				})
 
@@ -374,6 +375,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					catalogReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
+						HasAuthAPI:  true,
 					}
 				})
 
@@ -1732,6 +1734,7 @@ namedQueries:
 					catalogReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
+						HasAuthAPI:  true,
 					}
 				})
 
@@ -1787,7 +1790,7 @@ namedQueries:
 				})
 			})
 
-			It("Should not trigger reconciliation for non-catalog NetworkPolicies", func() {
+			It("Should create non-catalog NetworkPolicy without catalog labels", func() {
 				By("Creating a NetworkPolicy without catalog labels")
 				nonCatalogNetworkPolicy := &networkingv1.NetworkPolicy{
 					ObjectMeta: metav1.ObjectMeta{
@@ -1884,25 +1887,31 @@ namedQueries:
 				}, 30*time.Second, 1*time.Second).Should(Succeed(),
 					"PostgreSQL NetworkPolicy should be created by initial reconciliation")
 
-				By("Deleting the PostgreSQL NetworkPolicy to trigger watch-based reconciliation")
+				By("Recording the original NetworkPolicy UID before deletion")
 				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      modelCatalogName + "-postgres",
 					Namespace: namespaceName,
 				}, postgresNetworkPolicy)
 				Expect(err).To(Not(HaveOccurred()))
+				originalUID := postgresNetworkPolicy.UID
+
+				By("Deleting the PostgreSQL NetworkPolicy to trigger watch-based reconciliation")
 				err = k8sClient.Delete(ctx, postgresNetworkPolicy)
 				Expect(err).To(Not(HaveOccurred()))
 
-				By("Verifying the NetworkPolicy is automatically recreated by the controller watch")
-				Eventually(func() error {
+				By("Verifying the NetworkPolicy is automatically recreated with a new UID")
+				Eventually(func() bool {
 					recreated := &networkingv1.NetworkPolicy{}
-					return k8sClient.Get(ctx, types.NamespacedName{
+					if err := k8sClient.Get(ctx, types.NamespacedName{
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
-					}, recreated)
-				}, 10*time.Second, 500*time.Millisecond).Should(Succeed(),
-					"PostgreSQL NetworkPolicy should be automatically recreated within 10 seconds after deletion via controller watch")
+					}, recreated); err != nil {
+						return false
+					}
+					return recreated.UID != originalUID
+				}, 10*time.Second, 500*time.Millisecond).Should(BeTrue(),
+					"PostgreSQL NetworkPolicy should be recreated with a different UID after deletion")
 			})
 		})
 
