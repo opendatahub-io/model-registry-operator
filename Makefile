@@ -111,6 +111,10 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: lint
+lint: golangci-lint ## Run golangci-lint against code.
+	$(GOLANGCI_LINT) run ./...
+
 .PHONY: test
 test: manifests generate fmt vet govulncheck envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
@@ -196,6 +200,8 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 ENVTEST_VERSION ?= release-0.22
 GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 GOVULNCHECK_VERSION ?= v1.1.4
+GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.1.6
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
@@ -238,6 +244,15 @@ $(GOVULNCHECK): $(LOCALBIN)
 		rm -rf $(LOCALBIN)/govulncheck; \
 	fi
 	test -s $(LOCALBIN)/govulncheck || GOBIN=$(LOCALBIN) GO111MODULE=on go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+.PHONY: golangci-lint
+golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary. If wrong version is installed, it will be removed before downloading.
+$(GOLANGCI_LINT): $(LOCALBIN)
+	@if test -x $(LOCALBIN)/golangci-lint && ! $(LOCALBIN)/golangci-lint version --short 2>&1 | grep -q $(GOLANGCI_LINT_VERSION); then \
+		echo "$(LOCALBIN)/golangci-lint version is not expected $(GOLANGCI_LINT_VERSION). Removing it before installing."; \
+		rm -rf $(LOCALBIN)/golangci-lint; \
+	fi
+	test -s $(LOCALBIN)/golangci-lint || GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: certificates
 certificates: certificates/clean

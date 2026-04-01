@@ -21,6 +21,7 @@ import (
 	"embed"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strings"
 	"text/template"
 
@@ -28,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/validation"
 
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/spf13/viper"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -85,11 +85,6 @@ var (
 	ModelRegistryRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
 )
 
-func init() {
-	// init viper for config env variables
-	viper.AutomaticEnv()
-}
-
 func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory resource.Quantity, LimitsCPU resource.Quantity, LimitsMemory resource.Quantity) v1.ResourceRequirements {
 	requests := v1.ResourceList{}
 	if !RequestsCPU.IsZero() {
@@ -114,17 +109,17 @@ func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory res
 }
 
 func GetStringConfigWithDefault(configName, value string) string {
-	if !viper.IsSet(configName) || len(viper.GetString(configName)) == 0 {
-		return value
+	if v := os.Getenv(configName); v != "" {
+		return v
 	}
-	return viper.GetString(configName)
+	return value
 }
 
 func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
-	if !viper.IsSet(configName) || len(viper.GetString(configName)) == 0 {
-		return defaultValue
+	if v := os.Getenv(configName); v != "" {
+		return v == "true"
 	}
-	return viper.GetString(configName) == "true"
+	return defaultValue
 }
 
 func ParseTemplates() (*template.Template, error) {

@@ -19,6 +19,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -132,10 +133,5 @@ func (m *StorageMigrationManager) checkAndPerformMigration(ctx context.Context) 
 }
 
 func (m *StorageMigrationManager) needsStorageVersionMigration(crd *apiextensionsv1.CustomResourceDefinition) bool {
-	for _, version := range crd.Status.StoredVersions {
-		if version == m.SourceVersion {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(crd.Status.StoredVersions, m.SourceVersion)
 }

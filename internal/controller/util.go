@@ -77,7 +77,8 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (Cl
 			// Validate that only user.openshift.io failed (expected in BYOIDC)
 			// Any other OpenShift API failures indicate a real problem
 			for gv, apiErr := range groupErr.Groups {
-				if gv.Group == "user.openshift.io" {
+				switch gv.Group {
+				case "user.openshift.io":
 					// Check if this is a "not found" error (expected in BYOIDC)
 					// Use apierrors.IsNotFound() as primary check (works with StatusError)
 					// Fall back to string matching for generic errors in test scenarios
@@ -95,7 +96,7 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (Cl
 					// Valid BYOIDC scenario - user API is intentionally disabled
 					setupLog.Info("BYOIDC cluster detected: user.openshift.io API not available",
 						"reason", apiErr.Error())
-				} else if gv.Group == "route.openshift.io" || gv.Group == "config.openshift.io" {
+				case "route.openshift.io", "config.openshift.io":
 					// route.openshift.io and config.openshift.io should ALWAYS be present on OpenShift
 					// If they failed, this is a real problem, not BYOIDC
 					return ClusterCapabilities{}, fmt.Errorf("critical OpenShift API %s failed discovery: %w", gv.Group, apiErr)

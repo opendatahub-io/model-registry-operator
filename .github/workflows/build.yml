@@ -35,6 +35,8 @@ jobs:
             localbin-go${{ steps.setup-go.outputs.go-version }}
       - name: Build
         run: make build
+      - name: Lint
+        run: make lint
       - name: Check if there are uncommitted file changes
         run: |
           clean=$(git status --porcelain)

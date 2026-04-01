@@ -90,19 +90,19 @@ func (s *SVMStrategy) PerformMigration(ctx context.Context, crd *apiextensionsv1
 
 	// Create StorageVersionMigration using unstructured to avoid import issues
 	svm := &unstructured.Unstructured{
-		Object: map[string]interface{}{
+		Object: map[string]any{
 			"apiVersion": "migration.k8s.io/v1alpha1",
 			"kind":       "StorageVersionMigration",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name": svmName,
-				"labels": map[string]interface{}{
+				"labels": map[string]any{
 					"app.kubernetes.io/name":       "model-registry-operator",
 					"app.kubernetes.io/component":  "storage-migration",
 					"app.kubernetes.io/managed-by": "model-registry-operator",
 				},
 			},
-			"spec": map[string]interface{}{
-				"resource": map[string]interface{}{
+			"spec": map[string]any{
+				"resource": map[string]any{
 					"group":    ModelRegistryGroup,
 					"version":  s.TargetVersion,
 					"resource": ModelRegistryResource,
@@ -207,7 +207,7 @@ func (s *SVMStrategy) extractConditions(svm *unstructured.Unstructured) []metav1
 	// Convert to metav1.Condition slice
 	var conditions []metav1.Condition
 	for _, conditionInterface := range conditionsRaw {
-		condition, ok := conditionInterface.(map[string]interface{})
+		condition, ok := conditionInterface.(map[string]any)
 		if !ok {
 			continue
 		}

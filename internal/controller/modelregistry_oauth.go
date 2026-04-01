@@ -32,17 +32,17 @@ import (
 // Shared delete methods for both OAuth proxy and kube-rbac-proxy since they use the same resource names
 func (r *ModelRegistryReconciler) deleteProxyClusterRoleBinding(ctx context.Context, params *ModelRegistryParams) error {
 	roleBinding := rbac.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-auth-delegator"}}
-	return client.IgnoreNotFound(r.Client.Delete(ctx, &roleBinding))
+	return client.IgnoreNotFound(r.Delete(ctx, &roleBinding))
 }
 
 func (r *ModelRegistryReconciler) deleteProxyRoute(ctx context.Context, params *ModelRegistryParams) error {
 	route := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https", Namespace: params.Namespace}}
-	return client.IgnoreNotFound(r.Client.Delete(ctx, &route))
+	return client.IgnoreNotFound(r.Delete(ctx, &route))
 }
 
 func (r *ModelRegistryReconciler) deleteProxyNetworkPolicy(ctx context.Context, params *ModelRegistryParams) error {
 	networkPolicy := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https-route", Namespace: params.Namespace}}
-	return client.IgnoreNotFound(r.Client.Delete(ctx, &networkPolicy))
+	return client.IgnoreNotFound(r.Delete(ctx, &networkPolicy))
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.Context, params *ModelRegistryParams,
@@ -123,5 +123,5 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 
 func (r *ModelRegistryReconciler) deleteKubeRBACProxyConfig(ctx context.Context, params *ModelRegistryParams) error {
 	configMap := corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-kube-rbac-proxy-config", Namespace: params.Namespace}}
-	return client.IgnoreNotFound(r.Client.Delete(ctx, &configMap))
+	return client.IgnoreNotFound(r.Delete(ctx, &configMap))
 }

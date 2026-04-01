@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"text/template"
 	"time"
@@ -14,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -319,7 +319,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, deployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				By("Verifying PostgreSQL resources are deleted")
@@ -329,7 +329,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresDeployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				postgresService := &corev1.Service{}
@@ -338,7 +338,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresService)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				postgresSecret := &corev1.Secret{}
@@ -347,7 +347,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName + "-postgres",
 						Namespace: namespaceName,
 					}, postgresSecret)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 				By("Verifying PVC deletion was attempted")
@@ -363,7 +363,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					// Ensure the cleanup method completed without error
 					Expect(postgresPVC.Name).To(Equal(modelCatalogName + "-postgres"))
 				} else {
-					Expect(errors.IsNotFound(err)).To(BeTrue())
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
 				}
 			})
 
@@ -405,7 +405,7 @@ var _ = Describe("ModelCatalog controller", func() {
 							Name:      modelCatalogName + "-https",
 							Namespace: namespaceName,
 						}, route)
-						return errors.IsNotFound(err)
+						return apierrors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
 					Eventually(func() bool {
@@ -413,7 +413,7 @@ var _ = Describe("ModelCatalog controller", func() {
 							Name:      modelCatalogName + "-https-route",
 							Namespace: namespaceName,
 						}, networkPolicy)
-						return errors.IsNotFound(err)
+						return apierrors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 				})
 			})
@@ -618,7 +618,7 @@ var _ = Describe("ModelCatalog controller", func() {
 						Name:      modelCatalogName,
 						Namespace: namespaceName,
 					}, deployment)
-					return errors.IsNotFound(err)
+					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
 
@@ -639,13 +639,13 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				By("Verifying MCP ConfigMap has correct structure")
 				Expect(configMap.Data).To(HaveKey("sources.yaml"))
-				var sources map[string]interface{}
+				var sources map[string]any
 				err = yaml.Unmarshal([]byte(configMap.Data["sources.yaml"]), &sources)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(sources).To(HaveKey("mcp_catalogs"))
 
 				// Verify it's an empty array by default
-				mcpCatalogs, ok := sources["mcp_catalogs"].([]interface{})
+				mcpCatalogs, ok := sources["mcp_catalogs"].([]any)
 				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
 				Expect(mcpCatalogs).To(HaveLen(0), "mcp_catalogs should be empty by default")
 			})
@@ -740,6 +740,60 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("yamlCatalogPath: /shared-data/models-catalog.yaml"))
+
+				By("Verifying default sources ConfigMap contains MCP catalog sources")
+				var defaultSources map[string]any
+				err = yaml.Unmarshal([]byte(defaultConfigMap.Data["sources.yaml"]), &defaultSources)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Expect(defaultSources).To(HaveKey("mcp_catalogs"))
+				mcpCatalogs, ok := defaultSources["mcp_catalogs"].([]any)
+				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
+				Expect(mcpCatalogs).To(HaveLen(1))
+				mcpEntry, ok := mcpCatalogs[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpEntry["name"]).To(Equal("Red Hat MCP Servers"))
+				Expect(mcpEntry["id"]).To(Equal("rh_mcp_servers"))
+				Expect(mcpEntry["type"]).To(Equal("yaml"))
+				Expect(mcpEntry["enabled"]).To(BeTrue())
+				mcpProps, ok := mcpEntry["properties"].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpProps["yamlCatalogPath"]).To(Equal("/shared-data/redhat-mcp-servers-catalog.yaml"))
+				mcpLabels, ok := mcpEntry["labels"].([]any)
+				Expect(ok).To(BeTrue())
+				Expect(mcpLabels).To(ContainElement("Red Hat"))
+
+				By("Verifying default sources ConfigMap contains MCP label definition with assetType")
+				labels, ok := defaultSources["labels"].([]any)
+				Expect(ok).To(BeTrue(), "labels should be an array")
+				var mcpLabel map[string]any
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if ok && labelMap["name"] == "Red Hat" {
+						mcpLabel = labelMap
+						break
+					}
+				}
+				Expect(mcpLabel).To(Not(BeNil()), "should have a 'Red Hat' label definition")
+				Expect(mcpLabel["assetType"]).To(Equal("mcp_servers"))
+				Expect(mcpLabel["displayName"]).To(Equal("Red Hat"))
+
+				By("Verifying model labels have assetType set to models")
+				labelIndex := make(map[string]map[string]any)
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if !ok {
+						continue
+					}
+					name, _ := labelMap["name"].(string)
+					labelIndex[name] = labelMap
+				}
+				for _, expectedName := range []string{"Red Hat AI", "Red Hat AI validated", ""} {
+					labelMap, found := labelIndex[expectedName]
+					Expect(found).To(BeTrue(), "expected label %q to exist", expectedName)
+					Expect(labelMap["assetType"]).To(Equal("models"),
+						"label %q should have assetType 'models'", expectedName)
+				}
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
@@ -1271,6 +1325,84 @@ mcp_catalogs:
 				Expect(result).To(ContainSubstring("custom_model_catalog"))
 				Expect(result).To(ContainSubstring("my_mcp_server"))
 			})
+
+			It("Should preserve mcp_catalogs when removing default_catalog from catalogs", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+    properties:
+      yamlCatalogPath: /shared-data/default-catalog.yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+mcp_catalogs:
+  - name: Red Hat MCP Servers
+    id: rh_mcp_servers
+    type: yaml
+    enabled: true
+    properties:
+      yamlCatalogPath: /shared-data/redhat-mcp-servers-catalog.yaml
+    labels:
+      - Red Hat`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+				Expect(result).To(ContainSubstring("rh_mcp_servers"))
+				Expect(result).To(ContainSubstring("Red Hat MCP Servers"))
+				Expect(result).To(ContainSubstring("Red Hat"))
+			})
+
+			It("Should not fail when configmap contains labels and namedQueries fields", func() {
+				input := `catalogs:
+  - name: Default Catalog
+    id: default_catalog
+    type: yaml
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+labels:
+  - name: Red Hat AI
+    assetType: models
+    description: Red Hat models with full support.
+  - name: Red Hat
+    assetType: mcp_servers
+    displayName: Red Hat
+    description: Official Red Hat MCP servers.
+namedQueries:
+  default-performance-filters:
+    artifacts.use_case.string_value:
+      operator: "="
+      value: chatbot`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Not(BeEmpty()))
+				Expect(result).To(Not(ContainSubstring("default_catalog")))
+				Expect(result).To(ContainSubstring("custom_catalog"))
+			})
+
+			It("Should not fail when configmap contains only labels and namedQueries without default_catalog", func() {
+				input := `catalogs:
+  - name: Custom Catalog
+    id: custom_catalog
+    type: yaml
+labels:
+  - name: Red Hat AI
+    assetType: models
+namedQueries:
+  some-query:
+    field:
+      operator: "="
+      value: test`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "no default_catalog to remove, should return empty string")
+			})
 		})
 
 		Context("ModelCatalogParams with AdminGroups", func() {
@@ -1283,13 +1415,7 @@ mcp_catalogs:
 
 				Expect(params.AdminGroups).To(HaveLen(2))
 
-				found := false
-				for _, group := range params.AdminGroups {
-					if group == "admin-group1" {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(params.AdminGroups, "admin-group1")
 				Expect(found).To(BeTrue(), "Expected to find 'admin-group1' in admin groups")
 			})
 		})
@@ -1310,8 +1436,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"adminGroups": []interface{}{"odh-admins", "system-admins"},
+				authConfig.Object["spec"] = map[string]any{
+					"adminGroups": []any{"odh-admins", "system-admins"},
 				}
 
 				err := fakeClient.Create(ctx, authConfig)
@@ -1326,13 +1452,7 @@ mcp_catalogs:
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(groups).To(HaveLen(2))
 
-				found := false
-				for _, group := range groups {
-					if group == "odh-admins" {
-						found = true
-						break
-					}
-				}
+				found := slices.Contains(groups, "odh-admins")
 				Expect(found).To(BeTrue(), "Expected to find 'odh-admins' in admin groups")
 			})
 
@@ -1355,8 +1475,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"allowedGroups": []interface{}{"system:authenticated"},
+				authConfig.Object["spec"] = map[string]any{
+					"allowedGroups": []any{"system:authenticated"},
 				}
 
 				err := fakeClient.Create(ctx, authConfig)
@@ -1492,8 +1612,8 @@ mcp_catalogs:
 					Kind:    "Auth",
 				})
 				authConfig.SetName("auth")
-				authConfig.Object["spec"] = map[string]interface{}{
-					"adminGroups": []interface{}{"test-admin-group"},
+				authConfig.Object["spec"] = map[string]any{
+					"adminGroups": []any{"test-admin-group"},
 				}
 
 				fakeClient = fake.NewClientBuilder().WithScheme(k8sClient.Scheme()).WithObjects(authConfig).Build()

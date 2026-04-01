@@ -39,12 +39,19 @@ data:
           yamlCatalogPath: /shared-data/other-models-catalog.yaml
     labels:
       - name: Red Hat AI validated
+        assetType: models
         description: Third-party models with performance and compatibility verified by Red Hat.
       - name: Red Hat AI
+        assetType: models
         description: Red Hat models with full support and legal indemnification.
       - name: null
+        assetType: models
         displayName: Other models
         description: A broad collection of third-party, community, and admin-configured models.
+      - name: Red Hat
+        assetType: mcp_servers
+        displayName: Red Hat
+        description: Official Red Hat MCP servers with full support.
     namedQueries:
       default-performance-filters:
         "artifacts.use_case.string_value":
@@ -56,3 +63,12 @@ data:
         "artifacts.ttft_p90.double_value":
           operator: "<="
           value: max
+    mcp_catalogs:
+      - name: Red Hat MCP Servers
+        id: rh_mcp_servers
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /shared-data/redhat-mcp-servers-catalog.yaml
+        labels:
+          - Red Hat

@@ -61,7 +61,7 @@ func TestRandBytesUniqueness(t *testing.T) {
 	const iterations = 100
 	seen := make(map[string]bool)
 
-	for i := 0; i < iterations; i++ {
+	for range iterations {
 		result, err := RandBytes(16)
 		if err != nil {
 			t.Fatalf("RandBytes() error = %v", err)

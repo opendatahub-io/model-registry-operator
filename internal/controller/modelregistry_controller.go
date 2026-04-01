@@ -537,13 +537,13 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 			// Get the existing deployment to delete it
 			var existingDeployment appsv1.Deployment
 			key := client.ObjectKeyFromObject(&deployment)
-			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+			if getErr := r.Get(ctx, key, &existingDeployment); getErr != nil {
 				log.Error(getErr, "Failed to get existing postgres deployment for deletion")
 				return result, getErr
 			}
 
 			// Delete the existing deployment
-			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+			if deleteErr := r.Delete(ctx, &existingDeployment); deleteErr != nil {
 				log.Error(deleteErr, "Failed to delete existing postgres deployment")
 				return result, deleteErr
 			}
@@ -695,12 +695,12 @@ func (r *ModelRegistryReconciler) createOrUpdateDeployment(ctx context.Context, 
 			// Get the existing deployment to delete it
 			var existingDeployment appsv1.Deployment
 			key := client.ObjectKeyFromObject(&deployment)
-			if getErr := r.Client.Get(ctx, key, &existingDeployment); getErr != nil {
+			if getErr := r.Get(ctx, key, &existingDeployment); getErr != nil {
 				return result, getErr
 			}
 
 			// Delete the existing deployment
-			if deleteErr := r.Client.Delete(ctx, &existingDeployment); deleteErr != nil {
+			if deleteErr := r.Delete(ctx, &existingDeployment); deleteErr != nil {
 				return result, deleteErr
 			}
 
@@ -729,7 +729,7 @@ func (r *ModelRegistryReconciler) createOrUpdateRoute(ctx context.Context, param
 		}
 	} else {
 		// delete the route if it exists
-		if err = r.Client.Delete(ctx, &route); client.IgnoreNotFound(err) != nil {
+		if err = r.Delete(ctx, &route); client.IgnoreNotFound(err) != nil {
 			result = ResourceUpdated
 			return result, err
 		}
@@ -839,7 +839,7 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 	// In BYOIDC mode, we don't create Groups, so skip deletion
 	if r.Capabilities.IsOpenShift && r.Capabilities.HasUserAPI {
 		groupName := registry.Name + "-users"
-		if err := r.Client.Delete(ctx, &userv1.Group{
+		if err := r.Delete(ctx, &userv1.Group{
 			ObjectMeta: metav1.ObjectMeta{Name: groupName},
 		}); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("failed to delete OpenShift Group %s: %w", groupName, err)
@@ -923,12 +923,12 @@ func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context,
 			Namespace: params.Namespace,
 			Name:      name,
 		}
-		err := r.Client.Get(ctx, nsName, obj)
+		err := r.Get(ctx, nsName, obj)
 		if err != nil {
 			return client.IgnoreNotFound(err)
 		}
 
-		return r.Client.Delete(ctx, obj)
+		return r.Delete(ctx, obj)
 	}
 
 	// Delete old catalog deployment
