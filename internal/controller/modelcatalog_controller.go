@@ -112,8 +112,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		adminGroups, err = r.fetchAuthConfig(ctx)
 		if err != nil {
 			log.Error(err, "Failed to fetch auth config")
-			// Continue with empty admin groups rather than failing
-			adminGroups = []string{}
+			return ctrl.Result{}, err
 		}
 	}
 
