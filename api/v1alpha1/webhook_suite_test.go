@@ -20,14 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
-	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	"net"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
+	mrwebhook "github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -86,7 +87,7 @@ var _ = BeforeSuite(func() {
 		// Note that you must have the required binaries setup under the bin directory to perform
 		// the tests directly. When we run make test it will be setup and used automatically.
 		BinaryAssetsDirectory: filepath.Join("..", "..", "bin", "k8s",
-			fmt.Sprintf("1.28.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
+			fmt.Sprintf("1.35.0-%s-%s", runtime.GOOS, runtime.GOARCH)),
 
 		WebhookInstallOptions: envtest.WebhookInstallOptions{
 			Paths: []string{filepath.Join("..", "..", "config", "webhook")},

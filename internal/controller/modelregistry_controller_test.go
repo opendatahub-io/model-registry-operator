@@ -27,6 +27,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
@@ -35,7 +36,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -832,7 +832,7 @@ func initModelRegistryReconciler(template *template.Template) *ModelRegistryReco
 	modelRegistryReconciler := &ModelRegistryReconciler{
 		Client:   k8sClient,
 		Scheme:   scheme,
-		Recorder: &record.FakeRecorder{},
+		Recorder: &events.FakeRecorder{},
 		Log:      ctrl.Log.WithName("controller"),
 		Template: template,
 		Capabilities: ClusterCapabilities{
@@ -912,16 +912,17 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 
 				// Mock Service Endpoints to simulate ready pods
 				// In envtest, Endpoints are not automatically created by the Endpoints controller
-				endpoints := &corev1.Endpoints{}
+				//nolint:staticcheck // TODO RHOAIENG-52516: migrate to discoveryv1.EndpointSlice
+				endpoints := &corev1.Endpoints{} //nolint:staticcheck
 				eerr := k8sClient.Get(ctx, typeNamespaceName, endpoints)
 				if eerr != nil {
 					// Endpoints don't exist, create them
-					endpoints = &corev1.Endpoints{
+					endpoints = &corev1.Endpoints{ //nolint:staticcheck
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      typeNamespaceName.Name,
 							Namespace: typeNamespaceName.Namespace,
 						},
-						Subsets: []corev1.EndpointSubset{
+						Subsets: []corev1.EndpointSubset{ //nolint:staticcheck
 							{
 								Addresses: []corev1.EndpointAddress{
 									{
@@ -942,7 +943,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					Expect(err).To(Succeed(), "Failed to create mock Endpoints")
 				} else if len(endpoints.Subsets) == 0 || (len(endpoints.Subsets) > 0 && len(endpoints.Subsets[0].Addresses) == 0) {
 					// Endpoints exist but don't have ready addresses yet, update them
-					endpoints.Subsets = []corev1.EndpointSubset{
+					endpoints.Subsets = []corev1.EndpointSubset{ //nolint:staticcheck
 						{
 							Addresses: []corev1.EndpointAddress{
 								{

@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -72,7 +72,7 @@ var _ = Describe("ModelCatalog controller", func() {
 			catalogReconciler = &ModelCatalogReconciler{
 				Client:          k8sClient,
 				Scheme:          k8sClient.Scheme(),
-				Recorder:        &record.FakeRecorder{},
+				Recorder:        &events.FakeRecorder{},
 				Log:             ctrl.Log.WithName("modelcatalog-controller"),
 				Template:        template,
 				TargetNamespace: namespaceName,
