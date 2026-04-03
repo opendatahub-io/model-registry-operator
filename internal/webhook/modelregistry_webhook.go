@@ -19,12 +19,13 @@ package webhook
 import (
 	"context"
 	"fmt"
+	"net/http"
+
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/util/json"
-	"net/http"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -47,8 +48,7 @@ func SetupWebhookWithManager(mgr ctrl.Manager) error {
 			Decoder: admission.NewDecoder(mgr.GetScheme()),
 		},
 	})
-	return ctrl.NewWebhookManagedBy(mgr).
-		For(&v1beta1.ModelRegistry{}). // for conversion webhook on spoke
+	return ctrl.NewWebhookManagedBy(mgr, &v1beta1.ModelRegistry{}).
 		Complete()
 }
 
@@ -74,7 +74,7 @@ func toModelRegistry(obj runtime.Object) (GenericModelRegistry, error) {
 // NOTE: this type MUST not be exported, or kubebuilder thinks it's a CRD and tries to generate code for it!!!
 type modelRegistryDefaulter struct {
 	client.Client
-	Decoder *admission.Decoder
+	Decoder admission.Decoder
 }
 
 var _ admission.Handler = &modelRegistryDefaulter{}
@@ -111,7 +111,7 @@ func (v *modelRegistryDefaulter) Default(ctx context.Context, obj runtime.Object
 
 type modelRegistryValidator struct {
 	client.Client
-	Decoder *admission.Decoder
+	Decoder admission.Decoder
 }
 
 func (v *modelRegistryValidator) Handle(ctx context.Context, request admission.Request) admission.Response {
@@ -143,7 +143,7 @@ func (v *modelRegistryValidator) Handle(ctx context.Context, request admission.R
 	return admission.Allowed("").WithWarnings(warnings...)
 }
 
-func DecodeModelRegistry(decoder *admission.Decoder, request admission.Request) (runtime.Object, error) {
+func DecodeModelRegistry(decoder admission.Decoder, request admission.Request) (runtime.Object, error) {
 	var obj runtime.Object
 	kind := request.Kind
 	if kind.Group != v1beta1.GroupVersion.Group || kind.Kind != "ModelRegistry" {

@@ -250,7 +250,7 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	if available {
 		// Verify service endpoints are ready before marking as available
 		// This ensures the Service has actual backing pods with ready addresses
-		endpoints := &corev1.Endpoints{}
+		endpoints := &corev1.Endpoints{} //nolint:staticcheck // TODO RHOAIENG-52516: migrate to discoveryv1.EndpointSlice
 		if err := r.Get(ctx, key, endpoints); err != nil {
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable

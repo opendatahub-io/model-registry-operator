@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,7 +45,7 @@ const modelCatalogPostgresName = "model-catalog-postgres"
 type ModelCatalogReconciler struct {
 	client.Client
 	Scheme                *runtime.Scheme
-	Recorder              record.EventRecorder
+	Recorder              events.EventRecorder
 	Log                   logr.Logger
 	Template              *template.Template
 	Capabilities          ClusterCapabilities
@@ -1286,5 +1286,5 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			"app.kubernetes.io/created-by": "model-registry-operator",
 		},
 	}}} // object identity only; it need not exist
-	return c.Watch(&source.Channel{Source: ch}, mapToFixedCatalogRequest)
+	return c.Watch(source.Channel(ch, mapToFixedCatalogRequest))
 }

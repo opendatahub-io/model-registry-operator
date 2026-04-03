@@ -27,6 +27,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/events"
 
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
@@ -42,7 +43,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	pkgbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,7 +64,7 @@ type ModelRegistryReconciler struct {
 	client.Client
 	ClientSet      *kubernetes.Clientset
 	Scheme         *runtime.Scheme
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 	Log            logr.Logger
 	Template       *template.Template
 	EnableWebhooks bool
@@ -339,6 +339,7 @@ func (r *ModelRegistryReconciler) GetRegistryForClusterRoleBinding(ctx context.C
 // +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=modelregistry.opendatahub.io,resources=modelregistries/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods;pods/log,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
@@ -853,10 +854,10 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 	// More info: https://kubernetes.io/docs/tasks/administer-cluster/use-cascading-deletion/
 
 	// The following implementation will raise an event
-	r.Recorder.Event(registry, "Warning", "Deleting",
-		fmt.Sprintf("Custom Resource %s is being deleted from the namespace %s",
-			registry.Name,
-			registry.Namespace))
+	r.Recorder.Eventf(registry, nil, "Warning", "Deleting", "Deleting",
+		"Custom Resource %s is being deleted from the namespace %s",
+		registry.Name,
+		registry.Namespace)
 
 	return nil
 }
@@ -886,15 +887,15 @@ func (r *ModelRegistryReconciler) Apply(params *ModelRegistryParams, templateNam
 func (r *ModelRegistryReconciler) logResultAsEvent(registry *v1beta1.ModelRegistry, result OperationResult) {
 	switch result {
 	case ResourceCreated:
-		r.Recorder.Event(registry, "Normal", "ServiceCreated",
-			fmt.Sprintf("Created service for custom resource %s in namespace %s",
-				registry.Name,
-				registry.Namespace))
+		r.Recorder.Eventf(registry, nil, "Normal", "ServiceCreated", "ServiceCreated",
+			"Created service for custom resource %s in namespace %s",
+			registry.Name,
+			registry.Namespace)
 	case ResourceUpdated:
-		r.Recorder.Event(registry, "Normal", "ServiceUpdated",
-			fmt.Sprintf("Updated service for custom resource %s in namespace %s",
-				registry.Name,
-				registry.Namespace))
+		r.Recorder.Eventf(registry, nil, "Normal", "ServiceUpdated", "ServiceUpdated",
+			"Updated service for custom resource %s in namespace %s",
+			registry.Name,
+			registry.Namespace)
 	case ResourceUnchanged:
 		// ignore
 	}

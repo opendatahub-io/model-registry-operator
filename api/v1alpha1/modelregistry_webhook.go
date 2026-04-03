@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -46,12 +45,11 @@ const (
 // TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 
 var (
-	_              webhook.Defaulter = &ModelRegistry{}
-	httpsPort      int32             = DefaultHttpsPort
-	httpsRoutePort int32             = DefaultRoutePort
+	httpsPort      int32 = DefaultHttpsPort
+	httpsRoutePort int32 = DefaultRoutePort
 )
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type
+// Default sets default values for ModelRegistry fields
 func (r *ModelRegistry) Default() {
 	modelregistrylog.Info("default", "name", r.Name, "status.specDefaults", r.Status.SpecDefaults)
 
