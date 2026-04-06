@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"text/template"
@@ -41,6 +42,10 @@ import (
 const modelCatalogName = "model-catalog"
 const modelCatalogPostgresName = "model-catalog-postgres"
 const catalogSourceLabel = "opendatahub.io/catalog-source"
+
+// dnsLabelRegex matches valid Kubernetes DNS label names (RFC 1123).
+// ConfigMap names are DNS subdomains (dots allowed) but volume names must be DNS labels (no dots).
+var dnsLabelRegex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // LabeledSource represents a user-defined ConfigMap discovered via the catalogSourceLabel label.
 type LabeledSource struct {
@@ -125,8 +130,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	labeledSources, err := r.discoverLabeledSources(ctx)
 	if err != nil {
-		log.Error(err, "Failed to discover labeled catalog sources, continuing without them")
-		labeledSources = []LabeledSource{}
+		return ctrl.Result{}, fmt.Errorf("failed to discover labeled catalog sources: %w", err)
 	}
 
 	catalogParams := &ModelCatalogParams{
@@ -1216,6 +1220,10 @@ func (r *ModelCatalogReconciler) discoverLabeledSources(ctx context.Context) ([]
 	for _, cm := range cmList.Items {
 		if len(cm.Name) > maxCMNameLen {
 			log.Info("Labeled catalog configmap name too long for volume name, skipping", "configmap", cm.Name, "maxLen", maxCMNameLen)
+			continue
+		}
+		if !dnsLabelRegex.MatchString(cm.Name) {
+			log.Info("Labeled catalog configmap name is not a valid DNS label, skipping", "configmap", cm.Name)
 			continue
 		}
 		if _, ok := cm.Data["sources.yaml"]; !ok {
