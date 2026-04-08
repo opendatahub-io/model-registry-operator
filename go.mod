@@ -6,8 +6,8 @@ require (
 	github.com/banzaicloud/k8s-objectmatcher v1.8.0
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/go-logr/logr v1.4.3
-	github.com/onsi/ginkgo/v2 v2.27.2
-	github.com/onsi/gomega v1.38.2
+	github.com/onsi/ginkgo/v2 v2.28.0
+	github.com/onsi/gomega v1.39.1
 	github.com/openshift/api v0.0.0-20260320151444-324a1bcb9f55
 	istio.io/client-go v1.29.1
 	k8s.io/api v0.35.3
