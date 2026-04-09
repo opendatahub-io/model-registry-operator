@@ -277,7 +277,7 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 		}
 
 		if kubeRBACProxyContainer == nil {
-			t.Errorf("kube-rbac-proxy container should be present in deployment")
+			t.Fatalf("kube-rbac-proxy container should be present in deployment")
 		}
 
 		// Check kube-rbac-proxy specific arguments
