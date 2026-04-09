@@ -21,9 +21,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -261,6 +265,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					catalogReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
+						HasAuthAPI:  true,
 					}
 				})
 
@@ -372,6 +377,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					catalogReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
 						HasUserAPI:  true,
+						HasAuthAPI:  true,
 					}
 				})
 
@@ -776,7 +782,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				}
 				Expect(mcpLabel).To(Not(BeNil()), "should have a 'Red Hat' label definition")
 				Expect(mcpLabel["assetType"]).To(Equal("mcp_servers"))
-				Expect(mcpLabel["displayName"]).To(Equal("Red Hat"))
+				Expect(mcpLabel["displayName"]).To(Equal("Red Hat MCP servers"))
 
 				By("Verifying model labels have assetType set to models")
 				labelIndex := make(map[string]map[string]any)
@@ -1661,6 +1667,324 @@ namedQueries:
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(rb.Subjects).To(HaveLen(1))
 				Expect(rb.Subjects[0].Name).To(Equal("test-admin-group"))
+			})
+		})
+
+		Context("NetworkPolicy watch and automatic recreation", func() {
+			It("Should recreate PostgreSQL NetworkPolicy after deletion via reconciliation", func() {
+				By("Creating catalog resources including NetworkPolicy")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying PostgreSQL NetworkPolicy exists")
+				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Saving the original NetworkPolicy spec for comparison")
+				originalPodSelector := postgresNetworkPolicy.Spec.PodSelector.DeepCopy()
+				originalIngress := postgresNetworkPolicy.Spec.Ingress
+
+				By("Deleting the PostgreSQL NetworkPolicy")
+				err = k8sClient.Delete(ctx, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the NetworkPolicy is deleted")
+				deletedNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, deletedNetworkPolicy)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
+
+				By("Running reconciliation to recreate the NetworkPolicy")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the PostgreSQL NetworkPolicy was recreated")
+				recreatedNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, recreatedNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying recreated NetworkPolicy has identical specifications")
+				Expect(recreatedNetworkPolicy.Spec.PodSelector.MatchLabels).To(Equal(originalPodSelector.MatchLabels),
+					"Recreated NetworkPolicy should have the same podSelector")
+				Expect(recreatedNetworkPolicy.Spec.PolicyTypes).To(ContainElement(networkingv1.PolicyTypeIngress),
+					"Recreated NetworkPolicy should have Ingress policy type")
+				Expect(recreatedNetworkPolicy.Spec.Ingress).To(HaveLen(len(originalIngress)),
+					"Recreated NetworkPolicy should have the same number of ingress rules")
+				Expect(recreatedNetworkPolicy.Spec.Ingress[0].Ports).To(HaveLen(1),
+					"Recreated NetworkPolicy should have port restriction")
+				Expect(recreatedNetworkPolicy.Spec.Ingress[0].Ports[0].Port.IntVal).To(Equal(int32(5432)),
+					"Recreated NetworkPolicy should restrict to PostgreSQL port 5432")
+
+				By("Verifying recreated NetworkPolicy has correct labels")
+				Expect(recreatedNetworkPolicy.Labels).To(HaveKeyWithValue("component", modelCatalogPostgresName),
+					"Recreated NetworkPolicy should have component label")
+				Expect(recreatedNetworkPolicy.Labels).To(HaveKeyWithValue("app.kubernetes.io/created-by", "model-registry-operator"),
+					"Recreated NetworkPolicy should have created-by label")
+			})
+
+			Context("On OpenShift", func() {
+				BeforeEach(func() {
+					catalogReconciler.Capabilities = ClusterCapabilities{
+						IsOpenShift: true,
+						HasUserAPI:  true,
+						HasAuthAPI:  true,
+					}
+				})
+
+				It("Should recreate kube-rbac-proxy NetworkPolicy after deletion via reconciliation", func() {
+					By("Creating catalog resources including OpenShift-specific NetworkPolicy")
+					_, err := catalogReconciler.ensureCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying kube-rbac-proxy NetworkPolicy exists")
+					httpsNetworkPolicy := &networkingv1.NetworkPolicy{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-https-route",
+						Namespace: namespaceName,
+					}, httpsNetworkPolicy)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Saving the original NetworkPolicy spec for comparison")
+					originalPodSelector := httpsNetworkPolicy.Spec.PodSelector.DeepCopy()
+
+					By("Deleting the kube-rbac-proxy NetworkPolicy")
+					err = k8sClient.Delete(ctx, httpsNetworkPolicy)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying the NetworkPolicy is deleted")
+					deletedNetworkPolicy := &networkingv1.NetworkPolicy{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-https-route",
+						Namespace: namespaceName,
+					}, deletedNetworkPolicy)
+					Expect(apierrors.IsNotFound(err)).To(BeTrue(), "NetworkPolicy should be deleted")
+
+					By("Running reconciliation to recreate the NetworkPolicy")
+					_, err = catalogReconciler.ensureCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying the kube-rbac-proxy NetworkPolicy was recreated")
+					recreatedNetworkPolicy := &networkingv1.NetworkPolicy{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-https-route",
+						Namespace: namespaceName,
+					}, recreatedNetworkPolicy)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying recreated NetworkPolicy has identical specifications")
+					Expect(recreatedNetworkPolicy.Spec.PodSelector.MatchLabels).To(Equal(originalPodSelector.MatchLabels),
+						"Recreated NetworkPolicy should have the same podSelector")
+
+					By("Verifying recreated NetworkPolicy has correct labels")
+					Expect(recreatedNetworkPolicy.Labels).To(HaveKeyWithValue("component", "model-catalog"),
+						"Recreated NetworkPolicy should have component label")
+					Expect(recreatedNetworkPolicy.Labels).To(HaveKeyWithValue("app.kubernetes.io/created-by", "model-registry-operator"),
+						"Recreated NetworkPolicy should have created-by label")
+				})
+			})
+
+		})
+
+		Context("NetworkPolicy watch in SetupWithManager", func() {
+			It("Should automatically recreate deleted PostgreSQL NetworkPolicy via controller watch", func() {
+				By("Creating a controller manager")
+				mgr, err := manager.New(cfg, manager.Options{
+					Scheme: k8sClient.Scheme(),
+					Metrics: metricsserver.Options{
+						BindAddress: "0",
+					},
+					Controller: ctrlconfig.Controller{
+						SkipNameValidation: ptr.To(true),
+					},
+				})
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Setting up image env vars for the controller")
+				template, err := config.ParseTemplates()
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Creating the catalog reconciler with SetupWithManager")
+				watchReconciler := &ModelCatalogReconciler{
+					Client:          mgr.GetClient(),
+					Scheme:          mgr.GetScheme(),
+					Recorder:        &events.FakeRecorder{},
+					Log:             ctrl.Log.WithName("modelcatalog-watch-test"),
+					Template:        template,
+					TargetNamespace: namespaceName,
+					Enabled:         true,
+					Capabilities: ClusterCapabilities{
+						IsOpenShift:  false,
+						HasUserAPI:   false,
+						HasConfigAPI: false,
+					},
+				}
+				err = watchReconciler.SetupWithManager(mgr)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Starting the manager in the background")
+				mgrCtx, mgrCancel := context.WithCancel(ctx)
+				defer mgrCancel()
+				go func() {
+					defer GinkgoRecover()
+					err := mgr.Start(mgrCtx)
+					Expect(err).To(Not(HaveOccurred()))
+				}()
+
+				By("Waiting for the manager cache to sync")
+				Eventually(func() bool {
+					return mgr.GetCache().WaitForCacheSync(mgrCtx)
+				}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+				By("Waiting for initial reconciliation to create resources")
+				Eventually(func() error {
+					postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, postgresNetworkPolicy)
+				}, 30*time.Second, 1*time.Second).Should(Succeed(),
+					"PostgreSQL NetworkPolicy should be created by initial reconciliation")
+
+				By("Recording the original NetworkPolicy UID before deletion")
+				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+				originalUID := postgresNetworkPolicy.UID
+
+				By("Deleting the PostgreSQL NetworkPolicy to trigger watch-based reconciliation")
+				err = k8sClient.Delete(ctx, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the NetworkPolicy is automatically recreated with a new UID")
+				Eventually(func() bool {
+					recreated := &networkingv1.NetworkPolicy{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, recreated); err != nil {
+						return false
+					}
+					return recreated.UID != originalUID
+				}, 10*time.Second, 500*time.Millisecond).Should(BeTrue(),
+					"PostgreSQL NetworkPolicy should be recreated with a different UID after deletion")
+			})
+
+			It("Should not reconcile when a non-catalog NetworkPolicy is deleted", func() {
+				By("Creating a controller manager")
+				mgr, err := manager.New(cfg, manager.Options{
+					Scheme: k8sClient.Scheme(),
+					Metrics: metricsserver.Options{
+						BindAddress: "0",
+					},
+					Controller: ctrlconfig.Controller{
+						SkipNameValidation: ptr.To(true),
+					},
+				})
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Setting up image env vars for the controller")
+				template, err := config.ParseTemplates()
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Creating the catalog reconciler with SetupWithManager")
+				watchReconciler := &ModelCatalogReconciler{
+					Client:          mgr.GetClient(),
+					Scheme:          mgr.GetScheme(),
+					Recorder:        &events.FakeRecorder{},
+					Log:             ctrl.Log.WithName("modelcatalog-predicate-test"),
+					Template:        template,
+					TargetNamespace: namespaceName,
+					Enabled:         true,
+					Capabilities: ClusterCapabilities{
+						IsOpenShift:  false,
+						HasUserAPI:   false,
+						HasConfigAPI: false,
+					},
+				}
+				err = watchReconciler.SetupWithManager(mgr)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Starting the manager in the background")
+				mgrCtx, mgrCancel := context.WithCancel(ctx)
+				defer mgrCancel()
+				go func() {
+					defer GinkgoRecover()
+					err := mgr.Start(mgrCtx)
+					Expect(err).To(Not(HaveOccurred()))
+				}()
+
+				By("Waiting for the manager cache to sync")
+				Eventually(func() bool {
+					return mgr.GetCache().WaitForCacheSync(mgrCtx)
+				}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+				By("Waiting for initial reconciliation to create resources")
+				Eventually(func() error {
+					postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, postgresNetworkPolicy)
+				}, 30*time.Second, 1*time.Second).Should(Succeed(),
+					"PostgreSQL NetworkPolicy should be created by initial reconciliation")
+
+				By("Recording the resourceVersion of a catalog-managed resource")
+				postgresNetworkPolicy := &networkingv1.NetworkPolicy{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName + "-postgres",
+					Namespace: namespaceName,
+				}, postgresNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+				snapshotResourceVersion := postgresNetworkPolicy.ResourceVersion
+
+				By("Creating a non-catalog NetworkPolicy")
+				nonCatalogNetworkPolicy := &networkingv1.NetworkPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "non-catalog-network-policy",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"component": "some-other-component",
+						},
+					},
+					Spec: networkingv1.NetworkPolicySpec{
+						PodSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"app": "some-other-app",
+							},
+						},
+					},
+				}
+				err = k8sClient.Create(ctx, nonCatalogNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Deleting the non-catalog NetworkPolicy")
+				err = k8sClient.Delete(ctx, nonCatalogNetworkPolicy)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the catalog resource was not reconciled")
+				Consistently(func() string {
+					np := &networkingv1.NetworkPolicy{}
+					if err := k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-postgres",
+						Namespace: namespaceName,
+					}, np); err != nil {
+						return ""
+					}
+					return np.ResourceVersion
+				}, 3*time.Second, 500*time.Millisecond).Should(Equal(snapshotResourceVersion),
+					"Catalog resource should not be reconciled by non-catalog NetworkPolicy changes")
 			})
 		})
 

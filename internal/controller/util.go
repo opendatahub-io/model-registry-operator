@@ -36,6 +36,7 @@ type ClusterCapabilities struct {
 	IsOpenShift  bool // true if route.openshift.io API is present
 	HasUserAPI   bool // true if user.openshift.io API is present
 	HasConfigAPI bool // true if config.openshift.io API is present
+	HasAuthAPI   bool // true if services.platform.opendatahub.io API is present
 }
 
 // IsBYOIDC returns true if the cluster is OpenShift with BYOIDC enabled.
@@ -119,6 +120,8 @@ func DetectClusterCapabilities(discoveryClient discovery.DiscoveryInterface) (Cl
 				caps.HasUserAPI = true
 			case "config.openshift.io":
 				caps.HasConfigAPI = true
+			case "services.platform.opendatahub.io":
+				caps.HasAuthAPI = true
 			}
 		}
 	}
