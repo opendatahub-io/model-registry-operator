@@ -776,7 +776,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				}
 				Expect(mcpLabel).To(Not(BeNil()), "should have a 'Red Hat' label definition")
 				Expect(mcpLabel["assetType"]).To(Equal("mcp_servers"))
-				Expect(mcpLabel["displayName"]).To(Equal("Red Hat"))
+				Expect(mcpLabel["displayName"]).To(Equal("Red Hat MCP servers"))
 
 				By("Verifying model labels have assetType set to models")
 				labelIndex := make(map[string]map[string]any)
