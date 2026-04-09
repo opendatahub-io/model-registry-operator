@@ -153,7 +153,6 @@ func main() {
 	cacheOptions := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
 			&appsv1.Deployment{}:            objOptions,
-			&corev1.ConfigMap{}:             objOptions,
 			&corev1.PersistentVolumeClaim{}: objOptions,
 			&corev1.ServiceAccount{}:        objOptions,
 			&corev1.Service{}:               objOptions,
@@ -161,6 +160,14 @@ func main() {
 			&rbacv1.ClusterRoleBinding{}:    objOptions,
 			&rbacv1.RoleBinding{}:           objOptions,
 			&rbacv1.Role{}:                  objOptions,
+			// ConfigMaps: cache all in the target namespace (no label filter)
+			// because user-created catalog source ConfigMaps won't have operator labels.
+			// Namespace-scoping keeps the cache bounded.
+			&corev1.ConfigMap{}: {
+				Namespaces: map[string]cache.Config{
+					registriesNamespace: {},
+				},
+			},
 		},
 	}
 

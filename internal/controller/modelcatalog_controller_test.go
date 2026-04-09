@@ -736,7 +736,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Checking if the default sources ConfigMap was created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -810,7 +810,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Getting the default sources ConfigMap")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -826,12 +826,42 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				By("Verifying the ConfigMap was restored to the expected state")
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
+			})
+
+			It("Should delete the old-named default sources ConfigMap on reconcile", func() {
+				By("Creating the old-named ConfigMap")
+				oldCM := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-default-sources",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app.kubernetes.io/created-by": "model-registry-operator",
+						},
+					},
+					Data: map[string]string{"sources.yaml": "catalogs: []"},
+				}
+				err := k8sClient.Create(ctx, oldCM)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the old ConfigMap is gone")
+				gone := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-default-sources", Namespace: namespaceName}, gone)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "old ConfigMap should have been deleted")
+
+				By("Verifying the new ConfigMap still exists")
+				newCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "default-catalog-sources", Namespace: namespaceName}, newCM)
+				Expect(err).To(Not(HaveOccurred()))
 			})
 
 			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
@@ -922,7 +952,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Verifying the default sources ConfigMap was still created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -974,7 +1004,7 @@ catalogs:
 				By("Verifying default sources ConfigMap was still created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -989,7 +1019,7 @@ catalogs:
 				By("Getting the default sources ConfigMap")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -1039,7 +1069,7 @@ catalogs:
 				Expect(userMcpSourcesVolume.ConfigMap.Name).To(Equal("mcp-catalog-sources"))
 
 				Expect(defaultSourcesVolume).To(Not(BeNil()), "default-sources volume should exist")
-				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-default-sources"))
+				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("default-catalog-sources"))
 
 				By("Verifying catalog container has all volume mounts")
 				catalogContainer := deployment.Spec.Template.Spec.Containers[0]
@@ -1070,6 +1100,181 @@ catalogs:
 				Expect(args).To(ContainElement("--catalogs-path=/data/default-sources/sources.yaml"))
 				Expect(args).To(ContainElement("--catalogs-path=/data/user-model-sources/sources.yaml"))
 				Expect(args).To(ContainElement("--catalogs-path=/data/user-mcp-sources/sources.yaml"))
+			})
+		})
+
+		Context("Label-based ConfigMap discovery", func() {
+			createLabeledConfigMap := func(name string, withSourcesKey bool) *corev1.ConfigMap {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: namespaceName,
+						Labels:    map[string]string{catalogSourceLabel: "true"},
+					},
+				}
+				if withSourcesKey {
+					cm.Data = map[string]string{
+						"sources.yaml": "catalogs: []\n",
+					}
+				}
+				return cm
+			}
+
+			It("Should include labeled ConfigMaps as additional volumes and args", func() {
+				By("Creating labeled catalog ConfigMaps")
+				cm1 := createLabeledConfigMap("extra-sources-a", true)
+				cm2 := createLabeledConfigMap("extra-sources-b", true)
+				Expect(k8sClient.Create(ctx, cm1)).To(Succeed())
+				Expect(k8sClient.Create(ctx, cm2)).To(Succeed())
+
+				By("Reconciling catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Getting the deployment")
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)).To(Succeed())
+
+				By("Verifying additional volumes exist")
+				volumeNames := make([]string, 0)
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					volumeNames = append(volumeNames, v.Name)
+				}
+				Expect(volumeNames).To(ContainElement("labeled-extra-sources-a"))
+				Expect(volumeNames).To(ContainElement("labeled-extra-sources-b"))
+
+				By("Verifying additional volume mounts exist")
+				container := deployment.Spec.Template.Spec.Containers[0]
+				mountPaths := make([]string, 0)
+				for _, m := range container.VolumeMounts {
+					mountPaths = append(mountPaths, m.MountPath)
+				}
+				Expect(mountPaths).To(ContainElement("/data/labeled-sources/extra-sources-a"))
+				Expect(mountPaths).To(ContainElement("/data/labeled-sources/extra-sources-b"))
+
+				By("Verifying additional --catalogs-path args exist")
+				Expect(container.Args).To(ContainElement("--catalogs-path=/data/labeled-sources/extra-sources-a/sources.yaml"))
+				Expect(container.Args).To(ContainElement("--catalogs-path=/data/labeled-sources/extra-sources-b/sources.yaml"))
+			})
+
+			It("Should order labeled ConfigMaps alphabetically", func() {
+				By("Creating labeled ConfigMaps in non-alphabetical order")
+				for _, name := range []string{"z-sources", "a-sources", "m-sources"} {
+					Expect(k8sClient.Create(ctx, createLabeledConfigMap(name, true))).To(Succeed())
+				}
+
+				By("Discovering labeled sources")
+				sources, err := catalogReconciler.discoverLabeledSources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(sources).To(HaveLen(3))
+				Expect(sources[0].Name).To(Equal("a-sources"))
+				Expect(sources[1].Name).To(Equal("m-sources"))
+				Expect(sources[2].Name).To(Equal("z-sources"))
+			})
+
+			It("Should skip labeled ConfigMaps missing sources.yaml key", func() {
+				By("Creating a labeled ConfigMap without sources.yaml")
+				Expect(k8sClient.Create(ctx, createLabeledConfigMap("no-sources-key", false))).To(Succeed())
+				By("Creating a labeled ConfigMap with sources.yaml")
+				Expect(k8sClient.Create(ctx, createLabeledConfigMap("has-sources-key", true))).To(Succeed())
+
+				By("Discovering labeled sources")
+				sources, err := catalogReconciler.discoverLabeledSources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(sources).To(HaveLen(1))
+				Expect(sources[0].Name).To(Equal("has-sources-key"))
+			})
+
+			It("Should not include labeled ConfigMaps in existing deployment without labeled sources", func() {
+				By("Reconciling without any labeled ConfigMaps")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)).To(Succeed())
+
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					Expect(v.Name).NotTo(HavePrefix("labeled-"))
+				}
+				for _, m := range deployment.Spec.Template.Spec.Containers[0].VolumeMounts {
+					Expect(m.MountPath).NotTo(HavePrefix("/data/labeled-sources/"))
+				}
+				for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+					Expect(arg).NotTo(HavePrefix("--catalogs-path=/data/labeled-sources/"))
+				}
+			})
+
+			It("Should update deployment when a labeled ConfigMap is added after initial reconcile", func() {
+				By("Reconciling without any labeled ConfigMaps")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Creating a labeled ConfigMap")
+				Expect(k8sClient.Create(ctx, createLabeledConfigMap("late-addition", true))).To(Succeed())
+
+				By("Reconciling again")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)).To(Succeed())
+
+				volumeNames := make([]string, 0)
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					volumeNames = append(volumeNames, v.Name)
+				}
+				Expect(volumeNames).To(ContainElement("labeled-late-addition"))
+				Expect(deployment.Spec.Template.Spec.Containers[0].Args).To(
+					ContainElement("--catalogs-path=/data/labeled-sources/late-addition/sources.yaml"))
+			})
+
+			It("Should remove volumes and args when a labeled ConfigMap is deleted", func() {
+				By("Creating a labeled ConfigMap")
+				cm := createLabeledConfigMap("to-be-removed", true)
+				Expect(k8sClient.Create(ctx, cm)).To(Succeed())
+
+				By("Reconciling with the labeled ConfigMap present")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)).To(Succeed())
+				volumeNames := make([]string, 0)
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					volumeNames = append(volumeNames, v.Name)
+				}
+				Expect(volumeNames).To(ContainElement("labeled-to-be-removed"))
+
+				By("Deleting the labeled ConfigMap")
+				Expect(k8sClient.Delete(ctx, cm)).To(Succeed())
+
+				By("Reconciling after deletion")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name:      modelCatalogName,
+					Namespace: namespaceName,
+				}, deployment)).To(Succeed())
+
+				for _, v := range deployment.Spec.Template.Spec.Volumes {
+					Expect(v.Name).NotTo(Equal("labeled-to-be-removed"))
+				}
+				for _, arg := range deployment.Spec.Template.Spec.Containers[0].Args {
+					Expect(arg).NotTo(Equal("--catalogs-path=/data/labeled-sources/to-be-removed/sources.yaml"))
+				}
 			})
 		})
 

@@ -41,11 +41,16 @@ spec:
           name: mcp-catalog-sources
       - name: default-sources
         configMap:
-          name: model-catalog-default-sources
+          name: default-catalog-sources
       - name: catalog-data
         emptyDir: {}
       - name: benchmark-data
         emptyDir: {}
+      {{- range .LabeledSources}}
+      - name: labeled-{{.Name}}
+        configMap:
+          name: {{.Name}}
+      {{- end}}
       {{- if .Spec.KubeRBACProxy }}
       - name: kube-rbac-proxy-tls
         secret:
@@ -95,6 +100,9 @@ spec:
             - --catalogs-path=/data/default-sources/sources.yaml
             - --catalogs-path=/data/user-model-sources/sources.yaml
             - --catalogs-path=/data/user-mcp-sources/sources.yaml
+            {{- range .LabeledSources}}
+            - --catalogs-path=/data/labeled-sources/{{.Name}}/sources.yaml
+            {{- end}}
             - --performance-metrics=/shared-benchmark-data
           image: {{.Spec.Rest.Image}}
           ports:
@@ -143,6 +151,10 @@ spec:
             mountPath: /shared-data
           - name: benchmark-data
             mountPath: /shared-benchmark-data
+          {{- range .LabeledSources}}
+          - name: labeled-{{.Name}}
+            mountPath: /data/labeled-sources/{{.Name}}
+          {{- end}}
           env:
             - name: PGHOST
               value: {{.Name}}-postgres
