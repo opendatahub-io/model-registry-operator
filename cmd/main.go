@@ -133,7 +133,8 @@ func main() {
 	setupLog.Info("cluster capabilities detected",
 		"isOpenShift", capabilities.IsOpenShift,
 		"hasUserAPI", capabilities.HasUserAPI,
-		"hasConfigAPI", capabilities.HasConfigAPI)
+		"hasConfigAPI", capabilities.HasConfigAPI,
+		"hasAuthAPI", capabilities.HasAuthAPI)
 
 	registriesNamespace := os.Getenv(config.RegistriesNamespace)
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"

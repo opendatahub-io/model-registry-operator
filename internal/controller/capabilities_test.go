@@ -36,6 +36,7 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 							{Name: "route.openshift.io"},
 							{Name: "user.openshift.io"},
 							{Name: "config.openshift.io"},
+							{Name: "services.platform.opendatahub.io"},
 						},
 					},
 					err: nil,
@@ -47,6 +48,7 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				Expect(caps.IsOpenShift).To(BeTrue())
 				Expect(caps.HasUserAPI).To(BeTrue())
 				Expect(caps.HasConfigAPI).To(BeTrue())
+				Expect(caps.HasAuthAPI).To(BeTrue())
 			})
 		})
 
@@ -96,6 +98,7 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				Expect(caps.IsOpenShift).To(BeFalse())
 				Expect(caps.HasUserAPI).To(BeFalse())
 				Expect(caps.HasConfigAPI).To(BeFalse())
+				Expect(caps.HasAuthAPI).To(BeFalse())
 			})
 		})
 

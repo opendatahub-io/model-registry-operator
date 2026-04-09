@@ -105,12 +105,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	log.Info("Reconciling catalog")
 
-	// Fetch admin groups from auth CR
-	adminGroups, err := r.fetchAuthConfig(ctx)
-	if err != nil {
-		log.Error(err, "Failed to fetch auth config")
-		// Continue with empty admin groups rather than failing
-		adminGroups = []string{}
+	// Fetch admin groups from auth CR (only when the Auth API is available)
+	var adminGroups []string
+	if r.Capabilities.HasAuthAPI {
+		var err error
+		adminGroups, err = r.fetchAuthConfig(ctx)
+		if err != nil {
+			log.Error(err, "Failed to fetch auth config")
+			return ctrl.Result{}, err
+		}
 	}
 
 	catalogParams := &ModelCatalogParams{
@@ -1248,16 +1251,7 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		},
 	)
 
-	// Auth CR watch - maps to fixed catalog request when admin groups change
-	authGVK := schema.GroupVersionKind{
-		Group:   "services.platform.opendatahub.io",
-		Version: "v1alpha1",
-		Kind:    "Auth",
-	}
-	authObj := &unstructured.Unstructured{}
-	authObj.SetGroupVersionKind(authGVK)
-
-	c, err := ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		Named("modelcatalog").
 		// All watched resources now map to the same reconcile request for deduplication
 		Watches(&appsv1.Deployment{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
@@ -1269,9 +1263,22 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
-		// Watch Auth CR to trigger reconciliation when admin groups change
-		Watches(authObj, mapToFixedCatalogRequest).
-		Build(r)
+		Watches(&networkingv1.NetworkPolicy{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate))
+
+	// Auth CR watch - maps to fixed catalog request when admin groups change
+	// Only watch when the Auth CRD (services.platform.opendatahub.io) is available
+	if r.Capabilities.HasAuthAPI {
+		authGVK := schema.GroupVersionKind{
+			Group:   "services.platform.opendatahub.io",
+			Version: "v1alpha1",
+			Kind:    "Auth",
+		}
+		authObj := &unstructured.Unstructured{}
+		authObj.SetGroupVersionKind(authGVK)
+		b = b.Watches(authObj, mapToFixedCatalogRequest)
+	}
+
+	c, err := b.Build(r)
 	if err != nil {
 		return err
 	}
