@@ -21,9 +21,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/yaml"
@@ -1800,6 +1802,9 @@ namedQueries:
 					Metrics: metricsserver.Options{
 						BindAddress: "0",
 					},
+					Controller: ctrlconfig.Controller{
+						SkipNameValidation: ptr.To(true),
+					},
 				})
 				Expect(err).To(Not(HaveOccurred()))
 
@@ -1811,7 +1816,7 @@ namedQueries:
 				watchReconciler := &ModelCatalogReconciler{
 					Client:          mgr.GetClient(),
 					Scheme:          mgr.GetScheme(),
-					Recorder:        mgr.GetEventRecorderFor("modelcatalog-controller"),
+					Recorder:        &events.FakeRecorder{},
 					Log:             ctrl.Log.WithName("modelcatalog-watch-test"),
 					Template:        template,
 					TargetNamespace: namespaceName,
@@ -1883,6 +1888,9 @@ namedQueries:
 					Metrics: metricsserver.Options{
 						BindAddress: "0",
 					},
+					Controller: ctrlconfig.Controller{
+						SkipNameValidation: ptr.To(true),
+					},
 				})
 				Expect(err).To(Not(HaveOccurred()))
 
@@ -1894,7 +1902,7 @@ namedQueries:
 				watchReconciler := &ModelCatalogReconciler{
 					Client:          mgr.GetClient(),
 					Scheme:          mgr.GetScheme(),
-					Recorder:        mgr.GetEventRecorderFor("modelcatalog-controller"),
+					Recorder:        &events.FakeRecorder{},
 					Log:             ctrl.Log.WithName("modelcatalog-predicate-test"),
 					Template:        template,
 					TargetNamespace: namespaceName,
