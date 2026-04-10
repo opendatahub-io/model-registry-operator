@@ -755,7 +755,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(defaultSources).To(HaveKey("mcp_catalogs"))
 				mcpCatalogs, ok := defaultSources["mcp_catalogs"].([]any)
 				Expect(ok).To(BeTrue(), "mcp_catalogs should be an array")
-				Expect(mcpCatalogs).To(HaveLen(1))
+				Expect(mcpCatalogs).To(HaveLen(3), "mcp_catalogs should contain Red Hat, Partner, and Community entries")
 				mcpEntry, ok := mcpCatalogs[0].(map[string]any)
 				Expect(ok).To(BeTrue())
 				Expect(mcpEntry["name"]).To(Equal("Red Hat MCP Servers"))
@@ -768,6 +768,31 @@ var _ = Describe("ModelCatalog controller", func() {
 				mcpLabels, ok := mcpEntry["labels"].([]any)
 				Expect(ok).To(BeTrue())
 				Expect(mcpLabels).To(ContainElement("Red Hat"))
+
+				By("Verifying default sources ConfigMap contains Partner MCP catalog entry")
+				partnerEntry, ok := mcpCatalogs[1].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(partnerEntry["name"]).To(Equal("Red Hat Partner MCP Servers"))
+				Expect(partnerEntry["id"]).To(Equal("rh_partner_mcp_servers"))
+				Expect(partnerEntry["type"]).To(Equal("yaml"))
+				Expect(partnerEntry["enabled"]).To(BeTrue())
+				partnerProps, ok := partnerEntry["properties"].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(partnerProps["yamlCatalogPath"]).To(Equal("/shared-data/partner-mcp-servers-catalog.yaml"))
+				partnerLabels, ok := partnerEntry["labels"].([]any)
+				Expect(ok).To(BeTrue())
+				Expect(partnerLabels).To(ContainElement("Red Hat Partners"))
+
+				By("Verifying default sources ConfigMap contains Community MCP catalog entry")
+				communityEntry, ok := mcpCatalogs[2].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(communityEntry["name"]).To(Equal("Community MCP Servers"))
+				Expect(communityEntry["id"]).To(Equal("community_mcp_servers"))
+				Expect(communityEntry["type"]).To(Equal("yaml"))
+				Expect(communityEntry["enabled"]).To(BeTrue())
+				communityProps, ok := communityEntry["properties"].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(communityProps["yamlCatalogPath"]).To(Equal("/shared-data/community-mcp-servers-catalog.yaml"))
 
 				By("Verifying default sources ConfigMap contains MCP label definition with assetType")
 				labels, ok := defaultSources["labels"].([]any)
@@ -783,6 +808,18 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(mcpLabel).To(Not(BeNil()), "should have a 'Red Hat' label definition")
 				Expect(mcpLabel["assetType"]).To(Equal("mcp_servers"))
 				Expect(mcpLabel["displayName"]).To(Equal("Red Hat MCP servers"))
+
+				var partnerLabel map[string]any
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if ok && labelMap["name"] == "Red Hat Partners" {
+						partnerLabel = labelMap
+						break
+					}
+				}
+				Expect(partnerLabel).To(Not(BeNil()), "should have a 'Red Hat Partners' label definition")
+				Expect(partnerLabel["assetType"]).To(Equal("mcp_servers"))
+				Expect(partnerLabel["displayName"]).To(Equal("Red Hat Partner MCP servers"))
 
 				By("Verifying model labels have assetType set to models")
 				labelIndex := make(map[string]map[string]any)
