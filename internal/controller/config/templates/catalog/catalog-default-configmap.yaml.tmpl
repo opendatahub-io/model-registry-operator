@@ -51,7 +51,11 @@ data:
       - name: Red Hat
         assetType: mcp_servers
         displayName: Red Hat MCP servers
-        description: Official Red Hat MCP servers with full support.
+        description: Official Red Hat MCP servers with support.
+      - name: Red Hat Partners
+        assetType: mcp_servers
+        displayName: Red Hat Partner MCP servers
+        description: A collection of Red Hat Partner MCP servers.
     namedQueries:
       default-performance-filters:
         "artifacts.use_case.string_value":
@@ -72,3 +76,17 @@ data:
           yamlCatalogPath: /shared-data/redhat-mcp-servers-catalog.yaml
         labels:
           - Red Hat
+      - name: Red Hat Partner MCP Servers
+        id: rh_partner_mcp_servers
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /shared-data/partner-mcp-servers-catalog.yaml
+        labels:
+          - Red Hat Partners
+      - name: Community MCP Servers
+        id: community_mcp_servers
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /shared-data/community-mcp-servers-catalog.yaml
