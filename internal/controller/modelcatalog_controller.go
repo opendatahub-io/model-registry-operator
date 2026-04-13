@@ -162,18 +162,6 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
-	// Delete the old-named default sources ConfigMap (renamed 2026-04, was "model-catalog-default-sources").
-	// Remove once old clusters have had enough time to reconcile.
-	var oldDefaultCM corev1.ConfigMap
-	err = r.Get(ctx, types.NamespacedName{Name: "model-catalog-default-sources", Namespace: r.TargetNamespace}, &oldDefaultCM)
-	if client.IgnoreNotFound(err) != nil {
-		log.Error(err, "failed to get legacy default sources ConfigMap")
-	} else if err == nil && oldDefaultCM.Labels["app.kubernetes.io/created-by"] == "model-registry-operator" {
-		if delErr := r.Delete(ctx, &oldDefaultCM); client.IgnoreNotFound(delErr) != nil {
-			log.Error(delErr, "failed to delete legacy default sources ConfigMap")
-		}
-	}
-
 	// Create the user-managed sources ConfigMap if it doesn't exist
 	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
 	if err != nil {
