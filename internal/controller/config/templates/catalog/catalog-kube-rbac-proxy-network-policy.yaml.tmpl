@@ -18,6 +18,9 @@ spec:
     - namespaceSelector:
         matchLabels:
           network.openshift.io/policy-group: ingress
+    - namespaceSelector:
+        matchLabels:
+          opendatahub.io/generated-namespace: "true"
     ports:
       - protocol: TCP
         {{- if .Spec.KubeRBACProxy}}
