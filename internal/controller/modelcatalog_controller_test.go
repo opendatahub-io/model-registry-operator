@@ -736,7 +736,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Checking if the default sources ConfigMap was created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -847,7 +847,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Getting the default sources ConfigMap")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -863,12 +863,42 @@ var _ = Describe("ModelCatalog controller", func() {
 
 				By("Verifying the ConfigMap was restored to the expected state")
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("Red Hat AI"))
 				Expect(defaultConfigMap.Data["sources.yaml"]).To(ContainSubstring("redhat_ai_models"))
+			})
+
+			It("Should delete the old-named default sources ConfigMap on reconcile", func() {
+				By("Creating the old-named ConfigMap")
+				oldCM := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-default-sources",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app.kubernetes.io/created-by": "model-registry-operator",
+						},
+					},
+					Data: map[string]string{"sources.yaml": "catalogs: []"},
+				}
+				err := k8sClient.Create(ctx, oldCM)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the old ConfigMap is gone")
+				gone := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-default-sources", Namespace: namespaceName}, gone)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "old ConfigMap should have been deleted")
+
+				By("Verifying the new ConfigMap still exists")
+				newCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "default-catalog-sources", Namespace: namespaceName}, newCM)
+				Expect(err).To(Not(HaveOccurred()))
 			})
 
 			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
@@ -959,7 +989,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				By("Verifying the default sources ConfigMap was still created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -1011,7 +1041,7 @@ catalogs:
 				By("Verifying default sources ConfigMap was still created")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -1026,7 +1056,7 @@ catalogs:
 				By("Getting the default sources ConfigMap")
 				defaultConfigMap := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "model-catalog-default-sources",
+					Name:      "default-catalog-sources",
 					Namespace: namespaceName,
 				}, defaultConfigMap)
 				Expect(err).To(Not(HaveOccurred()))
@@ -1076,7 +1106,7 @@ catalogs:
 				Expect(userMcpSourcesVolume.ConfigMap.Name).To(Equal("mcp-catalog-sources"))
 
 				Expect(defaultSourcesVolume).To(Not(BeNil()), "default-sources volume should exist")
-				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("model-catalog-default-sources"))
+				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("default-catalog-sources"))
 
 				By("Verifying catalog container has all volume mounts")
 				catalogContainer := deployment.Spec.Template.Spec.Containers[0]
