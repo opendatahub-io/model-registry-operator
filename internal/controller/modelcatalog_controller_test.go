@@ -11,6 +11,7 @@ import (
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -293,6 +294,47 @@ var _ = Describe("ModelCatalog controller", func() {
 					Expect(networkPolicy.Labels["component"]).To(Equal("model-catalog"))
 					Expect(networkPolicy.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
 				})
+
+				It("Should create HTTPRoute and clean up old Route in gateway mode", func() {
+					By("First creating catalog resources in route mode")
+					_, err := catalogReconciler.ensureCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying Route was created")
+					route := &routev1.Route{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-https",
+						Namespace: namespaceName,
+					}, route)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Switching to gateway mode")
+					catalogReconciler.GatewayDomain = "gateway.example.com"
+					catalogReconciler.GatewayName = "test-gateway"
+					catalogReconciler.GatewayNamespace = "test-gateway-ns"
+					catalogReconciler.HTTPRouteNamespace = namespaceName
+
+					_, err = catalogReconciler.ensureCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Checking that HTTPRoute was created")
+					httpRoute := &gatewayapiv1.HTTPRoute{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "model-catalog",
+						Namespace: namespaceName,
+					}, httpRoute)
+					Expect(err).To(Not(HaveOccurred()))
+					Expect(httpRoute.Labels["component"]).To(Equal("model-catalog"))
+
+					By("Checking that old Route was cleaned up")
+					Eventually(func() bool {
+						err = k8sClient.Get(ctx, types.NamespacedName{
+							Name:      modelCatalogName + "-https",
+							Namespace: namespaceName,
+						}, &routev1.Route{})
+						return apierrors.IsNotFound(err)
+					}, 10*time.Second, time.Second).Should(BeTrue())
+				})
 			})
 		})
 
@@ -419,6 +461,38 @@ var _ = Describe("ModelCatalog controller", func() {
 							Name:      modelCatalogName + "-https-route",
 							Namespace: namespaceName,
 						}, networkPolicy)
+						return apierrors.IsNotFound(err)
+					}, 10*time.Second, 1*time.Second).Should(BeTrue())
+				})
+
+				It("Should clean up HTTPRoute when catalog is disabled after gateway mode", func() {
+					By("Creating catalog resources in gateway mode")
+					catalogReconciler.GatewayDomain = "gateway.example.com"
+					catalogReconciler.GatewayName = "test-gateway"
+					catalogReconciler.GatewayNamespace = "test-gateway-ns"
+					catalogReconciler.HTTPRouteNamespace = namespaceName
+
+					_, err := catalogReconciler.ensureCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying HTTPRoute exists")
+					httpRoute := &gatewayapiv1.HTTPRoute{}
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "model-catalog",
+						Namespace: namespaceName,
+					}, httpRoute)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Running cleanup")
+					_, err = catalogReconciler.cleanupCatalogResources(ctx)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Verifying HTTPRoute is deleted")
+					Eventually(func() bool {
+						err = k8sClient.Get(ctx, types.NamespacedName{
+							Name:      "model-catalog",
+							Namespace: namespaceName,
+						}, &gatewayapiv1.HTTPRoute{})
 						return apierrors.IsNotFound(err)
 					}, 10*time.Second, 1*time.Second).Should(BeTrue())
 				})

@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	v1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
@@ -60,10 +62,18 @@ var (
 	k8sClient        client.Client
 	testEnv          *envtest.Environment
 	testCRDLocalPath = "./testdata/crd"
-	remoteCRDs       = []remoteCRD{
+	remoteCRDs = []remoteCRD{
 		{
 			url:      "https://raw.githubusercontent.com/openshift/api/e7ac40fc1590efe8697d76691aa644d1ec3f07a7/route/v1/zz_generated.crd-manifests/routes.crd.yaml",
 			fileName: "route.openshift.io_routes.yaml",
+		},
+		{
+			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.5.1/config/crd/standard/gateway.networking.k8s.io_httproutes.yaml",
+			fileName: "gateway.networking.k8s.io_httproutes.yaml",
+		},
+		{
+			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.5.1/config/crd/standard/gateway.networking.k8s.io_referencegrants.yaml",
+			fileName: "gateway.networking.k8s.io_referencegrants.yaml",
 		},
 	}
 )
@@ -103,6 +113,12 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 	err = networkingscheme.AddToScheme(schm)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = gatewayapiv1.Install(schm)
+	Expect(err).NotTo(HaveOccurred())
+
+	err = gatewayapiv1beta1.Install(schm)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme

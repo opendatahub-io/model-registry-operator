@@ -70,29 +70,40 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 
 		// check if cluster is OpenShift for Route support
 		if r.Capabilities.IsOpenShift {
-			// create kube-rbac-proxy service route if enabled, delete if disabled
-			result2, err := r.createOrUpdateRoute(ctx, params, registry,
-				"kube-rbac-proxy-https-route.yaml.tmpl", registry.Spec.KubeRBACProxy.ServiceRoute)
-			if err != nil {
-				return result2, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
-
-			if registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
-				// create kube-rbac-proxy networkpolicy to ensure route is exposed
-				result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "kube-rbac-proxy-network-policy.yaml.tmpl")
+			if r.GatewayDomain != "" {
+				// Gateway mode: traffic goes through the gateway, so delete any
+				// existing kube-rbac-proxy Route and NetworkPolicy
+				if err = r.deleteProxyRoute(ctx, params); err != nil {
+					return result, err
+				}
+				if err = r.deleteProxyNetworkPolicy(ctx, params); err != nil {
+					return result, err
+				}
+			} else {
+				// create kube-rbac-proxy service route if enabled, delete if disabled
+				result2, err := r.createOrUpdateRoute(ctx, params, registry,
+					"kube-rbac-proxy-https-route.yaml.tmpl", registry.Spec.KubeRBACProxy.ServiceRoute)
 				if err != nil {
 					return result2, err
 				}
 				if result2 != ResourceUnchanged {
 					result = result2
 				}
-			} else {
-				// remove kube-rbac-proxy networkpolicy if it exists
-				if err = r.deleteProxyNetworkPolicy(ctx, params); err != nil {
-					return result, err
+
+				if registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
+					// create kube-rbac-proxy networkpolicy to ensure route is exposed
+					result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "kube-rbac-proxy-network-policy.yaml.tmpl")
+					if err != nil {
+						return result2, err
+					}
+					if result2 != ResourceUnchanged {
+						result = result2
+					}
+				} else {
+					// remove kube-rbac-proxy networkpolicy if it exists
+					if err = r.deleteProxyNetworkPolicy(ctx, params); err != nil {
+						return result, err
+					}
 				}
 			}
 		}

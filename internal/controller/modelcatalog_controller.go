@@ -16,6 +16,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
 	routev1 "github.com/openshift/api/route/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -63,6 +64,10 @@ type ModelCatalogReconciler struct {
 	TargetNamespace       string
 	Enabled               bool
 	SkipCatalogDBCreation bool
+	GatewayDomain         string
+	GatewayName           string
+	GatewayNamespace      string
+	HTTPRouteNamespace    string
 
 	// noDefaultSource is set after checking for the default source in the
 	// user-managed sources configmap. When true, the default source is
@@ -77,12 +82,16 @@ type ModelCatalogReconciler struct {
 
 // ModelCatalogParams is a wrapper for template parameters
 type ModelCatalogParams struct {
-	Name           string
-	Namespace      string
-	Component      string
-	PostgresImage  string
-	AdminGroups    []string
-	LabeledSources []LabeledSource
+	Name               string
+	Namespace          string
+	Component          string
+	PostgresImage      string
+	AdminGroups        []string
+	LabeledSources     []LabeledSource
+	GatewayDomain      string
+	GatewayName        string
+	GatewayNamespace   string
+	HTTPRouteNamespace string
 }
 
 // createPostgresParams creates PostgreSQL-specific ModelCatalogParams.
@@ -134,11 +143,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	catalogParams := &ModelCatalogParams{
-		Name:           modelCatalogName,
-		Namespace:      r.TargetNamespace,
-		Component:      modelCatalogName,
-		AdminGroups:    adminGroups,
-		LabeledSources: labeledSources,
+		Name:               modelCatalogName,
+		Namespace:          r.TargetNamespace,
+		Component:          modelCatalogName,
+		AdminGroups:        adminGroups,
+		LabeledSources:     labeledSources,
+		GatewayDomain:      r.GatewayDomain,
+		GatewayName:        r.GatewayName,
+		GatewayNamespace:   r.GatewayNamespace,
+		HTTPRouteNamespace: r.HTTPRouteNamespace,
 	}
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
@@ -321,22 +334,42 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	if r.Capabilities.IsOpenShift {
-		// Create or update Route
-		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
+		if r.GatewayDomain != "" {
+			// Gateway mode: create HTTPRoute instead of OpenShift Route
+			result2, err = r.createOrUpdateCatalogHTTPRoute(ctx, catalogParams)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+			// Clean up old OpenShift Route and NetworkPolicy from before gateway mode was enabled
+			oldRoute := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https", Namespace: r.TargetNamespace}}
+			if err = client.IgnoreNotFound(r.Client.Delete(ctx, &oldRoute)); err != nil {
+				return ctrl.Result{}, err
+			}
+			oldNP := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https-route", Namespace: r.TargetNamespace}}
+			if err = client.IgnoreNotFound(r.Client.Delete(ctx, &oldNP)); err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			// Route mode: create OpenShift Route
+			result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
 
-		// Create or update NetworkPolicy
-		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
+			// Create or update NetworkPolicy to ensure route is exposed
+			result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
 		}
 	}
 
@@ -469,6 +502,19 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 	}
 
+	// Delete HTTPRoute if it may have been created in gateway mode
+	if r.HTTPRouteNamespace != "" {
+		httpRoute := gatewayapiv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "model-catalog",
+				Namespace: r.HTTPRouteNamespace,
+			},
+		}
+		if err := client.IgnoreNotFound(r.Client.Delete(ctx, &httpRoute)); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Note: We don't delete the sources configmap.
 
 	// Use result to determine if we need to requeue
@@ -545,6 +591,14 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 		return result, err
 	}
 	return result, nil
+}
+
+func (r *ModelCatalogReconciler) createOrUpdateCatalogHTTPRoute(ctx context.Context, params *ModelCatalogParams) (OperationResult, error) {
+	var httpRoute gatewayapiv1.HTTPRoute
+	if err := r.Apply(params, "catalog-gateway-httproute.yaml.tmpl", &httpRoute); err != nil {
+		return ResourceUnchanged, err
+	}
+	return r.createOrUpdate(ctx, &gatewayapiv1.HTTPRoute{}, &httpRoute)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
@@ -1112,6 +1166,10 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresDatabase   string
 		AdminGroups        []string
 		LabeledSources     []LabeledSource
+		GatewayDomain      string
+		GatewayName        string
+		GatewayNamespace   string
+		HTTPRouteNamespace string
 	}{
 		Name:               params.Name,
 		Namespace:          params.Namespace,
@@ -1123,6 +1181,10 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
 		LabeledSources:     params.LabeledSources,
+		GatewayDomain:      params.GatewayDomain,
+		GatewayName:        params.GatewayName,
+		GatewayNamespace:   params.GatewayNamespace,
+		HTTPRouteNamespace: params.HTTPRouteNamespace,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)

@@ -39,6 +39,7 @@ import (
 //go:embed templates/*.yaml.tmpl
 //go:embed templates/kube-rbac-proxy/*.yaml.tmpl
 //go:embed templates/catalog/*.yaml.tmpl
+//go:embed templates/gateway/*.yaml.tmpl
 var templateFS embed.FS
 
 const (
@@ -64,6 +65,15 @@ const (
 	DefaultDomain              = "DEFAULT_DOMAIN"
 	EnableModelCatalog         = "ENABLE_MODEL_CATALOG"
 	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
+
+	// Data Science Gateway env variables and defaults
+	GatewayDomainEnv           = "GATEWAY_DOMAIN"
+	GatewayNameEnv             = "GATEWAY_NAME"
+	GatewayNamespaceEnv        = "GATEWAY_NAMESPACE"
+	HTTPRouteNamespaceEnv      = "HTTPROUTE_NAMESPACE"
+	DefaultGatewayName         = "data-science-gateway"
+	DefaultGatewayNamespace    = "openshift-ingress"
+	DefaultHTTPRouteNamespace  = "redhat-ods-applications"
 
 	// PostgreSQL config env variables
 	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
@@ -139,6 +149,7 @@ func ParseTemplates() (*template.Template, error) {
 		"templates/*.yaml.tmpl",
 		"templates/kube-rbac-proxy/*.yaml.tmpl",
 		"templates/catalog/*.yaml.tmpl",
+		"templates/gateway/*.yaml.tmpl",
 	)
 	if err != nil {
 		return nil, err

@@ -38,6 +38,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -794,11 +796,246 @@ var _ = Describe("ModelRegistry controller", func() {
 				})
 			})
 
+			It("When using gateway mode - HTTPRoute and ReferenceGrant created", func() {
+				registryName = "model-registry-gateway"
+				specInit()
+
+				var postgresPort int32 = 5432
+				var httpsPort int32 = 8443
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "modelregistryuser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{
+					Port:         &httpsPort,
+					ServiceRoute: config.RouteEnabled,
+					Image:        config.DefaultKubeRBACProxyImage,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				config.SetDefaultDomain("example.com", k8sClient, true)
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				modelRegistryReconciler.Capabilities = ClusterCapabilities{
+					IsOpenShift: true,
+					HasUserAPI:  true,
+				}
+				modelRegistryReconciler.GatewayDomain = "gateway.example.com"
+				modelRegistryReconciler.GatewayName = "test-gateway"
+				modelRegistryReconciler.GatewayNamespace = "test-gateway-ns"
+				modelRegistryReconciler.HTTPRouteNamespace = registryName
+
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking if the HTTPRoute was created")
+				Eventually(func() error {
+					found := &gatewayapiv1.HTTPRoute{}
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "model-registry-" + registryName,
+						Namespace: registryName,
+					}, found)
+				}, 5*time.Second, time.Second).Should(Succeed())
+
+				By("Checking if the ReferenceGrant was created")
+				Eventually(func() error {
+					found := &gatewayapiv1beta1.ReferenceGrant{}
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "allow-gateway-httproutes",
+						Namespace: registryName,
+					}, found)
+				}, 5*time.Second, time.Second).Should(Succeed())
+
+				By("Checking that old plain HTTP Route was NOT created")
+				found := &routev1.Route{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      registryName + "-http",
+					Namespace: registryName,
+				}, found)
+				Expect(err).To(HaveOccurred())
+
+				By("Checking that kube-rbac-proxy Route was deleted in gateway mode")
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      registryName + "-https",
+					Namespace: registryName,
+				}, found)
+				Expect(err).To(HaveOccurred())
+			})
+
+			It("When switching from route mode to gateway mode - old Routes cleaned up", func() {
+				registryName = "model-registry-route-to-gateway"
+				specInit()
+
+				var postgresPort int32 = 5432
+				var httpsPort int32 = 8443
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "modelregistryuser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.Rest.ServiceRoute = config.RouteEnabled
+				modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{
+					Port:         &httpsPort,
+					ServiceRoute: config.RouteEnabled,
+					Image:        config.DefaultKubeRBACProxyImage,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				config.SetDefaultDomain("example.com", k8sClient, true)
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				modelRegistryReconciler.Capabilities = ClusterCapabilities{
+					IsOpenShift: true,
+					HasUserAPI:  true,
+				}
+
+				By("Reconciling in route mode first")
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Checking that plain HTTP Route exists in route mode")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      registryName + "-http",
+						Namespace: registryName,
+					}, &routev1.Route{})
+				}, 5*time.Second, time.Second).Should(Succeed())
+
+				By("Switching to gateway mode")
+				modelRegistryReconciler.GatewayDomain = "gateway.example.com"
+				modelRegistryReconciler.GatewayName = "test-gateway"
+				modelRegistryReconciler.GatewayNamespace = "test-gateway-ns"
+				modelRegistryReconciler.HTTPRouteNamespace = registryName
+
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking that old plain HTTP Route was cleaned up")
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, types.NamespacedName{
+						Name:      registryName + "-http",
+						Namespace: registryName,
+					}, &routev1.Route{})
+					return errors.IsNotFound(err)
+				}, 10*time.Second, time.Second).Should(BeTrue())
+
+				By("Checking that kube-rbac-proxy Route was cleaned up")
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, types.NamespacedName{
+						Name:      registryName + "-https",
+						Namespace: registryName,
+					}, &routev1.Route{})
+					return errors.IsNotFound(err)
+				}, 10*time.Second, time.Second).Should(BeTrue())
+
+				By("Checking that HTTPRoute was created")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Name:      "model-registry-" + registryName,
+						Namespace: registryName,
+					}, &gatewayapiv1.HTTPRoute{})
+				}, 5*time.Second, time.Second).Should(Succeed())
+			})
+
+			It("Finalizer deletes HTTPRoute even when gateway mode is disabled", func() {
+				registryName = "model-registry-finalizer-gateway"
+				specInit()
+
+				var postgresPort int32 = 5432
+				var httpsPort int32 = 8443
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "modelregistryuser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+				modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{
+					Port:  &httpsPort,
+					Image: config.DefaultKubeRBACProxyImage,
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				config.SetDefaultDomain("example.com", k8sClient, true)
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				modelRegistryReconciler.Capabilities = ClusterCapabilities{
+					IsOpenShift: true,
+					HasUserAPI:  true,
+				}
+				modelRegistryReconciler.GatewayDomain = "gateway.example.com"
+				modelRegistryReconciler.GatewayName = "test-gateway"
+				modelRegistryReconciler.GatewayNamespace = "test-gateway-ns"
+				modelRegistryReconciler.HTTPRouteNamespace = registryName
+
+				By("Reconciling in gateway mode to create HTTPRoute")
+				Eventually(validateRegistryBase(ctx, typeNamespaceName, modelRegistry, modelRegistryReconciler),
+					time.Minute, time.Second).Should(Succeed())
+
+				By("Verifying HTTPRoute exists")
+				httpRouteName := types.NamespacedName{
+					Name:      "model-registry-" + registryName,
+					Namespace: registryName,
+				}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, httpRouteName, &gatewayapiv1.HTTPRoute{})
+				}, 5*time.Second, time.Second).Should(Succeed())
+
+				By("Disabling gateway mode (simulating operator restart without GATEWAY_DOMAIN)")
+				modelRegistryReconciler.GatewayDomain = ""
+
+				By("Deleting the ModelRegistry CR to trigger finalizer")
+				found := &v1beta1.ModelRegistry{}
+				err = k8sClient.Get(ctx, typeNamespaceName, found)
+				Expect(err).To(Not(HaveOccurred()))
+
+				Eventually(func() error {
+					return k8sClient.Delete(ctx, found)
+				}, 2*time.Minute, time.Second).Should(Succeed())
+
+				By("Running finalizer reconcile")
+				Eventually(func() error {
+					_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+						NamespacedName: typeNamespaceName,
+					})
+					return err
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking that HTTPRoute was cleaned up by finalizer")
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, httpRouteName, &gatewayapiv1.HTTPRoute{})
+					return errors.IsNotFound(err)
+				}, 10*time.Second, time.Second).Should(BeTrue())
+			})
+
 			AfterEach(func() {
 				By("removing the custom resource for the Kind ModelRegistry")
 				found := &v1beta1.ModelRegistry{}
 				err := k8sClient.Get(ctx, typeNamespaceName, found)
-				Expect(err).To(Not(HaveOccurred()))
+				if err != nil {
+					return
+				}
 
 				Eventually(func() error {
 					return k8sClient.Delete(context.TODO(), found)
@@ -810,6 +1047,20 @@ var _ = Describe("ModelRegistry controller", func() {
 				svc.Namespace = typeNamespaceName.Namespace
 
 				_ = k8sClient.Delete(ctx, &svc)
+
+				By("Cleaning up gateway resources")
+				_ = k8sClient.Delete(ctx, &gatewayapiv1.HTTPRoute{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-registry-" + registryName,
+						Namespace: registryName,
+					},
+				})
+				_ = k8sClient.Delete(ctx, &gatewayapiv1beta1.ReferenceGrant{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "allow-gateway-httproutes",
+						Namespace: registryName,
+					},
+				})
 
 				// TODO(user): Attention if you improve this code by adding other context test you MUST
 				// be aware of the current delete namespace limitations.
