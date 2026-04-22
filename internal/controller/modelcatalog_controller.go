@@ -345,11 +345,11 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			}
 			// Clean up old OpenShift Route and NetworkPolicy from before gateway mode was enabled
 			oldRoute := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https", Namespace: r.TargetNamespace}}
-			if err = client.IgnoreNotFound(r.Client.Delete(ctx, &oldRoute)); err != nil {
+			if err = client.IgnoreNotFound(r.Delete(ctx, &oldRoute)); err != nil {
 				return ctrl.Result{}, err
 			}
 			oldNP := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https-route", Namespace: r.TargetNamespace}}
-			if err = client.IgnoreNotFound(r.Client.Delete(ctx, &oldNP)); err != nil {
+			if err = client.IgnoreNotFound(r.Delete(ctx, &oldNP)); err != nil {
 				return ctrl.Result{}, err
 			}
 		} else {
@@ -510,7 +510,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 				Namespace: r.HTTPRouteNamespace,
 			},
 		}
-		if err := client.IgnoreNotFound(r.Client.Delete(ctx, &httpRoute)); err != nil {
+		if err := client.IgnoreNotFound(r.Delete(ctx, &httpRoute)); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
