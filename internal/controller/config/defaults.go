@@ -67,13 +67,13 @@ const (
 	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
 
 	// Data Science Gateway env variables and defaults
-	GatewayDomainEnv           = "GATEWAY_DOMAIN"
-	GatewayNameEnv             = "GATEWAY_NAME"
-	GatewayNamespaceEnv        = "GATEWAY_NAMESPACE"
-	HTTPRouteNamespaceEnv      = "HTTPROUTE_NAMESPACE"
-	DefaultGatewayName         = "data-science-gateway"
-	DefaultGatewayNamespace    = "openshift-ingress"
-	DefaultHTTPRouteNamespace  = "redhat-ods-applications"
+	GatewayDomainEnv          = "GATEWAY_DOMAIN"
+	GatewayNameEnv            = "GATEWAY_NAME"
+	GatewayNamespaceEnv       = "GATEWAY_NAMESPACE"
+	HTTPRouteNamespaceEnv     = "HTTPROUTE_NAMESPACE"
+	DefaultGatewayName        = "data-science-gateway"
+	DefaultGatewayNamespace   = "openshift-ingress"
+	DefaultHTTPRouteNamespace = "redhat-ods-applications"
 
 	// PostgreSQL config env variables
 	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"

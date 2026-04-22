@@ -62,7 +62,7 @@ var (
 	k8sClient        client.Client
 	testEnv          *envtest.Environment
 	testCRDLocalPath = "./testdata/crd"
-	remoteCRDs = []remoteCRD{
+	remoteCRDs       = []remoteCRD{
 		{
 			url:      "https://raw.githubusercontent.com/openshift/api/e7ac40fc1590efe8697d76691aa644d1ec3f07a7/route/v1/zz_generated.crd-manifests/routes.crd.yaml",
 			fileName: "route.openshift.io_routes.yaml",
