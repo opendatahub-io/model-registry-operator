@@ -1297,20 +1297,28 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			Expect(err).To(Not(HaveOccurred()))
 			if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled {
 				hosts := modelRegistry.Status.Hosts
-				Expect(len(hosts)).To(Equal(4))
 				name := modelRegistry.Name
 				namespace := modelRegistry.Namespace
 				domain := modelRegistry.Spec.KubeRBACProxy.Domain
 				if domain == "" {
 					domain = config.GetDefaultDomain()
 				}
-				Expect(hosts[0]).
+				idx := 0
+				if modelRegistryReconciler.GatewayDomain != "" {
+					Expect(len(hosts)).To(Equal(5))
+					Expect(hosts[idx]).
+						To(Equal(fmt.Sprintf("%s/model-registry/%s", modelRegistryReconciler.GatewayDomain, name)))
+					idx++
+				} else {
+					Expect(len(hosts)).To(Equal(4))
+				}
+				Expect(hosts[idx]).
 					To(Equal(fmt.Sprintf("%s-rest.%s", name, domain)))
-				Expect(hosts[1]).
+				Expect(hosts[idx+1]).
 					To(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace)))
-				Expect(hosts[2]).
+				Expect(hosts[idx+2]).
 					To(Equal(fmt.Sprintf("%s.%s", name, namespace)))
-				Expect(hosts[3]).
+				Expect(hosts[idx+3]).
 					To(Equal(name))
 				Expect(modelRegistry.Status.HostsStr).To(Equal(strings.Join(hosts, ",")))
 			}

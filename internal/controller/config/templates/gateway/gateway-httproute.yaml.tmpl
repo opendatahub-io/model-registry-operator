@@ -34,5 +34,5 @@ spec:
           kind: Service
           name: {{.Name}}
           namespace: {{.Namespace}}
-          port: {{.Spec.KubeRBACProxy.Port}}
+          port: {{if .Spec.KubeRBACProxy}}{{.Spec.KubeRBACProxy.Port}}{{else}}{{.Spec.Rest.Port}}{{end}}
           weight: 1
