@@ -454,21 +454,17 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 			if result2 != ResourceUnchanged {
 				result = result2
 			}
-			// Clean up old plain HTTP Route from before gateway mode was enabled
-			oldRoute := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-http", Namespace: params.Namespace}}
-			if err = client.IgnoreNotFound(r.Delete(ctx, &oldRoute)); err != nil {
-				return result, err
-			}
-		} else {
-			// create simple openshift service route, if configured
-			result2, err = r.createOrUpdateRoute(ctx, params, registry,
-				"http-route.yaml.tmpl", registry.Spec.Rest.ServiceRoute)
-			if err != nil {
-				return result2, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
+		}
+
+		// create simple openshift service route, if configured
+		// kept alongside HTTPRoutes in gateway mode for backward compatibility
+		result2, err = r.createOrUpdateRoute(ctx, params, registry,
+			"http-route.yaml.tmpl", registry.Spec.Rest.ServiceRoute)
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
 		}
 	}
 

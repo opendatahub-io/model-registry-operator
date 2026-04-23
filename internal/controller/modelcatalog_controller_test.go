@@ -295,7 +295,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					Expect(networkPolicy.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
 				})
 
-				It("Should create HTTPRoute and clean up old Route in gateway mode", func() {
+				It("Should create HTTPRoute and keep old Route in gateway mode", func() {
 					By("First creating catalog resources in route mode")
 					_, err := catalogReconciler.ensureCatalogResources(ctx)
 					Expect(err).To(Not(HaveOccurred()))
@@ -308,7 +308,7 @@ var _ = Describe("ModelCatalog controller", func() {
 					}, route)
 					Expect(err).To(Not(HaveOccurred()))
 
-					By("Switching to gateway mode")
+					By("Switching to gateway mode (without DeleteLegacyRoutes)")
 					catalogReconciler.GatewayDomain = "gateway.example.com"
 					catalogReconciler.GatewayName = "test-gateway"
 					catalogReconciler.GatewayNamespace = "test-gateway-ns"
@@ -326,15 +326,14 @@ var _ = Describe("ModelCatalog controller", func() {
 					Expect(err).To(Not(HaveOccurred()))
 					Expect(httpRoute.Labels["component"]).To(Equal("model-catalog"))
 
-					By("Checking that old Route was cleaned up")
-					Eventually(func() bool {
-						err = k8sClient.Get(ctx, types.NamespacedName{
-							Name:      modelCatalogName + "-https",
-							Namespace: namespaceName,
-						}, &routev1.Route{})
-						return apierrors.IsNotFound(err)
-					}, 10*time.Second, time.Second).Should(BeTrue())
+					By("Checking that old Route still exists for backward compatibility")
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Name:      modelCatalogName + "-https",
+						Namespace: namespaceName,
+					}, &routev1.Route{})
+					Expect(err).To(Not(HaveOccurred()))
 				})
+
 			})
 		})
 

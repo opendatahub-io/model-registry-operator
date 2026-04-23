@@ -423,8 +423,8 @@ func (r *ModelRegistryReconciler) SetKubeRBACProxyCondition(ctx context.Context,
 
 			reason2 = ReasonResourcesAvailable
 
-			// also check kube-rbac-proxy route if enabled (skip in gateway mode — route is deleted)
-			if modelRegistry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled && r.GatewayDomain == "" {
+			// also check kube-rbac-proxy route if enabled
+			if modelRegistry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
 				// get proxy route
 				var routeList routev1.RouteList
 				err := r.List(ctx, &routeList, client.InNamespace(req.Namespace), client.MatchingLabels(map[string]string{

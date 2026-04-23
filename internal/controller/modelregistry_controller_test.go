@@ -853,7 +853,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					}, found)
 				}, 5*time.Second, time.Second).Should(Succeed())
 
-				By("Checking that old plain HTTP Route was NOT created")
+				By("Checking that plain HTTP Route is not created (Rest.ServiceRoute is not enabled)")
 				found := &routev1.Route{}
 				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      registryName + "-http",
@@ -861,15 +861,15 @@ var _ = Describe("ModelRegistry controller", func() {
 				}, found)
 				Expect(err).To(HaveOccurred())
 
-				By("Checking that kube-rbac-proxy Route was deleted in gateway mode")
+				By("Checking that kube-rbac-proxy Route is still created for backward compatibility")
 				err = k8sClient.Get(ctx, types.NamespacedName{
 					Name:      registryName + "-https",
 					Namespace: registryName,
 				}, found)
-				Expect(err).To(HaveOccurred())
+				Expect(err).To(Not(HaveOccurred()))
 			})
 
-			It("When switching from route mode to gateway mode - old Routes cleaned up", func() {
+			It("When switching from route mode to gateway mode - old Routes kept for backward compatibility", func() {
 				registryName = "model-registry-route-to-gateway"
 				specInit()
 
@@ -914,7 +914,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					}, &routev1.Route{})
 				}, 5*time.Second, time.Second).Should(Succeed())
 
-				By("Switching to gateway mode")
+				By("Switching to gateway mode (without DeleteLegacyRoutes)")
 				modelRegistryReconciler.GatewayDomain = "gateway.example.com"
 				modelRegistryReconciler.GatewayName = "test-gateway"
 				modelRegistryReconciler.GatewayNamespace = "test-gateway-ns"
@@ -927,25 +927,23 @@ var _ = Describe("ModelRegistry controller", func() {
 					return err
 				}, time.Minute, time.Second).Should(Succeed())
 
-				By("Checking that old plain HTTP Route was cleaned up")
-				Eventually(func() bool {
-					err := k8sClient.Get(ctx, types.NamespacedName{
+				By("Checking that old plain HTTP Route still exists")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
 						Name:      registryName + "-http",
 						Namespace: registryName,
 					}, &routev1.Route{})
-					return errors.IsNotFound(err)
-				}, 10*time.Second, time.Second).Should(BeTrue())
+				}, 5*time.Second, time.Second).Should(Succeed())
 
-				By("Checking that kube-rbac-proxy Route was cleaned up")
-				Eventually(func() bool {
-					err := k8sClient.Get(ctx, types.NamespacedName{
+				By("Checking that kube-rbac-proxy Route still exists")
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
 						Name:      registryName + "-https",
 						Namespace: registryName,
 					}, &routev1.Route{})
-					return errors.IsNotFound(err)
-				}, 10*time.Second, time.Second).Should(BeTrue())
+				}, 5*time.Second, time.Second).Should(Succeed())
 
-				By("Checking that HTTPRoute was created")
+				By("Checking that HTTPRoute was created alongside Routes")
 				Eventually(func() error {
 					return k8sClient.Get(ctx, types.NamespacedName{
 						Name:      "model-registry-" + registryName,

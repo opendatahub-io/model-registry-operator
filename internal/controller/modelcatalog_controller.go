@@ -335,7 +335,7 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.Capabilities.IsOpenShift {
 		if r.GatewayDomain != "" {
-			// Gateway mode: create HTTPRoute instead of OpenShift Route
+			// Gateway mode: create HTTPRoute
 			result2, err = r.createOrUpdateCatalogHTTPRoute(ctx, catalogParams)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -343,33 +343,24 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			if result2 != ResourceUnchanged {
 				result = result2
 			}
-			// Clean up old OpenShift Route and NetworkPolicy from before gateway mode was enabled
-			oldRoute := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https", Namespace: r.TargetNamespace}}
-			if err = client.IgnoreNotFound(r.Delete(ctx, &oldRoute)); err != nil {
-				return ctrl.Result{}, err
-			}
-			oldNP := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: modelCatalogName + "-https-route", Namespace: r.TargetNamespace}}
-			if err = client.IgnoreNotFound(r.Delete(ctx, &oldNP)); err != nil {
-				return ctrl.Result{}, err
-			}
-		} else {
-			// Route mode: create OpenShift Route
-			result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
+		}
 
-			// Create or update NetworkPolicy to ensure route is exposed
-			result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if result2 != ResourceUnchanged {
-				result = result2
-			}
+		// Create OpenShift Route and NetworkPolicy
+		// kept alongside HTTPRoutes in gateway mode for backward compatibility
+		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
 		}
 	}
 
