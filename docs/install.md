@@ -219,7 +219,7 @@ oc get dsc default-dsc -o json | jq '.status.phase'
 
 ## Install Database (skip if using existing database)
 
-Model Registry currently requires MySQL database 8.0.3 or above to function correctly. If you have a database already available you can skip this section all together.
+Model Registry currently requires a MySQL-compatible database (MySQL 8.0.3+ or MariaDB 10.11+) to function correctly. If you have a database already available you can skip this section all together.
 
 > [!IMPORTANT]  
 > The `mysql_native_password` authentication plugin is required for the ML Metadata component to successfully connect to your database. `mysql_native_password` is disabled by default in MySQL 8.4 and later. If your database uses MySQL 8.4 or later, you must update your MySQL deployment to enable the `mysql_native_password` plugin. 
@@ -399,6 +399,215 @@ oc wait --for=condition=available deployment/model-registry-db --timeout=5m
 ```
 
 If you encounter image pull limits, you could replace the sample db image with analogous one from (upstream [example](https://github.com/kubeflow/model-registry?tab=readme-ov-file#pull-image-rate-limiting)).
+
+### Alternative: MariaDB
+
+If you prefer MariaDB or encounter Docker Hub pull-rate limits with the MySQL image, you can use a MariaDB deployment instead. MariaDB is wire-compatible with MySQL and uses a [Quay.io](https://quay.io) image that is not subject to Docker Hub rate limits.
+
+> [!NOTE]
+> MariaDB supports native password authentication by default, so the `mysql_native_password` plugin warnings above do not apply.
+
+> [!WARNING]  
+> If copy-pasting the yaml below, pay attention to the `\$` sequence needed for escaping `$` on the command line; if you are copying the content in an editor/console, make sure to remove the escape or use [this](../config/samples/mariadb/mariadb-db.yaml) sample instead.
+
+```sh
+oc apply -f - <<EOF
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app.kubernetes.io/name: model-registry-db
+      app.kubernetes.io/instance: model-registry-db
+      app.kubernetes.io/part-of: model-registry-db
+      app.kubernetes.io/managed-by: kustomize
+    annotations:
+      template.openshift.io/expose-uri: mysql://{.spec.clusterIP}:{.spec.ports[?(.name=='mysql')].port}
+    name: model-registry-db
+  spec:
+    ports:
+    - name: mysql
+      port: 3306
+      protocol: TCP
+      appProtocol: tcp
+      targetPort: 3306
+    selector:
+      name: model-registry-db
+    sessionAffinity: None
+    type: ClusterIP
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      app.kubernetes.io/name: model-registry-db
+      app.kubernetes.io/instance: model-registry-db
+      app.kubernetes.io/part-of: model-registry-db
+      app.kubernetes.io/managed-by: kustomize
+    name: model-registry-db
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 5Gi
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    labels:
+      app.kubernetes.io/name: model-registry-db
+      app.kubernetes.io/instance: model-registry-db
+      app.kubernetes.io/part-of: model-registry-db
+      app.kubernetes.io/managed-by: kustomize
+    name: model-registry-db
+  data:
+    my.cnf: |
+      [mysqld]
+      bind-address = 0.0.0.0
+      default_storage_engine = InnoDB
+      binlog_format = row
+      innodb_autoinc_lock_mode = 2
+      innodb_buffer_pool_size = 256M
+      max_allowed_packet = 256M
+      max_connections = 100
+      character-set-server = utf8mb4
+      collation-server = utf8mb4_unicode_ci
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    labels:
+      app.kubernetes.io/name: model-registry-db
+      app.kubernetes.io/instance: model-registry-db
+      app.kubernetes.io/part-of: model-registry-db
+      app.kubernetes.io/managed-by: kustomize
+    annotations:
+      template.alpha.openshift.io/wait-for-ready: "true"
+    name: model-registry-db
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 0
+    selector:
+      matchLabels:
+        name: model-registry-db
+    strategy:
+      type: Recreate
+    template:
+      metadata:
+        labels:
+          name: model-registry-db
+        annotations:
+          sidecar.istio.io/inject: "false"
+      spec:
+        containers:
+        - env:
+          - name: MARIADB_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: model-registry-db
+          - name: MYSQL_ROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: model-registry-db
+          - name: MYSQL_USER
+            valueFrom:
+              secretKeyRef:
+                key: database-user
+                name: model-registry-db
+          - name: MYSQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: model-registry-db
+          - name: MYSQL_DATABASE
+            valueFrom:
+              secretKeyRef:
+                key: database-name
+                name: model-registry-db
+          image: quay.io/fedora/mariadb-1011:latest
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - mysqladmin -u\${MYSQL_USER} -p\${MYSQL_ROOT_PASSWORD} ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          name: mariadb
+          ports:
+          - containerPort: 3306
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/bash
+              - -c
+              - mysql -D \${MYSQL_DATABASE} -u\${MYSQL_USER} -p\${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+          - mountPath: /var/lib/mysql
+            name: mariadb-data
+          - mountPath: /etc/mysql/conf.d
+            name: mariadb-config
+            readOnly: true
+          - mountPath: /var/log/mysql
+            name: mysql-logs
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        volumes:
+        - name: mariadb-data
+          persistentVolumeClaim:
+            claimName: model-registry-db
+        - name: mariadb-config
+          configMap:
+            name: model-registry-db
+        - name: mysql-logs
+          emptyDir: {}
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    labels:
+      app.kubernetes.io/name: model-registry-db
+      app.kubernetes.io/instance: model-registry-db
+      app.kubernetes.io/part-of: model-registry-db
+      app.kubernetes.io/managed-by: kustomize
+    annotations:
+      template.openshift.io/expose-database_name: '{.data[''database-name'']}'
+      template.openshift.io/expose-password: '{.data[''database-password'']}'
+      template.openshift.io/expose-username: '{.data[''database-user'']}'
+    name: model-registry-db
+  stringData:
+    database-name: "model_registry"
+    database-password: "TheBlurstOfTimes" # notsecret
+    database-user: "modelregistryuser" # notsecret
+kind: List
+metadata: {}
+EOF
+```
+
+make sure the database is in `available` state
+
+```sh
+oc wait --for=condition=available deployment/model-registry-db --timeout=5m
+```
 
 ## Install Model Registry
 
