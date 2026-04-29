@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -336,7 +337,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	if r.Capabilities.IsOpenShift {
 		if r.GatewayDomain != "" {
-			// Gateway mode: create HTTPRoute
+			// Gateway mode: ensure cross-namespace ReferenceGrant, then create HTTPRoute
+			result2, err = r.ensureCatalogReferenceGrantExists(ctx, catalogParams)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+
 			result2, err = r.createOrUpdateCatalogHTTPRoute(ctx, catalogParams)
 			if err != nil {
 				return ctrl.Result{}, err
@@ -583,6 +592,14 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 		return result, err
 	}
 	return result, nil
+}
+
+func (r *ModelCatalogReconciler) ensureCatalogReferenceGrantExists(ctx context.Context, params *ModelCatalogParams) (OperationResult, error) {
+	var refGrant gatewayapiv1beta1.ReferenceGrant
+	if err := r.Apply(params, "gateway-reference-grant.yaml.tmpl", &refGrant); err != nil {
+		return ResourceUnchanged, err
+	}
+	return r.createIfNotExists(ctx, &gatewayapiv1beta1.ReferenceGrant{}, &refGrant)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateCatalogHTTPRoute(ctx context.Context, params *ModelCatalogParams) (OperationResult, error) {
