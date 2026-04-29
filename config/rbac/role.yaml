@@ -90,7 +90,6 @@ rules:
   - gateway.networking.k8s.io
   resources:
   - httproutes
-  - referencegrants
   verbs:
   - create
   - delete
@@ -98,6 +97,15 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - referencegrants
+  verbs:
+  - create
+  - get
+  - list
   - watch
 - apiGroups:
   - migration.k8s.io

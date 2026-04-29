@@ -68,11 +68,11 @@ var (
 			fileName: "route.openshift.io_routes.yaml",
 		},
 		{
-			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.5.1/config/crd/standard/gateway.networking.k8s.io_httproutes.yaml",
+			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/e7677b70ae75d14a4448fba94870e7deea6cf0ad/config/crd/standard/gateway.networking.k8s.io_httproutes.yaml",
 			fileName: "gateway.networking.k8s.io_httproutes.yaml",
 		},
 		{
-			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/v1.5.1/config/crd/standard/gateway.networking.k8s.io_referencegrants.yaml",
+			url:      "https://raw.githubusercontent.com/kubernetes-sigs/gateway-api/e7677b70ae75d14a4448fba94870e7deea6cf0ad/config/crd/standard/gateway.networking.k8s.io_referencegrants.yaml",
 			fileName: "gateway.networking.k8s.io_referencegrants.yaml",
 		},
 	}

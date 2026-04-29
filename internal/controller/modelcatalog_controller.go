@@ -21,6 +21,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -501,7 +502,7 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 				Namespace: r.HTTPRouteNamespace,
 			},
 		}
-		if err := client.IgnoreNotFound(r.Delete(ctx, &httpRoute)); err != nil {
+		if err := r.Delete(ctx, &httpRoute); err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
 			return ctrl.Result{}, err
 		}
 	}
