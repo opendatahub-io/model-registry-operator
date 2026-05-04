@@ -158,6 +158,10 @@ func (r *ModelRegistryReconciler) setRegistryStatusHosts(req ctrl.Request, param
 
 	name := req.Name
 
+	if r.GatewayDomain != "" {
+		hosts = append(hosts, fmt.Sprintf("%s/model-registry/%s", r.GatewayDomain, name))
+	}
+
 	// Check kube-rbac-proxy for HTTPS route
 	if registry.Spec.KubeRBACProxy != nil && registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
 		// use domain from the kube-rbac-proxy configuration

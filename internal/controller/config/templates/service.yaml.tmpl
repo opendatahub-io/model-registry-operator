@@ -17,7 +17,9 @@ metadata:
       {{- if not .OriginalSpec.KubeRBACProxy.TLSCertificateSecret}}
     service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-kube-rbac-proxy
       {{- end}}
-      {{- if eq .Spec.KubeRBACProxy.ServiceRoute "enabled"}}
+      {{- if .GatewayDomain}}
+    routing.opendatahub.io/external-address-rest: {{.GatewayDomain}}/model-registry/{{.Name}}
+      {{- else if eq .Spec.KubeRBACProxy.ServiceRoute "enabled"}}
     routing.opendatahub.io/external-address-rest: {{.Name}}-rest.{{.Spec.KubeRBACProxy.Domain}}:{{.Spec.KubeRBACProxy.RoutePort}}
       {{- end}}
     {{- end}}

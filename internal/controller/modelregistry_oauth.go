@@ -69,6 +69,7 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 		}
 
 		// check if cluster is OpenShift for Route support
+		// kept alongside HTTPRoutes in gateway mode for backward compatibility
 		if r.Capabilities.IsOpenShift {
 			// create kube-rbac-proxy service route if enabled, delete if disabled
 			result2, err := r.createOrUpdateRoute(ctx, params, registry,

@@ -15,7 +15,11 @@ metadata:
   annotations:
     {{- if .Spec.KubeRBACProxy}}
     service.beta.openshift.io/serving-cert-secret-name: {{.Name}}-kube-rbac-proxy
+      {{- if .GatewayDomain}}
+    routing.opendatahub.io/external-address-rest: {{.GatewayDomain}}/catalog
+      {{- else}}
     routing.opendatahub.io/external-address-rest: {{.Name}}.{{.Spec.KubeRBACProxy.Domain}}:{{.Spec.KubeRBACProxy.RoutePort}}
+      {{- end}}
     {{- end}}
 spec:
   ports:
