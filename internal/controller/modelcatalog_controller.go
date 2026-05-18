@@ -21,6 +21,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,6 +37,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -63,6 +66,10 @@ type ModelCatalogReconciler struct {
 	TargetNamespace       string
 	Enabled               bool
 	SkipCatalogDBCreation bool
+	GatewayDomain         string
+	GatewayName           string
+	GatewayNamespace      string
+	HTTPRouteNamespace    string
 
 	// noDefaultSource is set after checking for the default source in the
 	// user-managed sources configmap. When true, the default source is
@@ -77,12 +84,16 @@ type ModelCatalogReconciler struct {
 
 // ModelCatalogParams is a wrapper for template parameters
 type ModelCatalogParams struct {
-	Name           string
-	Namespace      string
-	Component      string
-	PostgresImage  string
-	AdminGroups    []string
-	LabeledSources []LabeledSource
+	Name               string
+	Namespace          string
+	Component          string
+	PostgresImage      string
+	AdminGroups        []string
+	LabeledSources     []LabeledSource
+	GatewayDomain      string
+	GatewayName        string
+	GatewayNamespace   string
+	HTTPRouteNamespace string
 }
 
 // createPostgresParams creates PostgreSQL-specific ModelCatalogParams.
@@ -134,11 +145,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	catalogParams := &ModelCatalogParams{
-		Name:           modelCatalogName,
-		Namespace:      r.TargetNamespace,
-		Component:      modelCatalogName,
-		AdminGroups:    adminGroups,
-		LabeledSources: labeledSources,
+		Name:               modelCatalogName,
+		Namespace:          r.TargetNamespace,
+		Component:          modelCatalogName,
+		AdminGroups:        adminGroups,
+		LabeledSources:     labeledSources,
+		GatewayDomain:      r.GatewayDomain,
+		GatewayName:        r.GatewayName,
+		GatewayNamespace:   r.GatewayNamespace,
+		HTTPRouteNamespace: r.HTTPRouteNamespace,
 	}
 
 	// Fetch the info from the platform's default-modelregistry CR to use an owner.
@@ -321,7 +336,27 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 	}
 
 	if r.Capabilities.IsOpenShift {
-		// Create or update Route
+		if r.GatewayDomain != "" {
+			// Gateway mode: ensure cross-namespace ReferenceGrant, then create HTTPRoute
+			result2, err = r.ensureCatalogReferenceGrantExists(ctx, catalogParams)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+
+			result2, err = r.createOrUpdateCatalogHTTPRoute(ctx, catalogParams)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		}
+
+		// Create OpenShift Route and NetworkPolicy
+		// kept alongside HTTPRoutes in gateway mode for backward compatibility
 		result2, err = r.createOrUpdateRoute(ctx, catalogParams, "catalog-kube-rbac-proxy-https-route.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -330,7 +365,6 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			result = result2
 		}
 
-		// Create or update NetworkPolicy
 		result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", deploymentOwner)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -469,6 +503,19 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 	}
 
+	// Delete HTTPRoute if it may have been created in gateway mode
+	if r.HTTPRouteNamespace != "" {
+		httpRoute := gatewayapiv1.HTTPRoute{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "model-catalog",
+				Namespace: r.HTTPRouteNamespace,
+			},
+		}
+		if err := r.Delete(ctx, &httpRoute); err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Note: We don't delete the sources configmap.
 
 	// Use result to determine if we need to requeue
@@ -545,6 +592,22 @@ func (r *ModelCatalogReconciler) createOrUpdateService(ctx context.Context, para
 		return result, err
 	}
 	return result, nil
+}
+
+func (r *ModelCatalogReconciler) ensureCatalogReferenceGrantExists(ctx context.Context, params *ModelCatalogParams) (OperationResult, error) {
+	var refGrant gatewayapiv1beta1.ReferenceGrant
+	if err := r.Apply(params, "gateway-reference-grant.yaml.tmpl", &refGrant); err != nil {
+		return ResourceUnchanged, err
+	}
+	return r.createIfNotExists(ctx, &gatewayapiv1beta1.ReferenceGrant{}, &refGrant)
+}
+
+func (r *ModelCatalogReconciler) createOrUpdateCatalogHTTPRoute(ctx context.Context, params *ModelCatalogParams) (OperationResult, error) {
+	var httpRoute gatewayapiv1.HTTPRoute
+	if err := r.Apply(params, "catalog-gateway-httproute.yaml.tmpl", &httpRoute); err != nil {
+		return ResourceUnchanged, err
+	}
+	return r.createOrUpdate(ctx, &gatewayapiv1.HTTPRoute{}, &httpRoute)
 }
 
 func (r *ModelCatalogReconciler) createOrUpdateRoute(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
@@ -1112,6 +1175,10 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresDatabase   string
 		AdminGroups        []string
 		LabeledSources     []LabeledSource
+		GatewayDomain      string
+		GatewayName        string
+		GatewayNamespace   string
+		HTTPRouteNamespace string
 	}{
 		Name:               params.Name,
 		Namespace:          params.Namespace,
@@ -1123,6 +1190,10 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
 		LabeledSources:     params.LabeledSources,
+		GatewayDomain:      params.GatewayDomain,
+		GatewayName:        params.GatewayName,
+		GatewayNamespace:   params.GatewayNamespace,
+		HTTPRouteNamespace: params.HTTPRouteNamespace,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)

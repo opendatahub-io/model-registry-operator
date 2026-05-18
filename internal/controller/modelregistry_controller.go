@@ -62,13 +62,17 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
-	ClientSet      *kubernetes.Clientset
-	Scheme         *runtime.Scheme
-	Recorder       events.EventRecorder
-	Log            logr.Logger
-	Template       *template.Template
-	EnableWebhooks bool
-	Capabilities   ClusterCapabilities
+	ClientSet          *kubernetes.Clientset
+	Scheme             *runtime.Scheme
+	Recorder           events.EventRecorder
+	Log                logr.Logger
+	Template           *template.Template
+	EnableWebhooks     bool
+	Capabilities       ClusterCapabilities
+	GatewayDomain      string
+	GatewayName        string
+	GatewayNamespace   string
+	HTTPRouteNamespace string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -211,6 +215,13 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Namespace:    req.Namespace,
 		Spec:         &modelRegistry.Spec,
 		OriginalSpec: originalSpec,
+	}
+
+	if r.GatewayDomain != "" {
+		params.GatewayDomain = r.GatewayDomain
+		params.GatewayName = r.GatewayName
+		params.GatewayNamespace = r.GatewayNamespace
+		params.HTTPRouteNamespace = r.HTTPRouteNamespace
 	}
 
 	// update registry service
@@ -434,7 +445,19 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 			result = result2
 		}
 
+		if r.GatewayDomain != "" {
+			// Data Science Gateway mode: create HTTPRoute + ReferenceGrant
+			result2, err = r.createOrUpdateGatewayResources(ctx, params)
+			if err != nil {
+				return result2, err
+			}
+			if result2 != ResourceUnchanged {
+				result = result2
+			}
+		}
+
 		// create simple openshift service route, if configured
+		// kept alongside HTTPRoutes in gateway mode for backward compatibility
 		result2, err = r.createOrUpdateRoute(ctx, params, registry,
 			"http-route.yaml.tmpl", registry.Spec.Rest.ServiceRoute)
 		if err != nil {
@@ -847,6 +870,18 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 		}
 	}
 
+	// Always attempt to delete cross-namespace HTTPRoute — the delete is a no-op
+	// when no HTTPRoute exists, but ensures cleanup even if the operator was
+	// restarted with GATEWAY_DOMAIN unset after creating gateway resources.
+	params := &ModelRegistryParams{
+		Name:               registry.Name,
+		Namespace:          registry.Namespace,
+		HTTPRouteNamespace: r.HTTPRouteNamespace,
+	}
+	if err := r.deleteGatewayResources(ctx, params); err != nil {
+		return fmt.Errorf("failed to delete gateway resources: %w", err)
+	}
+
 	// Note: It is not recommended to use finalizers with the purpose of delete resources which are
 	// created and managed in the reconciliation. These, such as the Deployment created on this reconcile,
 	// are defined as depended on the custom resource. See that we use the method ctrl.SetControllerReference.
@@ -872,7 +907,12 @@ type ModelRegistryParams struct {
 	// gateway route parameters
 	Host           string
 	IngressService *corev1.Service
-	//TLS            *common.TLSServerSettings
+
+	// Data Science Gateway parameters
+	GatewayName        string
+	GatewayNamespace   string
+	GatewayDomain      string
+	HTTPRouteNamespace string
 }
 
 // Apply executes given template name with params

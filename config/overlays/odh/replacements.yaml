@@ -119,6 +119,36 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=GATEWAY_DOMAIN].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.GATEWAY_NAME
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=GATEWAY_NAME].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.GATEWAY_NAMESPACE
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=GATEWAY_NAMESPACE].value
+- source:
+    kind: ConfigMap
+    name: model-registry-operator-parameters
+    fieldPath: data.HTTPROUTE_NAMESPACE
+  targets:
+    - select:
+        kind: Deployment
+        name: controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].env.[name=HTTPROUTE_NAMESPACE].value
 # Metrics service name replacements for auth proxy serving cert
 - source:
     kind: Service

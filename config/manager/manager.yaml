@@ -99,6 +99,12 @@ spec:
             value: ""
           - name: GATEWAY_DOMAIN
             value: ""
+          - name: GATEWAY_NAME
+            value: ""
+          - name: GATEWAY_NAMESPACE
+            value: ""
+          - name: HTTPROUTE_NAMESPACE
+            value: ""
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
