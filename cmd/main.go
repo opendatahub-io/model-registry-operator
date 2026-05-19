@@ -36,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -76,6 +78,9 @@ func init() {
 	utilruntime.Must(networking.AddToScheme(scheme))
 	// CRD scheme
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	// Gateway API scheme
+	utilruntime.Must(gatewayapiv1.Install(scheme))
+	utilruntime.Must(gatewayapiv1beta1.Install(scheme))
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
@@ -226,15 +231,35 @@ func main() {
 
 	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), capabilities.IsOpenShift)
 
+	gatewayDomain := os.Getenv(config.GatewayDomainEnv)
+	gatewayName := config.GetStringConfigWithDefault(config.GatewayNameEnv, config.DefaultGatewayName)
+	gatewayNamespace := config.GetStringConfigWithDefault(config.GatewayNamespaceEnv, config.DefaultGatewayNamespace)
+	httpRouteNamespace := config.GetStringConfigWithDefault(config.HTTPRouteNamespaceEnv, config.DefaultHTTPRouteNamespace)
+	setupLog.Info("gateway config", config.GatewayDomainEnv, gatewayDomain,
+		config.GatewayNameEnv, gatewayName, config.GatewayNamespaceEnv, gatewayNamespace,
+		config.HTTPRouteNamespaceEnv, httpRouteNamespace)
+	if gatewayDomain == "" {
+		hasPartialGatewayConfig := os.Getenv(config.GatewayNameEnv) != "" ||
+			os.Getenv(config.GatewayNamespaceEnv) != "" ||
+			os.Getenv(config.HTTPRouteNamespaceEnv) != ""
+		if hasPartialGatewayConfig {
+			setupLog.Info("WARNING: gateway-related env vars are set but GATEWAY_DOMAIN is empty — gateway mode is disabled, set GATEWAY_DOMAIN to enable it")
+		}
+	}
+
 	if err = (&controller.ModelRegistryReconciler{
-		Client:         client,
-		ClientSet:      clientset,
-		Scheme:         mgr.GetScheme(),
-		Recorder:       mgr.GetEventRecorder("modelregistry-controller"),
-		Log:            ctrl.Log.WithName("controller"),
-		Template:       template,
-		EnableWebhooks: enableWebhooks,
-		Capabilities:   capabilities,
+		Client:             client,
+		ClientSet:          clientset,
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorder("modelregistry-controller"),
+		Log:                ctrl.Log.WithName("controller"),
+		Template:           template,
+		EnableWebhooks:     enableWebhooks,
+		Capabilities:       capabilities,
+		GatewayDomain:      gatewayDomain,
+		GatewayName:        gatewayName,
+		GatewayNamespace:   gatewayNamespace,
+		HTTPRouteNamespace: httpRouteNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
 		os.Exit(1)
@@ -254,6 +279,10 @@ func main() {
 		TargetNamespace:       config.GetRegistriesNamespace(),
 		Enabled:               enableModelCatalog,
 		SkipCatalogDBCreation: skipCatalogDBCreation,
+		GatewayDomain:         gatewayDomain,
+		GatewayName:           gatewayName,
+		GatewayNamespace:      gatewayNamespace,
+		HTTPRouteNamespace:    httpRouteNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)
