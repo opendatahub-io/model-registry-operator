@@ -1,0 +1,37 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-catalog-config-drift
+spec:
+  target:
+    operator: model-registry
+    component: model-catalog
+    resource: ConfigMap/model-catalog-sources-default
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-catalog
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: ConfigDrift
+    parameters:
+      name: model-catalog-sources-default
+      key: chaos-injected
+      value: "true"
+    ttl: "120s"
+  hypothesis:
+    description: >-
+      When the model-catalog default sources ConfigMap is mutated with an
+      unexpected key, the ModelCatalog reconciler should detect the drift
+      on its next reconcile loop and restore the ConfigMap to its expected
+      state. The chaos framework removes the injected field via TTL-based
+      cleanup after 120s.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries

@@ -1,0 +1,34 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-registry-network-partition
+spec:
+  target:
+    operator: model-registry
+    component: model-registry-operator
+    resource: Deployment/model-registry-operator-controller-manager
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: NetworkPartition
+    parameters:
+      labelSelector: control-plane=model-registry-operator
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      When the model-registry-operator pod is network-partitioned from
+      the API server, it should lose its leader lease and stop reconciling.
+      Once the partition is removed, the operator should re-acquire the
+      lease and resume normal operation.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries

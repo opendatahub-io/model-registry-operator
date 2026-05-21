@@ -119,6 +119,22 @@ lint: golangci-lint ## Run golangci-lint against code.
 test: manifests generate fmt vet govulncheck envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./... -coverprofile cover.out
 
+.PHONY: test-chaos
+test-chaos: envtest ## Run chaos resilience tests.
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test ./internal/controller/... -v -count=1 --ginkgo.focus="chaos"
+
+.PHONY: chaos-validate
+chaos-validate: operator-chaos ## Validate chaos knowledge model and experiments.
+	$(OPERATOR_CHAOS) validate --knowledge chaos/knowledge/model-registry.yaml
+	@status=0; \
+	for f in chaos/experiments/*.yaml; do \
+		echo "--- $$f ---"; \
+		if ! $(OPERATOR_CHAOS) validate "$$f"; then \
+			status=1; \
+		fi; \
+	done; \
+	exit $$status
+
 ##@ Build
 
 .PHONY: build
@@ -202,6 +218,8 @@ GOVULNCHECK ?= $(LOCALBIN)/govulncheck
 GOVULNCHECK_VERSION ?= v1.1.4
 GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 GOLANGCI_LINT_VERSION ?= v2.1.6
+OPERATOR_CHAOS ?= $(LOCALBIN)/operator-chaos
+OPERATOR_CHAOS_VERSION ?= v0.0.0-20260521100204-4dab974d613c
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.1.1
@@ -253,6 +271,11 @@ $(GOLANGCI_LINT): $(LOCALBIN)
 		rm -rf $(LOCALBIN)/golangci-lint; \
 	fi
 	test -s $(LOCALBIN)/golangci-lint || GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+.PHONY: operator-chaos
+operator-chaos: $(OPERATOR_CHAOS) ## Download operator-chaos locally if necessary.
+$(OPERATOR_CHAOS): $(LOCALBIN)
+	test -s $(LOCALBIN)/operator-chaos || GOBIN=$(LOCALBIN) go install github.com/opendatahub-io/operator-chaos/cmd/operator-chaos@$(OPERATOR_CHAOS_VERSION)
 
 .PHONY: certificates
 certificates: certificates/clean
