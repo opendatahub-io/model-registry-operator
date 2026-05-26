@@ -6,7 +6,7 @@ spec:
   target:
     operator: model-registry
     component: model-catalog
-    resource: ConfigMap/model-catalog-sources-default
+    resource: ConfigMap/default-catalog-sources
   steadyState:
     checks:
       - type: conditionTrue
@@ -19,7 +19,7 @@ spec:
   injection:
     type: ConfigDrift
     parameters:
-      name: model-catalog-sources-default
+      name: default-catalog-sources
       key: chaos-injected
       value: "true"
     ttl: "120s"

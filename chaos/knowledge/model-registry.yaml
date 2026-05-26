@@ -5,7 +5,7 @@ operator:
 
 components:
   - name: model-registry-operator
-    controller: DataScienceCluster
+    controller: ModelRegistryReconciler
     managedResources:
       - apiVersion: apps/v1
         kind: Deployment
@@ -71,7 +71,7 @@ components:
         namespace: odh-model-registries
       - apiVersion: v1
         kind: ConfigMap
-        name: model-catalog-sources-default
+        name: default-catalog-sources
         namespace: odh-model-registries
       - apiVersion: apps/v1
         kind: Deployment
