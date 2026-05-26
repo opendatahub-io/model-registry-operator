@@ -1,0 +1,102 @@
+operator:
+  name: model-registry
+  namespace: odh-model-registries
+  repository: https://github.com/opendatahub-io/model-registry-operator
+
+components:
+  - name: model-registry-operator
+    controller: ModelRegistryReconciler
+    managedResources:
+      - apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        labels:
+          control-plane: model-registry-operator
+          app.kubernetes.io/name: deployment
+        expectedSpec:
+          replicas: 1
+      - apiVersion: v1
+        kind: ServiceAccount
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+      - apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        name: model-registry-operator-manager-rolebinding
+      - apiVersion: coordination.k8s.io/v1
+        kind: Lease
+        name: 85f368d1.opendatahub.io
+        namespace: odh-model-registries
+      - apiVersion: v1
+        kind: Service
+        name: model-registry-operator-controller-manager-metrics-service
+        namespace: odh-model-registries
+    webhooks:
+      - name: vmodelregistry.opendatahub.io
+        type: validating
+        path: /validate-modelregistry-opendatahub-io-modelregistry
+      - name: mmodelregistry.opendatahub.io
+        type: mutating
+        path: /mutate-modelregistry-opendatahub-io-modelregistry
+    finalizers:
+      - modelregistry.opendatahub.io/finalizer
+    steadyState:
+      checks:
+        - type: conditionTrue
+          apiVersion: apps/v1
+          kind: Deployment
+          name: model-registry-operator-controller-manager
+          namespace: odh-model-registries
+          conditionType: Available
+      timeout: "60s"
+
+  - name: model-catalog
+    controller: ModelCatalogReconciler
+    managedResources:
+      - apiVersion: apps/v1
+        kind: Deployment
+        name: model-catalog
+        namespace: odh-model-registries
+        labels:
+          app: model-catalog
+        expectedSpec:
+          replicas: 1
+      - apiVersion: v1
+        kind: Service
+        name: model-catalog
+        namespace: odh-model-registries
+      - apiVersion: v1
+        kind: ServiceAccount
+        name: model-catalog
+        namespace: odh-model-registries
+      - apiVersion: v1
+        kind: ConfigMap
+        name: default-catalog-sources
+        namespace: odh-model-registries
+      - apiVersion: apps/v1
+        kind: Deployment
+        name: model-catalog-postgres
+        namespace: odh-model-registries
+        labels:
+          app: model-catalog-postgres
+      - apiVersion: v1
+        kind: Service
+        name: model-catalog-postgres
+        namespace: odh-model-registries
+      - apiVersion: v1
+        kind: PersistentVolumeClaim
+        name: model-catalog-postgres
+        namespace: odh-model-registries
+    steadyState:
+      checks:
+        - type: conditionTrue
+          apiVersion: apps/v1
+          kind: Deployment
+          name: model-catalog
+          namespace: odh-model-registries
+          conditionType: Available
+      timeout: "60s"
+
+recovery:
+  reconcileTimeout: "300s"
+  maxReconcileCycles: 10

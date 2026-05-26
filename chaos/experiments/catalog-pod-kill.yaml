@@ -1,0 +1,36 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-catalog-pod-kill
+spec:
+  target:
+    operator: model-registry
+    component: model-catalog
+    resource: Deployment/model-catalog
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-catalog
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: PodKill
+    parameters:
+      labelSelector: app=model-catalog
+    count: 1
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      When the model-catalog pod is killed, Kubernetes should recreate it
+      within the recovery timeout. The ModelCatalog reconciler should
+      re-converge all managed resources (Deployment, Service, ConfigMaps,
+      PostgreSQL) without data loss or catalog downtime beyond the pod
+      restart window.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries

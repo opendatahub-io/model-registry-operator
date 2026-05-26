@@ -1,0 +1,35 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-registry-pod-kill
+spec:
+  target:
+    operator: model-registry
+    component: model-registry-operator
+    resource: Deployment/model-registry-operator-controller-manager
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: PodKill
+    parameters:
+      labelSelector: control-plane=model-registry-operator
+    count: 1
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      When the model-registry-operator pod is killed, Kubernetes should
+      recreate it within the recovery timeout. The operator should resume
+      reconciling ModelRegistry resources without data loss or registry
+      downtime.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries
