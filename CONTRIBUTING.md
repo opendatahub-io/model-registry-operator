@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Docker or Podman
 - Access to a Kubernetes cluster (KIND for local dev, or OpenShift)
 - `kubectl` (or `oc` for OpenShift)
