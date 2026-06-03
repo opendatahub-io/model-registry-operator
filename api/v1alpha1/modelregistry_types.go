@@ -453,7 +453,3 @@ type ModelRegistryList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ModelRegistry `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ModelRegistry{}, &ModelRegistryList{})
-}

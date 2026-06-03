@@ -391,7 +391,3 @@ type ModelRegistryList struct {
 }
 
 var _ conversion.Hub = (*ModelRegistry)(nil)
-
-func init() {
-	SchemeBuilder.Register(&ModelRegistry{}, &ModelRegistryList{})
-}
