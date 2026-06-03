@@ -79,6 +79,22 @@ rules:
   - list
   - watch
 - apiGroups:
+  - components.platform.opendatahub.io
+  - modelregistry.opendatahub.io
+  resources:
+  - modelregistries/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - components.platform.opendatahub.io
+  - modelregistry.opendatahub.io
+  resources:
+  - modelregistries/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - config.openshift.io
   resources:
   - ingresses
@@ -131,20 +147,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - modelregistry.opendatahub.io
-  resources:
-  - modelregistries/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - modelregistry.opendatahub.io
-  resources:
-  - modelregistries/status
-  verbs:
-  - get
-  - patch
-  - update
 - apiGroups:
   - networking.k8s.io
   resources:

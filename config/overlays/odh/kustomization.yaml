@@ -34,6 +34,9 @@ patches:
 # patch to add OpenShift serving cert to webhook-service
 - path: patches/webhook_service_patch.yaml
 
+# patch to mount odh-trusted-ca-bundle ConfigMap
+- path: patches/manager_trusted_ca_patch.yaml
+
 # Labels to add to all resources and selectors.
 labels:
 - includeSelectors: true
