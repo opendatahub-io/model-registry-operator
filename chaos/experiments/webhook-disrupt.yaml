@@ -1,0 +1,36 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-registry-webhook-disrupt
+spec:
+  target:
+    operator: model-registry
+    component: model-registry-operator
+    resource: ValidatingWebhookConfiguration/model-registry-operator-validating-webhook-configuration
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: WebhookDisrupt
+    dangerLevel: high
+    parameters:
+      webhookName: vmodelregistry.opendatahub.io
+      action: setFailurePolicy
+      value: Ignore
+    ttl: "60s"
+  hypothesis:
+    description: >-
+      When the ModelRegistry validating webhook failurePolicy is weakened
+      from Fail to Ignore, invalid ModelRegistry resources can bypass
+      admission validation. The chaos framework restores the original
+      failurePolicy via TTL-based cleanup after 60s.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowDangerous: true
