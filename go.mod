@@ -10,7 +10,7 @@ require (
 	github.com/onsi/gomega v1.41.0
 	github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c
 	github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
-	istio.io/client-go v1.29.2
+	istio.io/client-go v1.30.1
 	k8s.io/api v0.36.1
 	k8s.io/apiextensions-apiserver v0.36.1
 	k8s.io/apimachinery v0.36.1
@@ -105,7 +105,7 @@ require (
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	istio.io/api v1.29.2-0.20260408155000-a0e4e1cbfcc5 // indirect
+	istio.io/api v1.30.1-0.20260529120535-23c54ad84d6e // indirect
 	k8s.io/apiserver v0.36.1 // indirect
 	k8s.io/component-base v0.36.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
