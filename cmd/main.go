@@ -17,12 +17,16 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"flag"
 	"os"
+	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	routev1 "github.com/openshift/api/route/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -54,6 +58,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
@@ -118,6 +123,26 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// Fetch the cluster TLS security profile for webhook and metrics servers
+	bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer bootstrapCancel()
+	bootstrapClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+	if err != nil {
+		setupLog.Error(err, "unable to create bootstrap client for TLS profile")
+		os.Exit(1)
+	}
+	profile, err := tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
+	if err != nil {
+		setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+	}
+	tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
+	if len(unsupportedCiphers) > 0 {
+		setupLog.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
+	}
+	nextProtosFn := func(c *tls.Config) {
+		c.NextProtos = []string{"h2", "http/1.1"}
+	}
+
 	// set metrics server options, including custom cert if provided
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
@@ -125,6 +150,7 @@ func main() {
 		CertDir:       metricsCertDir,
 		CertName:      metricsCertName,
 		KeyName:       metricsKeyName,
+		TLSOpts:       []func(*tls.Config){tlsConfigFn, nextProtosFn},
 	}
 	if secureMetrics {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -192,7 +218,10 @@ func main() {
 				DisableFor: []client.Object{&corev1.Secret{}},
 			},
 		},
-		Metrics:                metricsServerOptions,
+		Metrics: metricsServerOptions,
+		WebhookServer: ctrlwebhook.NewServer(ctrlwebhook.Options{
+			TLSOpts: []func(*tls.Config){tlsConfigFn, nextProtosFn},
+		}),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "85f368d1.opendatahub.io",
@@ -304,8 +333,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Register SecurityProfileWatcher: cancel context on TLS profile change so pod restarts
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+	defer cancel()
+	watcher := &tlspkg.SecurityProfileWatcher{
+		Client:                mgr.GetClient(),
+		InitialTLSProfileSpec: profile,
+		OnProfileChange: func(_ context.Context, _, _ oapiconfig.TLSProfileSpec) {
+			setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
+			cancel()
+		},
+	}
+	if err := watcher.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to register TLS security profile watcher")
+		os.Exit(1)
+	}
+
 	// Start storage migration monitor
-	ctx := ctrl.SetupSignalHandler()
 	migrationMgr := migration.NewStorageMigrationManager(mgr.GetClient())
 	migrationMgr.StartMigrationMonitor(ctx)
 
