@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/modelregistry.opendatahub.io_modelregistries.yaml
+- bases/components.platform.opendatahub.io_modelregistries.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 #patches:
