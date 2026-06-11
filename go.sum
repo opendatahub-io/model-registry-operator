@@ -198,6 +198,10 @@ github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c h1:o
 github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c/go.mod h1:f9D+8VSCrpTB2EeGD6F26ZkaO8GN7dCbT9lFZfZ68t0=
 github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53 h1:I9aH3KSRGfBxVacrjpA7r5AZQj12VCHBHMWEypeKBWE=
 github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
+github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e h1:k89oIo2EjX0PRSdi1kesktCyWp50SC9WwKurvupvRGs=
+github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e/go.mod h1:XGabTMnNbz0M5Oa7IbscZp/jmcc7aHobvOCUWwkzKvM=
+github.com/openshift/library-go v0.0.0-20260213153706-03f1709971c5 h1:9Pe6iVOMjt9CdA/vaKBNUSoEIjIe1po5Ha3ABRYXLJI=
+github.com/openshift/library-go v0.0.0-20260213153706-03f1709971c5/go.mod h1:K3FoNLgNBFYbFuG+Kr8usAnQxj1w84XogyUp2M8rK8k=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
