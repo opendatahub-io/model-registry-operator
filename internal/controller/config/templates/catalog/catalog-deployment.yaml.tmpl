@@ -117,8 +117,10 @@ spec:
           readinessProbe:
             initialDelaySeconds: 3
             periodSeconds: 5
-            tcpSocket:
+            httpGet:
+              path: /readyz
               port: http-api
+              scheme: HTTP
             timeoutSeconds: 2
           {{- with .Spec.Rest.Resources }}
           resources:

@@ -141,6 +141,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(proxyContainer.Args).To(ContainElement("--secure-listen-address=0.0.0.0:8443"))
 				Expect(proxyContainer.Args).To(ContainElement("--upstream=http://127.0.0.1:8080/"))
 				Expect(proxyContainer.Args).To(ContainElement("--config-file=/etc/kube-rbac-proxy/config-file.yaml"))
+				Expect(proxyContainer.Args).To(ContainElement("--proxy-endpoints-port=8888"))
 
 				// Check that oauth-proxy specific args are NOT present
 				for _, arg := range proxyContainer.Args {

@@ -527,6 +527,23 @@ func TestCatalogDeployment(t *testing.T) {
 		if !hasUpstream {
 			t.Errorf("kube-rbac-proxy should have --upstream argument")
 		}
+
+		hasProxyEndpointsPort := false
+		for _, arg := range kubeRBACProxyContainer.Args {
+			if arg == "--proxy-endpoints-port=8888" {
+				hasProxyEndpointsPort = true
+			}
+		}
+		if !hasProxyEndpointsPort {
+			t.Errorf("kube-rbac-proxy should set --proxy-endpoints-port=8888 for unauthenticated health checks")
+		}
+
+		if kubeRBACProxyContainer.ReadinessProbe == nil ||
+			kubeRBACProxyContainer.ReadinessProbe.HTTPGet == nil ||
+			kubeRBACProxyContainer.ReadinessProbe.HTTPGet.Port.StrVal != "proxy-healthz" ||
+			kubeRBACProxyContainer.ReadinessProbe.HTTPGet.Path != "/healthz" {
+			t.Errorf("kube-rbac-proxy readiness probe should target /healthz on proxy-healthz")
+		}
 	})
 }
 
