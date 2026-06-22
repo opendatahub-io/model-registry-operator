@@ -14,7 +14,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -42,7 +42,7 @@ jobs:
           exit "$status"
 
       - name: Checkout base branch knowledge
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base-branch
