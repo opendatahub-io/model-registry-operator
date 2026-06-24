@@ -21,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -241,17 +240,6 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(postgresSecret.Data).To(HaveKey("database-password"))
 				Expect(postgresSecret.Data).To(HaveKey("database-user"))
 
-				By("Checking if the PostgreSQL PVC was created")
-				postgresPVC := &corev1.PersistentVolumeClaim{}
-				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      modelCatalogName + "-postgres",
-					Namespace: namespaceName,
-				}, postgresPVC)
-				Expect(err).To(Not(HaveOccurred()))
-				Expect(postgresPVC.Labels["component"]).To(Equal("model-catalog-postgres"))
-				Expect(postgresPVC.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
-				Expect(postgresPVC.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-				Expect(postgresPVC.Spec.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			})
 
 			It("Should handle subsequent calls idempotently", func() {
@@ -397,21 +385,6 @@ var _ = Describe("ModelCatalog controller", func() {
 					return apierrors.IsNotFound(err)
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 
-				By("Verifying PVC deletion was attempted")
-				postgresPVC := &corev1.PersistentVolumeClaim{}
-
-				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      modelCatalogName + "-postgres",
-					Namespace: namespaceName,
-				}, postgresPVC)
-
-				if err == nil {
-					// PVC still exists, which is expected in test environment
-					// Ensure the cleanup method completed without error
-					Expect(postgresPVC.Name).To(Equal(modelCatalogName + "-postgres"))
-				} else {
-					Expect(apierrors.IsNotFound(err)).To(BeTrue())
-				}
 			})
 
 			Context("On OpenShift", func() {
@@ -535,7 +508,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 
 				container := postgresDeployment.Spec.Template.Spec.Containers[0]
-				Expect(container.Env).To(HaveLen(4))
+				Expect(container.Env).To(HaveLen(3))
 
 				// Verify environment variables reference the secret
 				envVars := make(map[string]string)
@@ -546,7 +519,6 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(envVars["POSTGRESQL_USER"]).To(Equal(""))
 				Expect(envVars["POSTGRESQL_PASSWORD"]).To(Equal(""))
 				Expect(envVars["POSTGRESQL_DATABASE"]).To(Equal(""))
-				Expect(envVars["PGDATA"]).To(Equal("/var/lib/postgresql/data/pgdata"))
 
 				// Verify secret references
 				Expect(container.Env[0].ValueFrom.SecretKeyRef.Name).To(Equal(modelCatalogName + "-postgres"))
@@ -569,14 +541,15 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(container.Ports[0].ContainerPort).To(Equal(int32(5432)))
 				Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
 
-				By("Verifying PostgreSQL deployment has correct volume mounts")
+				By("Verifying PostgreSQL deployment uses emptyDir for data")
 				Expect(container.VolumeMounts).To(HaveLen(1))
-				Expect(container.VolumeMounts[0].MountPath).To(Equal("/var/lib/postgresql/data"))
-				Expect(container.VolumeMounts[0].Name).To(Equal(modelCatalogName + "-postgres-data"))
-
-				Expect(postgresDeployment.Spec.Template.Spec.Volumes).To(HaveLen(1))
-				Expect(postgresDeployment.Spec.Template.Spec.Volumes[0].Name).To(Equal(modelCatalogName + "-postgres-data"))
-				Expect(postgresDeployment.Spec.Template.Spec.Volumes[0].PersistentVolumeClaim.ClaimName).To(Equal(modelCatalogName + "-postgres"))
+				Expect(container.VolumeMounts[0].Name).To(Equal("postgres-data"))
+				Expect(container.VolumeMounts[0].MountPath).To(Equal("/var/lib/pgsql/data"))
+				volumes := postgresDeployment.Spec.Template.Spec.Volumes
+				Expect(volumes).To(HaveLen(1))
+				Expect(volumes[0].Name).To(Equal("postgres-data"))
+				Expect(volumes[0].EmptyDir).ToNot(BeNil())
+				Expect(volumes[0].EmptyDir.SizeLimit.String()).To(Equal("5Gi"))
 
 				By("Verifying PostgreSQL service configuration")
 				postgresService := &corev1.Service{}
@@ -591,16 +564,6 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app", modelCatalogName))
 				Expect(postgresService.Spec.Selector).To(HaveKeyWithValue("app.kubernetes.io/name", "model-catalog-postgres"))
 
-				By("Verifying PostgreSQL PVC configuration")
-				postgresPVC := &corev1.PersistentVolumeClaim{}
-				err = k8sClient.Get(ctx, types.NamespacedName{
-					Name:      modelCatalogName + "-postgres",
-					Namespace: namespaceName,
-				}, postgresPVC)
-				Expect(err).To(Not(HaveOccurred()))
-
-				Expect(postgresPVC.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-				Expect(postgresPVC.Spec.Resources.Requests.Storage().String()).To(Equal("5Gi"))
 			})
 
 			It("Should create PostgreSQL NetworkPolicy with correct configuration", func() {
@@ -2119,7 +2082,7 @@ namedQueries:
 						BindAddress: "0",
 					},
 					Controller: ctrlconfig.Controller{
-						SkipNameValidation: ptr.To(true),
+						SkipNameValidation: new(true),
 					},
 				})
 				Expect(err).To(Not(HaveOccurred()))
@@ -2205,7 +2168,7 @@ namedQueries:
 						BindAddress: "0",
 					},
 					Controller: ctrlconfig.Controller{
-						SkipNameValidation: ptr.To(true),
+						SkipNameValidation: new(true),
 					},
 				})
 				Expect(err).To(Not(HaveOccurred()))

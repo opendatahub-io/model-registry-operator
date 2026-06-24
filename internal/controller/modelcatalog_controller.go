@@ -286,15 +286,6 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 			result = result2
 		}
 
-		// Create or update PostgreSQL PVC
-		result2, err = r.createOrUpdatePostgresPVC(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", crOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
 		// Create or update PostgreSQL Deployment
 		result2, postgresDeployment, err := r.createOrUpdateDeployment(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", crOwner)
 		if err != nil {
@@ -457,15 +448,6 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 
 		// Delete PostgreSQL Service
 		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-service.yaml.tmpl", &corev1.Service{})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		// Delete PostgreSQL PVC
-		result2, err = r.deleteFromTemplate(ctx, postgresParams, "catalog-postgres-pvc.yaml.tmpl", &corev1.PersistentVolumeClaim{})
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -1071,64 +1053,6 @@ func (r *ModelCatalogReconciler) cleanupKubeRBACProxyConfig(ctx context.Context,
 	return result, nil
 }
 
-func (r *ModelCatalogReconciler) createOrUpdatePostgresPVC(ctx context.Context, params *ModelCatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
-	result := ResourceUnchanged
-	var newPVC corev1.PersistentVolumeClaim
-	if err := r.Apply(params, templateName, &newPVC); err != nil {
-		return result, err
-	}
-
-	r.applyLabels(&newPVC.ObjectMeta, params)
-	r.applyOwnerReference(&newPVC.ObjectMeta, owner)
-
-	// Check if PVC already exists
-	var existingPVC corev1.PersistentVolumeClaim
-	key := client.ObjectKeyFromObject(&newPVC)
-
-	if err := r.Get(ctx, key, &existingPVC); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// PVC doesn't exist, create it
-			result = ResourceCreated
-			if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&newPVC); err != nil {
-				return result, err
-			}
-			return result, r.Create(ctx, &newPVC)
-		}
-		return result, err
-	}
-
-	// PVC exists, only update mutable fields
-	updated := false
-
-	// Update labels if they changed
-	if !reflect.DeepEqual(existingPVC.Labels, newPVC.Labels) {
-		existingPVC.Labels = newPVC.Labels
-		updated = true
-	}
-
-	// Update owner references if they changed
-	if !reflect.DeepEqual(existingPVC.OwnerReferences, newPVC.OwnerReferences) {
-		existingPVC.OwnerReferences = newPVC.OwnerReferences
-		updated = true
-	}
-
-	// Update storage size if it increased (storage can only be increased, not decreased)
-	if newPVC.Spec.Resources.Requests.Storage().Cmp(*existingPVC.Spec.Resources.Requests.Storage()) > 0 {
-		existingPVC.Spec.Resources.Requests = newPVC.Spec.Resources.Requests
-		updated = true
-	}
-
-	if updated {
-		result = ResourceUpdated
-		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(&existingPVC); err != nil {
-			return result, err
-		}
-		return result, r.Update(ctx, &existingPVC)
-	}
-
-	return result, nil
-}
-
 // Apply executes given template name with params
 func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName string, object any) error {
 	// Ensure templateApplier is initialized
@@ -1407,7 +1331,6 @@ func (r *ModelCatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&corev1.ServiceAccount{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&corev1.Service{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
-		Watches(&corev1.PersistentVolumeClaim{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.ClusterRoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(labels)).
 		Watches(&rbac.Role{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
 		Watches(&rbac.RoleBinding{}, mapToFixedCatalogRequest, builder.WithPredicates(combinedPredicate)).
