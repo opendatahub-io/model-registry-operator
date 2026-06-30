@@ -48,8 +48,6 @@ spec:
             secretKeyRef:
               key: database-name
               name: {{.Name}}-postgres
-        - name: PGDATA
-          value: /var/lib/postgresql/data/pgdata
         image: {{.PostgresImage}}
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -84,11 +82,11 @@ spec:
             cpu: "500m"
         terminationMessagePath: /dev/termination-log
         volumeMounts:
-        - mountPath: /var/lib/postgresql/data
-          name: {{.Name}}-postgres-data
+          - name: postgres-data
+            mountPath: /var/lib/pgsql/data
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       volumes:
-      - name: {{.Name}}-postgres-data
-        persistentVolumeClaim:
-          claimName: {{.Name}}-postgres
+        - name: postgres-data
+          emptyDir:
+            sizeLimit: 5Gi
