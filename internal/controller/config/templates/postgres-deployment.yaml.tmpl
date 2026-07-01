@@ -19,6 +19,8 @@ spec:
       app: {{.Name}}
       component: model-registry
       app.kubernetes.io/name: {{.Name}}-postgres
+  strategy:
+    type: Recreate
   template:
     metadata:
       labels:
