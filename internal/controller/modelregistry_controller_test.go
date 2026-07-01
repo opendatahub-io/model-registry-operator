@@ -511,6 +511,10 @@ var _ = Describe("ModelRegistry controller", func() {
 					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, postgresDeployment)
 				}, time.Minute, time.Second).Should(Succeed())
 
+				// Verify postgres deployment uses Recreate strategy (RWO PVC incompatible with RollingUpdate)
+				Expect(postgresDeployment.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType),
+					"Postgres deployment should use Recreate strategy for RWO PVC compatibility")
+
 				// Verify postgres deployment selector has app.kubernetes.io/name label
 				Expect(postgresDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", registryName+"-postgres"),
 					"Postgres deployment selector should include app.kubernetes.io/name label")
