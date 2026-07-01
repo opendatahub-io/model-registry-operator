@@ -104,7 +104,7 @@ func (r *ModelCatalogReconciler) createPostgresParams() *ModelCatalogParams {
 		Name:          modelCatalogName,
 		Namespace:     r.TargetNamespace,
 		Component:     modelCatalogPostgresName,
-		PostgresImage: config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
+		PostgresImage: config.GetImageWithRelatedFallback(config.RelatedImagePostgres, config.PostgresImage, config.DefaultPostgresImage),
 	}
 }
 
@@ -1071,14 +1071,14 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 	defaultSpec := &v1beta1.ModelRegistrySpec{
 		Rest: v1beta1.RestSpec{
 			Port:      &restPort,
-			Image:     config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage),
+			Image:     config.GetImageWithRelatedFallback(config.RelatedImageRest, config.RestImage, config.DefaultRestImage),
 			Resources: &config.CatalogServiceResourceRequirements,
 		},
 		// Use kube-rbac-proxy by default instead of oauth-proxy
 		KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 			Port:      &oauthPort,
 			RoutePort: &routePort,
-			Image:     config.GetStringConfigWithDefault(config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage),
+			Image:     config.GetImageWithRelatedFallback(config.RelatedImageKubeRBACProxy, config.KubeRBACProxyImage, config.DefaultKubeRBACProxyImage),
 			Domain:    config.GetDefaultDomain(),
 		},
 	}
@@ -1107,9 +1107,9 @@ func (r *ModelCatalogReconciler) Apply(params *ModelCatalogParams, templateName 
 		Name:               params.Name,
 		Namespace:          params.Namespace,
 		Spec:               defaultSpec,
-		CatalogDataImage:   config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
-		BenchmarkDataImage: config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
-		PostgresImage:      config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
+		CatalogDataImage:   config.GetImageWithRelatedFallback(config.RelatedImageCatalogData, config.CatalogDataImage, config.DefaultCatalogDataImage),
+		BenchmarkDataImage: config.GetImageWithRelatedFallback(config.RelatedImageBenchmarkData, config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
+		PostgresImage:      config.GetImageWithRelatedFallback(config.RelatedImagePostgres, config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:       config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresDatabase:   config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
 		AdminGroups:        params.AdminGroups,
@@ -1179,8 +1179,7 @@ func (r *ModelCatalogReconciler) fetchDefaultModelRegistry(ctx context.Context) 
 	})
 
 	err := r.Get(ctx, types.NamespacedName{
-		Name:      "default-modelregistry",
-		Namespace: r.TargetNamespace,
+		Name: "default-modelregistry",
 	}, modelRegistry)
 	if err != nil {
 		return nil, err

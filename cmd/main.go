@@ -132,7 +132,8 @@ func main() {
 		"isOpenShift", capabilities.IsOpenShift,
 		"hasUserAPI", capabilities.HasUserAPI,
 		"hasConfigAPI", capabilities.HasConfigAPI,
-		"hasAuthAPI", capabilities.HasAuthAPI)
+		"hasAuthAPI", capabilities.HasAuthAPI,
+		"hasModuleCRD", capabilities.HasModuleCRD)
 
 	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
 	var tlsOpts []func(*tls.Config)
@@ -173,6 +174,9 @@ func main() {
 	}
 
 	registriesNamespace := os.Getenv(config.RegistriesNamespace)
+	if registriesNamespace == "" {
+		registriesNamespace = os.Getenv(config.ApplicationsNamespace)
+	}
 	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
 	defaultDomain := os.Getenv(config.DefaultDomain)
 	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
@@ -321,6 +325,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
 		os.Exit(1)
 	}
+	if capabilities.HasModuleCRD {
+		if err = (&controller.ModuleCRReconciler{
+			Client: client,
+			Log:    ctrl.Log.WithName("module-controller"),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ModuleCR")
+			os.Exit(1)
+		}
+		setupLog.Info("module CR controller registered")
+	}
+
 	if enableWebhooks {
 		if err = webhook.SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")
