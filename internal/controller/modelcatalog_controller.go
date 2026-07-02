@@ -276,6 +276,18 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 
 	postgresParams := r.createPostgresParams()
 
+	// Delete orphaned PVC from before 67e5a35 (PVC was never used — wrong mount path).
+	// Remove once old clusters have had enough time to reconcile.
+	var oldPVC corev1.PersistentVolumeClaim
+	err = r.Get(ctx, types.NamespacedName{Name: modelCatalogPostgresName, Namespace: r.TargetNamespace}, &oldPVC)
+	if client.IgnoreNotFound(err) != nil {
+		log.Error(err, "failed to get legacy postgres PVC")
+	} else if err == nil && oldPVC.Labels["app.kubernetes.io/created-by"] == "model-registry-operator" {
+		if delErr := r.Delete(ctx, &oldPVC); client.IgnoreNotFound(delErr) != nil {
+			log.Error(delErr, "failed to delete legacy postgres PVC")
+		}
+	}
+
 	// Create PostgreSQL resources only if not skipping DB creation
 	if !r.SkipCatalogDBCreation {
 		result2, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
@@ -462,6 +474,19 @@ func (r *ModelCatalogReconciler) cleanupCatalogResources(ctx context.Context) (c
 		}
 		if result2 != ResourceUnchanged {
 			result = result2
+		}
+
+	}
+
+	// Delete orphaned PVC from before 67e5a35.
+	// Remove once old clusters have had enough time to reconcile.
+	log := klog.FromContext(ctx)
+	var oldPVC corev1.PersistentVolumeClaim
+	if err := r.Get(ctx, types.NamespacedName{Name: modelCatalogPostgresName, Namespace: r.TargetNamespace}, &oldPVC); client.IgnoreNotFound(err) != nil {
+		log.Error(err, "failed to get legacy postgres PVC")
+	} else if err == nil && oldPVC.Labels["app.kubernetes.io/created-by"] == "model-registry-operator" {
+		if delErr := r.Delete(ctx, &oldPVC); client.IgnoreNotFound(delErr) != nil {
+			log.Error(delErr, "failed to delete legacy postgres PVC")
 		}
 	}
 

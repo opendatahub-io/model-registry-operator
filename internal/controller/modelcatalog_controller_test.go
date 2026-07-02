@@ -16,6 +16,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -665,6 +666,41 @@ var _ = Describe("ModelCatalog controller", func() {
 				}, 10*time.Second, 1*time.Second).Should(BeTrue())
 			})
 
+			It("Should delete the legacy postgres PVC on cleanup", func() {
+				By("Creating the legacy PVC")
+				oldPVC := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-postgres",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app.kubernetes.io/created-by": "model-registry-operator",
+						},
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("5Gi"),
+							},
+						},
+					},
+				}
+				err := k8sClient.Create(ctx, oldPVC)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running cleanup")
+				_, err = catalogReconciler.cleanupCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the legacy PVC is deleted or terminating")
+				// envtest runs the API server but not kube-controller-manager, so the
+				// kubernetes.io/pvc-protection finalizer is never removed and the PVC
+				// stays Terminating. Accept either NotFound or DeletionTimestamp set.
+				gone := &corev1.PersistentVolumeClaim{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, gone)
+				Expect(apierrors.IsNotFound(err) || gone.DeletionTimestamp != nil).To(BeTrue(), "legacy postgres PVC should be deleted or terminating")
+			})
+
 			It("Should create mcp-catalog-sources ConfigMap", func() {
 				By("Creating catalog resources")
 				_, err := catalogReconciler.ensureCatalogResources(ctx)
@@ -936,6 +972,41 @@ var _ = Describe("ModelCatalog controller", func() {
 				newCM := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: "default-catalog-sources", Namespace: namespaceName}, newCM)
 				Expect(err).To(Not(HaveOccurred()))
+			})
+
+			It("Should delete the legacy postgres PVC on reconcile", func() {
+				By("Creating the legacy PVC")
+				oldPVC := &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "model-catalog-postgres",
+						Namespace: namespaceName,
+						Labels: map[string]string{
+							"app.kubernetes.io/created-by": "model-registry-operator",
+						},
+					},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("5Gi"),
+							},
+						},
+					},
+				}
+				err := k8sClient.Create(ctx, oldPVC)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Running reconciliation")
+				_, err = catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Verifying the legacy PVC is deleted or terminating")
+				// envtest runs the API server but not kube-controller-manager, so the
+				// kubernetes.io/pvc-protection finalizer is never removed and the PVC
+				// stays Terminating. Accept either NotFound or DeletionTimestamp set.
+				gone := &corev1.PersistentVolumeClaim{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, gone)
+				Expect(apierrors.IsNotFound(err) || gone.DeletionTimestamp != nil).To(BeTrue(), "legacy postgres PVC should be deleted or terminating")
 			})
 
 			It("Should not modify user sources ConfigMap if it has no default catalog", func() {
