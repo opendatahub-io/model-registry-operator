@@ -1,0 +1,46 @@
+# IMPORTANT: "test-registry" is a placeholder. Replace it with the name
+# of an actual ModelRegistry resource deployed in the target namespace
+# before running this experiment.
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-registry-config-drift
+spec:
+  target:
+    operator: model-registry
+    component: model-registry-operator
+    resource: Deployment/model-registry-operator-controller-manager
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: CRDMutation
+    dangerLevel: high
+    parameters:
+      apiVersion: modelregistry.opendatahub.io/v1beta1
+      kind: ModelRegistry
+      name: test-registry
+      field: chaosInjected
+      value: "true"
+    ttl: "120s"
+  hypothesis:
+    description: >-
+      When a ModelRegistry CR is mutated with an unknown field via merge
+      patch, the operator should reconcile without error and not propagate
+      the unknown field to downstream resources (Deployment, Service,
+      ConfigMap). This validates that the reconciler is resilient to
+      unexpected CR modifications — e.g. from errant automation, manual
+      edits, or version skew during upgrades. The chaos framework removes
+      the injected field via TTL-based cleanup after 120s.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries
+    allowDangerous: true

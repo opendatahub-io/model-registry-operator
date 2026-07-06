@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: 'config/.*\.yaml\.tmpl$'
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        entry: make fmt
+        language: system
+        pass_filenames: false
+        types: [go]
+      - id: go-vet
+        name: go vet
+        entry: make vet
+        language: system
+        pass_filenames: false
+        types: [go]
+      - id: golangci-lint
+        name: golangci-lint
+        entry: make lint
+        language: system
+        pass_filenames: false
+        types: [go]

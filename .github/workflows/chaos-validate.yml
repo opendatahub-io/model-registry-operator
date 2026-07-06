@@ -1,0 +1,60 @@
+name: Chaos Validation
+
+on:
+  pull_request:
+    paths:
+      - 'chaos/**'
+      - 'internal/controller/**'
+      - 'api/**'
+      - 'config/**'
+      - 'go.mod'
+      - 'go.sum'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install operator-chaos
+        run: go install github.com/opendatahub-io/operator-chaos/cmd/operator-chaos@v0.0.0-20260521100204-4dab974d613c
+
+      - name: Validate knowledge model
+        run: operator-chaos validate --knowledge chaos/knowledge/model-registry.yaml
+
+      - name: Local preflight
+        run: operator-chaos preflight --knowledge chaos/knowledge/model-registry.yaml --local
+
+      - name: Validate all experiments
+        run: |
+          status=0
+          for f in chaos/experiments/*.yaml; do
+            echo "--- $f ---"
+            if ! operator-chaos validate "$f"; then
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Checkout base branch knowledge
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-branch
+          sparse-checkout: chaos/knowledge
+
+      - name: Detect breaking changes
+        run: |
+          if [ -d "base-branch/chaos/knowledge" ]; then
+            operator-chaos diff --source base-branch/chaos/knowledge --target chaos/knowledge --breaking
+          else
+            echo "No base knowledge model found — skipping diff (first-time integration)"
+          fi
+
+      - name: Run chaos tests
+        run: make test-chaos

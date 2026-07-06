@@ -1,0 +1,208 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package config
+
+import (
+	"context"
+	"embed"
+	"encoding/base64"
+	"fmt"
+	"os"
+	"strings"
+	"text/template"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/utils"
+	"k8s.io/apimachinery/pkg/api/validation"
+
+	configv1 "github.com/openshift/api/config/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	klog "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+//go:embed templates/*.yaml.tmpl
+//go:embed templates/kube-rbac-proxy/*.yaml.tmpl
+//go:embed templates/catalog/*.yaml.tmpl
+//go:embed templates/gateway/*.yaml.tmpl
+var templateFS embed.FS
+
+const (
+	RestImage                 = "REST_IMAGE"
+	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
+	KubeRBACProxyImage        = "KUBE_RBAC_PROXY_IMAGE"
+	PostgresImage             = "POSTGRES_IMAGE"
+	CatalogDataImage          = "CATALOG_DATA_IMAGE"
+	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
+	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
+	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
+	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
+	DefaultPostgresImage      = "quay.io/sclorg/postgresql-16-c10s:latest"
+	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	DefaultBenchmarkDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	RouteDisabled             = "disabled"
+	RouteEnabled              = "enabled"
+	DefaultIstioIngressName   = "ingressgateway"
+
+	// config env variables
+	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
+	EnableWebhooks             = "ENABLE_WEBHOOKS"
+	DefaultDomain              = "DEFAULT_DOMAIN"
+	EnableModelCatalog         = "ENABLE_MODEL_CATALOG"
+	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
+
+	// Data Science Gateway env variables and defaults
+	GatewayDomainEnv          = "GATEWAY_DOMAIN"
+	GatewayNameEnv            = "GATEWAY_NAME"
+	GatewayNamespaceEnv       = "GATEWAY_NAMESPACE"
+	HTTPRouteNamespaceEnv     = "HTTPROUTE_NAMESPACE"
+	DefaultGatewayName        = "data-science-gateway"
+	DefaultGatewayNamespace   = "openshift-ingress"
+	DefaultHTTPRouteNamespace = "redhat-ods-applications"
+
+	// PostgreSQL config env variables
+	CatalogPostgresUser     = "CATALOG_POSTGRES_USER"
+	CatalogPostgresDatabase = "CATALOG_POSTGRES_DATABASE"
+
+	// Default PostgreSQL values
+	DefaultCatalogPostgresUser     = "catalog_user"
+	DefaultCatalogPostgresDatabase = "model_catalog"
+	// Note: PostgreSQL password is generated securely using utils.RandBytes(16)
+	// in createOrUpdatePostgresSecret() - no hardcoded default password is used
+)
+
+var (
+	defaultDomain              = ""
+	defaultRegistriesNamespace = ""
+
+	// Default ResourceRequirements
+	CatalogServiceResourceRequirements    = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+	ModelRegistryRestResourceRequirements = createResourceRequirement(resource.MustParse("100m"), resource.MustParse("256Mi"), resource.MustParse("0m"), resource.MustParse("256Mi"))
+)
+
+func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory resource.Quantity, LimitsCPU resource.Quantity, LimitsMemory resource.Quantity) v1.ResourceRequirements {
+	requests := v1.ResourceList{}
+	if !RequestsCPU.IsZero() {
+		requests["cpu"] = RequestsCPU
+	}
+	if !RequestsMemory.IsZero() {
+		requests["memory"] = RequestsMemory
+	}
+
+	limits := v1.ResourceList{}
+	if !LimitsCPU.IsZero() {
+		limits["cpu"] = LimitsCPU
+	}
+	if !LimitsMemory.IsZero() {
+		limits["memory"] = LimitsMemory
+	}
+
+	return v1.ResourceRequirements{
+		Requests: requests,
+		Limits:   limits,
+	}
+}
+
+func GetStringConfigWithDefault(configName, value string) string {
+	if v := os.Getenv(configName); v != "" {
+		return v
+	}
+	return value
+}
+
+func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
+	if v := os.Getenv(configName); v != "" {
+		return v == "true"
+	}
+	return defaultValue
+}
+
+func ParseTemplates() (*template.Template, error) {
+	tmpl := (&template.Template{}).Funcs(template.FuncMap{
+		"b64enc":           b64enc,
+		"quantityToString": utils.QuantityToString,
+		"randBytes": func(n int) string {
+			// Template function wrapper - panics on error as per template convention
+			result, err := utils.RandBytes(n)
+			if err != nil {
+				panic(err)
+			}
+			return result
+		},
+	})
+	tmpl, err := tmpl.ParseFS(templateFS,
+		"templates/*.yaml.tmpl",
+		"templates/kube-rbac-proxy/*.yaml.tmpl",
+		"templates/catalog/*.yaml.tmpl",
+		"templates/gateway/*.yaml.tmpl",
+	)
+	if err != nil {
+		return nil, err
+	}
+	return tmpl, err
+}
+
+func b64enc(str string) string {
+	return base64.StdEncoding.EncodeToString([]byte(str))
+}
+
+var (
+	defaultClient      client.Client
+	defaultIsOpenShift = false
+)
+
+func SetRegistriesNamespace(namespace string) error {
+	namespace = strings.TrimSpace(namespace)
+	if len(namespace) != 0 {
+		errs := validation.ValidateNamespaceName(namespace, false)
+		if len(errs) > 0 {
+			return fmt.Errorf("invalid registries namespace %s: %v", namespace, errs)
+		}
+	}
+	defaultRegistriesNamespace = namespace
+	return nil
+}
+
+func GetRegistriesNamespace() string {
+	return defaultRegistriesNamespace
+}
+
+func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) {
+	defaultDomain = domain
+	defaultClient = client
+	defaultIsOpenShift = isOpenShift
+}
+
+func GetDefaultDomain() string {
+	if len(defaultDomain) == 0 && defaultIsOpenShift {
+		ingress := configv1.Ingress{}
+		namespacedName := types.NamespacedName{Name: "cluster"}
+		err := defaultClient.Get(context.Background(), namespacedName, &ingress)
+		if err != nil {
+			klog.Log.Error(err, "error getting OpenShift domain name", fmt.Sprintf("%+v", ingress.GetObjectKind()), namespacedName)
+			return ""
+		}
+		// try reading appsDomain if it is set
+		if ingress.Spec.AppsDomain != "" {
+			defaultDomain = ingress.Spec.AppsDomain
+		} else {
+			defaultDomain = ingress.Spec.Domain
+		}
+	}
+	return defaultDomain
+}

@@ -1,0 +1,392 @@
+/*
+Copyright 2023.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"flag"
+	"os"
+	"time"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
+
+	routev1 "github.com/openshift/api/route/v1"
+	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
+	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
+	security "istio.io/client-go/pkg/apis/security/v1beta1"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
+	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+
+	oapi "github.com/openshift/api"
+	oapiconfig "github.com/openshift/api/config/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
+	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+	"github.com/opendatahub-io/model-registry-operator/internal/migration"
+	//+kubebuilder:scaffold:imports
+)
+
+var (
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
+)
+
+func init() {
+	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	// openshift scheme
+	utilruntime.Must(oapi.Install(scheme))
+	utilruntime.Must(oapiconfig.Install(scheme))
+	// istio security scheme
+	utilruntime.Must(security.AddToScheme(scheme))
+	// istio networking scheme
+	utilruntime.Must(networking.AddToScheme(scheme))
+	// CRD scheme
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	// Gateway API scheme
+	utilruntime.Must(gatewayapiv1.Install(scheme))
+	utilruntime.Must(gatewayapiv1beta1.Install(scheme))
+
+	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
+	//+kubebuilder:scaffold:scheme
+}
+
+func main() {
+	var metricsAddr string
+	var metricsCertDir string
+	var metricsCertName string
+	var metricsKeyName string
+	var secureMetrics bool
+
+	var enableLeaderElection bool
+	var probeAddr string
+
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "The address the metric endpoint binds to.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	flag.StringVar(&metricsCertDir, "metrics-cert-dir", "", "The directory that contains the metrics endpoint key and certificate.\n"+
+		"Generates and uses a self-signed certificate if not specified.\n"+
+		"MUST be specified in production.")
+	flag.StringVar(&metricsCertName, "metrics-cert-name", "", "The metrics endpoint server certificate filename.")
+	flag.StringVar(&metricsKeyName, "metrics-key-name", "", "The metrics endpoint key filename.")
+
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	opts := zap.Options{
+		Development: true,
+	}
+	opts.BindFlags(flag.CommandLine)
+	flag.Parse()
+
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	capabilities, err := getCapabilities()
+	if err != nil {
+		setupLog.Error(err, "error detecting cluster capabilities")
+		os.Exit(1)
+	}
+	setupLog.Info("cluster capabilities detected",
+		"isOpenShift", capabilities.IsOpenShift,
+		"hasUserAPI", capabilities.HasUserAPI,
+		"hasConfigAPI", capabilities.HasConfigAPI,
+		"hasAuthAPI", capabilities.HasAuthAPI)
+
+	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
+	var tlsOpts []func(*tls.Config)
+	var profile oapiconfig.TLSProfileSpec
+	if capabilities.HasConfigAPI {
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer bootstrapCancel()
+		bootstrapClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
+		if err != nil {
+			setupLog.Error(err, "unable to create bootstrap client for TLS profile, using defaults")
+		} else {
+			profile, err = tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
+			if err != nil {
+				if isGracefulTLSError(err) {
+					setupLog.Info("unable to fetch TLS profile, using defaults", "reason", err.Error())
+				} else {
+					setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+				}
+			}
+			tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
+			if len(unsupportedCiphers) > 0 {
+				setupLog.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
+			}
+			tlsOpts = append(tlsOpts, tlsConfigFn)
+		}
+	}
+	tlsOpts = append(tlsOpts, func(c *tls.Config) {
+		c.NextProtos = []string{"h2", "http/1.1"}
+	})
+
+	// set metrics server options, including custom cert if provided
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		CertDir:       metricsCertDir,
+		CertName:      metricsCertName,
+		KeyName:       metricsKeyName,
+		TLSOpts:       tlsOpts,
+	}
+	if secureMetrics {
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
+	registriesNamespace := os.Getenv(config.RegistriesNamespace)
+	enableWebhooks := os.Getenv(config.EnableWebhooks) != "false"
+	defaultDomain := os.Getenv(config.DefaultDomain)
+	setupLog.Info("default registry config", config.RegistriesNamespace, registriesNamespace, config.DefaultDomain, defaultDomain)
+
+	// set default values for defaulting webhook
+	config.SetRegistriesNamespace(registriesNamespace)
+
+	// Only cache the instances of these objects that are created by this operator.
+	objOptions := cache.ByObject{
+		Label: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/created-by": "model-registry-operator",
+		}),
+	}
+	cacheOptions := cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&appsv1.Deployment{}:            objOptions,
+			&corev1.PersistentVolumeClaim{}: objOptions,
+			&corev1.ServiceAccount{}:        objOptions,
+			&corev1.Service{}:               objOptions,
+			&networkingv1.NetworkPolicy{}:   objOptions,
+			&rbacv1.ClusterRoleBinding{}:    objOptions,
+			&rbacv1.RoleBinding{}:           objOptions,
+			&rbacv1.Role{}:                  objOptions,
+			// ConfigMaps: cache all in the target namespace (no label filter)
+			// because user-created catalog source ConfigMaps won't have operator labels.
+			// Namespace-scoping keeps the cache bounded.
+			&corev1.ConfigMap{}: {
+				Namespaces: map[string]cache.Config{
+					registriesNamespace: {},
+				},
+			},
+		},
+	}
+
+	if capabilities.IsOpenShift {
+		cacheOptions.ByObject[&routev1.Route{}] = objOptions
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme: scheme,
+		Cache:  cacheOptions,
+		// Secrets are read but not created by the operator (user DB credentials, TLS certs),
+		// so they can't be label-filtered like operator-created resources above.
+		// DisableFor bypasses the cache for Secrets, using direct API reads instead.
+		// This is safe because no Owns()/Watches()/For() registers an informer for Secrets.
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}},
+			},
+		},
+		Metrics: metricsServerOptions,
+		WebhookServer: ctrlwebhook.NewServer(ctrlwebhook.Options{
+			TLSOpts: tlsOpts,
+		}),
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "85f368d1.opendatahub.io",
+		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+		// when the Manager ends. This requires the binary to immediately end when the
+		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+		// speeds up voluntary leader transitions as the new leader don't have to wait
+		// LeaseDuration time first.
+		//
+		// In the default scaffold provided, the program ends immediately after
+		// the manager stops, so would be fine to enable this option. However,
+		// if you are doing or is intended to do any operation such as perform cleanups
+		// after the manager stops then its usage might be unsafe.
+		// LeaderElectionReleaseOnCancel: true,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to start manager")
+		os.Exit(1)
+	}
+
+	template, err := config.ParseTemplates()
+	if err != nil {
+		setupLog.Error(err, "error parsing kubernetes resource templates")
+		os.Exit(1)
+	}
+	setupLog.Info("parsed kubernetes templates", "templates", template.DefinedTemplates())
+
+	mgrRestConfig := mgr.GetConfig()
+	client := mgr.GetClient()
+
+	clientset, err := kubernetes.NewForConfig(mgrRestConfig)
+	if err != nil {
+		setupLog.Error(err, "error getting kubernetes clientset")
+		os.Exit(1)
+	}
+
+	config.SetDefaultDomain(defaultDomain, mgr.GetClient(), capabilities.IsOpenShift)
+
+	gatewayDomain := os.Getenv(config.GatewayDomainEnv)
+	gatewayName := config.GetStringConfigWithDefault(config.GatewayNameEnv, config.DefaultGatewayName)
+	gatewayNamespace := config.GetStringConfigWithDefault(config.GatewayNamespaceEnv, config.DefaultGatewayNamespace)
+	httpRouteNamespace := config.GetStringConfigWithDefault(config.HTTPRouteNamespaceEnv, config.DefaultHTTPRouteNamespace)
+	setupLog.Info("gateway config", config.GatewayDomainEnv, gatewayDomain,
+		config.GatewayNameEnv, gatewayName, config.GatewayNamespaceEnv, gatewayNamespace,
+		config.HTTPRouteNamespaceEnv, httpRouteNamespace)
+	if gatewayDomain == "" {
+		hasPartialGatewayConfig := os.Getenv(config.GatewayNameEnv) != "" ||
+			os.Getenv(config.GatewayNamespaceEnv) != "" ||
+			os.Getenv(config.HTTPRouteNamespaceEnv) != ""
+		if hasPartialGatewayConfig {
+			setupLog.Info("WARNING: gateway-related env vars are set but GATEWAY_DOMAIN is empty — gateway mode is disabled, set GATEWAY_DOMAIN to enable it")
+		}
+	}
+
+	if err = (&controller.ModelRegistryReconciler{
+		Client:             client,
+		ClientSet:          clientset,
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorder("modelregistry-controller"),
+		Log:                ctrl.Log.WithName("controller"),
+		Template:           template,
+		EnableWebhooks:     enableWebhooks,
+		Capabilities:       capabilities,
+		GatewayDomain:      gatewayDomain,
+		GatewayName:        gatewayName,
+		GatewayNamespace:   gatewayNamespace,
+		HTTPRouteNamespace: httpRouteNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ModelRegistry")
+		os.Exit(1)
+	}
+
+	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
+	skipCatalogDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
+	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipCatalogDBCreation)
+
+	if err = (&controller.ModelCatalogReconciler{
+		Client:                client,
+		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorder("modelcatalog-controller"),
+		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
+		Template:              template,
+		Capabilities:          capabilities,
+		TargetNamespace:       config.GetRegistriesNamespace(),
+		Enabled:               enableModelCatalog,
+		SkipCatalogDBCreation: skipCatalogDBCreation,
+		GatewayDomain:         gatewayDomain,
+		GatewayName:           gatewayName,
+		GatewayNamespace:      gatewayNamespace,
+		HTTPRouteNamespace:    httpRouteNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
+		os.Exit(1)
+	}
+	if enableWebhooks {
+		if err = webhook.SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")
+			os.Exit(1)
+		}
+	}
+	//+kubebuilder:scaffold:builder
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	// Register SecurityProfileWatcher on OpenShift: cancel context on TLS profile change so pod restarts
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+	defer cancel()
+	if capabilities.HasConfigAPI {
+		watcher := &tlspkg.SecurityProfileWatcher{
+			Client:                mgr.GetClient(),
+			InitialTLSProfileSpec: profile,
+			OnProfileChange: func(_ context.Context, _, _ oapiconfig.TLSProfileSpec) {
+				setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
+				cancel()
+			},
+		}
+		if err := watcher.SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to register TLS security profile watcher")
+			os.Exit(1)
+		}
+	}
+
+	// Start storage migration monitor
+	migrationMgr := migration.NewStorageMigrationManager(mgr.GetClient())
+	migrationMgr.StartMigrationMonitor(ctx)
+
+	setupLog.Info("starting manager")
+	if err := mgr.Start(ctx); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func getCapabilities() (controller.ClusterCapabilities, error) {
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return controller.ClusterCapabilities{}, err
+	}
+	client, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return controller.ClusterCapabilities{}, err
+	}
+	return controller.DetectClusterCapabilities(client)
+}
+
+func isGracefulTLSError(err error) bool {
+	return apierrors.IsNotFound(err) || apimeta.IsNoMatchError(err) ||
+
+		apierrors.IsServiceUnavailable(err) || apierrors.IsTimeout(err) || apierrors.IsTooManyRequests(err)
+}

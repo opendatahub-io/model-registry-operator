@@ -1,0 +1,347 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}
+  template:
+    metadata:
+      labels:
+        app: {{.Name}}
+        component: model-registry
+        app.kubernetes.io/name: {{.Name}}
+      annotations:
+        openshift.io/required-scc: restricted-v2
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+      containers:
+        - args:
+            - --hostname=0.0.0.0
+            - --port={{.Spec.Rest.Port}}
+            {{- if .Spec.Postgres}}
+            - --embedmd-database-type=postgres
+                {{- $pgHost := .Spec.Postgres.Host }}
+                {{- if not $pgHost }}
+                    {{- $pgHost = .Spec.Postgres.HostAddress }}
+                {{- end }}
+                {{- $pgUser := .Spec.Postgres.Username }}
+                {{- $pgPort := .Spec.Postgres.Port }}
+                {{- $pgDB := .Spec.Postgres.Database }}
+                {{- $sslMode := "" }}
+                {{- if .Spec.Postgres.SSLMode }}
+                    {{- $sslMode = printf "?sslmode=%s" .Spec.Postgres.SSLMode }}
+                {{- end }}
+                {{- if .Spec.Postgres.PasswordSecret}}
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}:$(POSTGRES_PASSWORD)@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
+                {{- else}}
+            - --embedmd-database-dsn=postgresql://{{$pgUser}}@{{$pgHost}}:{{$pgPort}}/{{$pgDB}}{{$sslMode}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLCertificateSecret}}
+            - --embedmd-database-ssl-cert=/etc/postgres_ssl_cert/{{.Spec.Postgres.SSLCertificateSecret.Key}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLKeySecret}}
+            - --embedmd-database-ssl-key=/etc/postgres_ssl_key/{{.Spec.Postgres.SSLKeySecret.Key}}
+                {{- end}}
+                {{- if .Spec.Postgres.SSLRootCertificateConfigMap}}
+            - --embedmd-database-ssl-root-cert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateConfigMap.Key}}
+                {{- else if .Spec.Postgres.SSLRootCertificateSecret}}
+            - --embedmd-database-ssl-root-cert=/etc/postgres_ssl_rootcert/{{.Spec.Postgres.SSLRootCertificateSecret.Key}}
+            {{- end}}
+            {{- else if .Spec.MySQL}}
+            - --embedmd-database-type=mysql
+                {{- $mysqlHost := .Spec.MySQL.Host }}
+                {{- if not $mysqlHost }}
+                    {{- $mysqlHost = "localhost" }}
+                {{- end }}
+                {{- $mysqlUser := .Spec.MySQL.Username }}
+                {{- $mysqlPort := .Spec.MySQL.Port }}
+                {{- $mysqlDB := .Spec.MySQL.Database }}
+                {{- if .Spec.MySQL.PasswordSecret}}
+            - --embedmd-database-dsn={{$mysqlUser}}:$(MYSQL_PASSWORD)@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}?charset=utf8mb4
+                {{- else}}
+            - --embedmd-database-dsn={{$mysqlUser}}@tcp({{$mysqlHost}}:{{$mysqlPort}})/{{$mysqlDB}}?charset=utf8mb4
+                {{- end}}
+                {{- if .Spec.MySQL.SSLCertificateSecret}}
+            - --embedmd-database-ssl-cert=/etc/mysql_ssl_cert/{{.Spec.MySQL.SSLCertificateSecret.Key}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLKeySecret}}
+            - --embedmd-database-ssl-key=/etc/mysql_ssl_key/{{.Spec.MySQL.SSLKeySecret.Key}}
+                {{- end}}
+                {{- if .Spec.MySQL.SSLRootCertificateConfigMap}}
+            - --embedmd-database-ssl-root-cert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateConfigMap.Key}}
+                {{- else if .Spec.MySQL.SSLRootCertificateSecret}}
+            - --embedmd-database-ssl-root-cert=/etc/mysql_ssl_rootcert/{{.Spec.MySQL.SSLRootCertificateSecret.Key}}
+                {{- end}}
+                {{- if or .Spec.MySQL.SSLRootCertificatesConfigMapName .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - --embedmd-database-ssl-ca=/etc/mysql_ssl_rootcerts/
+                {{- end}}
+                {{- if .Spec.MySQL.SSLCipher}}
+            - --embedmd-database-ssl-cipher={{.Spec.MySQL.SSLCipher}}
+                {{- end}}
+                {{- if .Spec.MySQL.VerifyServerCert}}
+            - --embedmd-database-ssl-verify-server-cert={{.Spec.MySQL.VerifyServerCert}}
+                {{- end}}
+            {{- end}}
+          command:
+            - /model-registry
+            - proxy
+          env:
+            {{- if .Spec.Postgres}}
+                {{- if .Spec.Postgres.PasswordSecret}}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.Postgres.PasswordSecret.Key}}"
+                  name: "{{.Spec.Postgres.PasswordSecret.Name}}"
+                {{- end}}
+                {{- if .Spec.Postgres.SSLPasswordSecret}}
+            - name: POSTGRES_SSLPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.Postgres.SSLPasswordSecret.Key}}"
+                  name: "{{.Spec.Postgres.SSLPasswordSecret.Name}}"
+                {{- end}}
+            {{- else if .Spec.MySQL}}
+                {{- if .Spec.MySQL.PasswordSecret}}
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: "{{.Spec.MySQL.PasswordSecret.Key}}"
+                  name: "{{.Spec.MySQL.PasswordSecret.Name}}"
+                {{- end}}
+            {{- end}}
+          volumeMounts:
+            {{- if .Spec.Postgres}}
+                {{- if .Spec.Postgres.SSLCertificateSecret}}
+            - name: postgres-ssl-cert
+              mountPath: /etc/postgres_ssl_cert
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.Postgres.SSLKeySecret}}
+            - name: postgres-ssl-key
+              mountPath: /etc/postgres_ssl_key
+              readOnly: true
+                {{- end}}
+                {{- if or .Spec.Postgres.SSLRootCertificateConfigMap .Spec.Postgres.SSLRootCertificateSecret}}
+            - name: postgres-ssl-rootcert
+              mountPath: /etc/postgres_ssl_rootcert
+              readOnly: true
+                {{- end}}
+            {{- else if .Spec.MySQL}}
+                {{- if .Spec.MySQL.SSLCertificateSecret}}
+            - name: mysql-ssl-cert
+              mountPath: /etc/mysql_ssl_cert
+              readOnly: true
+                {{- end}}
+                {{- if .Spec.MySQL.SSLKeySecret}}
+            - name: mysql-ssl-key
+              mountPath: /etc/mysql_ssl_key
+              readOnly: true
+                {{- end}}
+                {{- if or .Spec.MySQL.SSLRootCertificateConfigMap .Spec.MySQL.SSLRootCertificateSecret}}
+            - name: mysql-ssl-rootcert
+              mountPath: /etc/mysql_ssl_rootcert
+              readOnly: true
+                {{- end}}
+                {{- if or .Spec.MySQL.SSLRootCertificatesConfigMapName .Spec.MySQL.SSLRootCertificatesSecretName}}
+            - name: mysql-ssl-rootcerts
+              mountPath: /etc/mysql_ssl_rootcerts
+              readOnly: true
+                {{- end}}
+            {{- end}}
+          image: {{.Spec.Rest.Image}}
+          name: rest-container
+          ports:
+            - containerPort: {{.Spec.Rest.Port}}
+              name: http-api
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            httpGet:
+              path: /readyz/isDirty
+              port: http-api
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            httpGet:
+              path: /readyz/isDirty
+              port: http-api
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            httpGet:
+              path: /readyz/health
+              port: http-api
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Spec.Rest.Resources }}
+          resources:
+            {{- if .Requests }}
+            requests:
+            {{- range $key, $value := .Requests }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
+            {{- end }}
+            {{- if .Limits }}
+            limits:
+            {{- range $key, $value := .Limits }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        {{ if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy
+          args:
+            - --secure-listen-address=0.0.0.0:{{.Spec.KubeRBACProxy.Port}}
+            - --upstream=http://127.0.0.1:{{.Spec.Rest.Port}}/
+            - --proxy-endpoints-port=8888
+            - --logtostderr=true
+            - --v=0
+            - --config-file=/etc/kube-rbac-proxy/config-file.yaml
+            - --tls-cert-file=/etc/tls/private-cert/{{.Spec.KubeRBACProxy.TLSCertificateSecret.Key}}
+            - --tls-private-key-file=/etc/tls/private-key/{{.Spec.KubeRBACProxy.TLSKeySecret.Key}}
+          image: {{.Spec.KubeRBACProxy.Image}}
+          ports:
+            - containerPort: {{.Spec.KubeRBACProxy.Port}}
+              name: https-proxy
+              protocol: TCP
+            - containerPort: 8888
+              name: proxy-healthz
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: proxy-healthz
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: proxy-healthz
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /etc/tls/private-cert
+              name: kube-rbac-proxy-cert
+            - mountPath: /etc/tls/private-key
+              name: kube-rbac-proxy-key
+            - mountPath: /etc/kube-rbac-proxy
+              name: kube-rbac-proxy-config
+        {{ end }}
+      serviceAccountName: {{.Name}}
+      volumes:
+        {{- if .Spec.Postgres}}
+            {{- if .Spec.Postgres.SSLCertificateSecret}}
+        - name: postgres-ssl-cert
+          secret:
+            secretName: {{.Spec.Postgres.SSLCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.Postgres.SSLKeySecret}}
+        - name: postgres-ssl-key
+          secret:
+            secretName: {{.Spec.Postgres.SSLKeySecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.Postgres.SSLRootCertificateConfigMap}}
+        - name: postgres-ssl-rootcert
+          configMap:
+            name: {{.Spec.Postgres.SSLRootCertificateConfigMap.Name}}
+            defaultMode: 0600
+            {{- else if .Spec.Postgres.SSLRootCertificateSecret}}
+        - name: postgres-ssl-rootcert
+          secret:
+            secretName: {{.Spec.Postgres.SSLRootCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+        {{- else if .Spec.MySQL}}
+            {{- if .Spec.MySQL.SSLCertificateSecret}}
+        - name: mysql-ssl-cert
+          secret:
+            secretName: {{.Spec.MySQL.SSLCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLKeySecret}}
+        - name: mysql-ssl-key
+          secret:
+            secretName: {{.Spec.MySQL.SSLKeySecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLRootCertificateConfigMap}}
+        - name: mysql-ssl-rootcert
+          configMap:
+            name: {{.Spec.MySQL.SSLRootCertificateConfigMap.Name}}
+            defaultMode: 0600
+            {{- else if .Spec.MySQL.SSLRootCertificateSecret}}
+        - name: mysql-ssl-rootcert
+          secret:
+            secretName: {{.Spec.MySQL.SSLRootCertificateSecret.Name}}
+            defaultMode: 0600
+            {{- end}}
+            {{- if .Spec.MySQL.SSLRootCertificatesConfigMapName}}
+        - name: mysql-ssl-rootcerts
+          configMap:
+            name: {{.Spec.MySQL.SSLRootCertificatesConfigMapName}}
+            defaultMode: 0600
+            {{- else if .Spec.MySQL.SSLRootCertificatesSecretName}}
+        - name: mysql-ssl-rootcerts
+          secret:
+            secretName: {{.Spec.MySQL.SSLRootCertificatesSecretName}}
+            defaultMode: 0600
+            {{- end}}
+        {{- end}}
+        {{- if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy-cert
+          secret:
+            secretName: {{.Spec.KubeRBACProxy.TLSCertificateSecret.Name}}
+            defaultMode: 0600
+        - name: kube-rbac-proxy-key
+          secret:
+            secretName: {{.Spec.KubeRBACProxy.TLSKeySecret.Name}}
+            defaultMode: 0600
+        - name: kube-rbac-proxy-config
+          configMap:
+            name: {{.Name}}-kube-rbac-proxy-config
+        {{- end}}

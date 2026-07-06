@@ -1,0 +1,60 @@
+name: Test controller image build and deployment
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'LICENSE*'
+      - '**.gitignore'
+      - '**.md'
+      - '**.txt'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/dependabot.yml'
+      - 'docs/**'
+
+env:
+  QUAY_IMG_REPO: model-registry-operator
+  PUSH_IMAGE: false
+
+jobs:
+  build-and-test-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate Tag
+        shell: bash
+        id: tags
+        run: |
+          commit_sha=${{ github.event.after }}
+          tag=main-${commit_sha:0:7}
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+      - name: Build Image
+        shell: bash
+        env:
+          IMG_VERSION: ${{ steps.tags.outputs.tag }}
+          IMG: "model-registry-operator:${{ steps.tags.outputs.tag }}"
+        run: |
+          make docker-build
+      - name: Start Kind Cluster
+        uses: helm/kind-action@v1.14.0
+      - name: Load Local Test Image
+        env:
+          IMG_VERSION: ${{ steps.tags.outputs.tag }}
+          IMG: "model-registry-operator:${{ steps.tags.outputs.tag }}"
+        run: |
+          kind load docker-image -n chart-testing ${IMG}
+      - name: Deploy Operator Image
+        env:
+          IMG_VERSION: ${{ steps.tags.outputs.tag }}
+          IMG: "model-registry-operator:${{ steps.tags.outputs.tag }}"
+        run: |
+          make deploy
+      - name: Create Test Registry
+        run: |
+          kubectl apply -k config/samples/mysql/
+          kubectl describe mr
+      - name: Wait for Test Registry Deployment
+        run: |
+          ##debug
+          #kubectl describe pods
+          #kubectl logs -l name=model-registry-db || true
+          kubectl wait --for=condition=Available=true modelregistries/modelregistry-sample --timeout=5m || (kubectl describe mr; kubectl logs -n model-registry-operator-system -l control-plane=controller-manager ; exit 1)

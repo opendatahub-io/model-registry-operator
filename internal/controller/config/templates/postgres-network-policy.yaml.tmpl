@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: {{.Name}}-postgres
+    component: model-registry-postgres
+    app.kubernetes.io/name: {{.Name}}-postgres
+    app.kubernetes.io/instance: {{.Name}}-postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  name: {{.Name}}-postgres
+  namespace: {{.Namespace}}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}-postgres
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: {{.Name}}
+          component: model-registry
+          app.kubernetes.io/name: {{.Name}}
+    ports:
+    - protocol: TCP
+      port: 5432

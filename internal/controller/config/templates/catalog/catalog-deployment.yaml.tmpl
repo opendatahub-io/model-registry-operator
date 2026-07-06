@@ -1,0 +1,228 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/component: model-catalog
+    app.kubernetes.io/part-of: model-catalog
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-catalog
+      app.kubernetes.io/name: {{.Name}}
+  template:
+    metadata:
+      labels:
+        app: {{.Name}}
+        component: model-catalog
+        app.kubernetes.io/name: {{.Name}}
+      annotations:
+        openshift.io/required-scc: restricted-v2
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        runAsNonRoot: true
+      volumes:
+      - name: user-model-sources
+        configMap:
+          name: model-catalog-sources
+      - name: user-mcp-sources
+        configMap:
+          name: mcp-catalog-sources
+      - name: default-sources
+        configMap:
+          name: default-catalog-sources
+      - name: catalog-data
+        emptyDir: {}
+      - name: benchmark-data
+        emptyDir: {}
+      {{- range .LabeledSources}}
+      - name: labeled-{{.Name}}
+        configMap:
+          name: {{.Name}}
+      {{- end}}
+      {{- if .Spec.KubeRBACProxy }}
+      - name: kube-rbac-proxy-tls
+        secret:
+          secretName: {{.Name}}-kube-rbac-proxy
+          defaultMode: 0600
+      - name: kube-rbac-proxy-config
+        configMap:
+          name: {{.Name}}-kube-rbac-proxy-config
+      {{- end}}
+      serviceAccountName: {{.Name}}
+      initContainers:
+        - name: catalog-data-init
+          image: {{.CatalogDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp /app/data/*.yaml /shared-data/
+          volumeMounts:
+            - name: catalog-data
+              mountPath: /shared-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+        - name: benchmark-data-init
+          image: {{.BenchmarkDataImage}}
+          command:
+            - /bin/sh
+            - -c
+            - cp -r /app/benchmarks/* /shared-benchmark-data/ || true
+          volumeMounts:
+            - name: benchmark-data
+              mountPath: /shared-benchmark-data
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: catalog
+          command:
+            - /model-registry
+            - catalog
+          args:
+            - --listen=0.0.0.0:8080
+            - --catalogs-path=/data/default-sources/sources.yaml
+            - --catalogs-path=/data/user-model-sources/sources.yaml
+            - --catalogs-path=/data/user-mcp-sources/sources.yaml
+            {{- range .LabeledSources}}
+            - --catalogs-path=/data/labeled-sources/{{.Name}}/sources.yaml
+            {{- end}}
+            - --performance-metrics=/shared-benchmark-data
+          image: {{.Spec.Rest.Image}}
+          ports:
+            - name: http-api
+              containerPort: 8080
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            tcpSocket:
+              port: http-api
+            timeoutSeconds: 2
+          readinessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            httpGet:
+              path: /readyz
+              port: http-api
+              scheme: HTTP
+            timeoutSeconds: 2
+          {{- with .Spec.Rest.Resources }}
+          resources:
+            {{- if .Requests }}
+            requests:
+            {{- range $key, $value := .Requests }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
+            {{- end }}
+            {{- if .Limits }}
+            limits:
+            {{- range $key, $value := .Limits }}
+              {{$key}}: {{quantityToString $value}}
+            {{- end }}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+          - name: user-model-sources
+            mountPath: /data/user-model-sources
+          - name: user-mcp-sources
+            mountPath: /data/user-mcp-sources
+          - name: default-sources
+            mountPath: /data/default-sources
+          - name: catalog-data
+            mountPath: /shared-data
+          - name: benchmark-data
+            mountPath: /shared-benchmark-data
+          {{- range .LabeledSources}}
+          - name: labeled-{{.Name}}
+            mountPath: /data/labeled-sources/{{.Name}}
+          {{- end}}
+          env:
+            - name: PGHOST
+              value: {{.Name}}-postgres
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-name
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-user
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{.Name}}-postgres
+                  key: database-password
+        {{ if .Spec.KubeRBACProxy }}
+        - name: kube-rbac-proxy
+          args:
+            - --secure-listen-address=0.0.0.0:{{.Spec.KubeRBACProxy.Port}}
+            - --upstream=http://127.0.0.1:8080/
+            - --proxy-endpoints-port=8888
+            - --logtostderr=true
+            - --v=0
+            - --config-file=/etc/kube-rbac-proxy/config-file.yaml
+            - --tls-cert-file=/etc/tls/tls.crt
+            - --tls-private-key-file=/etc/tls/tls.key
+          image: {{.Spec.KubeRBACProxy.Image}}
+          ports:
+            - containerPort: {{.Spec.KubeRBACProxy.Port}}
+              name: https-proxy
+              protocol: TCP
+            - containerPort: 8888
+              name: proxy-healthz
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: proxy-healthz
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: proxy-healthz
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /etc/tls
+              name: kube-rbac-proxy-tls
+            - mountPath: /etc/kube-rbac-proxy
+              name: kube-rbac-proxy-config
+        {{ end }}

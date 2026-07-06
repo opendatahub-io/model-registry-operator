@@ -1,0 +1,41 @@
+# IMPORTANT: "test-registry" is a placeholder. Replace it with the name
+# of an actual ModelRegistry resource deployed in the target namespace
+# before running this experiment.
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: model-registry-finalizer-block
+spec:
+  target:
+    operator: model-registry
+    component: model-registry-operator
+    resource: ModelRegistry
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: model-registry-operator-controller-manager
+        namespace: odh-model-registries
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: FinalizerBlock
+    parameters:
+      apiVersion: modelregistry.opendatahub.io/v1beta1
+      kind: ModelRegistry
+      name: test-registry
+      finalizer: modelregistry.opendatahub.io/finalizer
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      When a stuck finalizer prevents a ModelRegistry from being deleted,
+      the operator should handle the Terminating state gracefully, report
+      the blocked deletion in its status, and not leak associated database
+      or service resources. The chaos framework removes the finalizer via
+      TTL-based cleanup after 300s.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - odh-model-registries
