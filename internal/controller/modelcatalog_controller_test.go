@@ -955,7 +955,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(agentProps["yamlCatalogPath"]).To(Equal("/shared-data/agents-catalog.yaml"))
 				agentLabels, ok := agentEntry["labels"].([]any)
 				Expect(ok).To(BeTrue())
-				Expect(agentLabels).To(ContainElement("Red Hat"))
+				Expect(agentLabels).To(ContainElement("Red Hat Agents"))
 
 				By("Verifying default sources ConfigMap contains agent label definition with assetType")
 				var agentLabel map[string]any
@@ -967,9 +967,20 @@ var _ = Describe("ModelCatalog controller", func() {
 					}
 				}
 				Expect(agentLabel).To(Not(BeNil()), "should have an agent label definition")
-				Expect(agentLabel["name"]).To(Equal("Red Hat"))
+				Expect(agentLabel["name"]).To(Equal("Red Hat Agents"))
 				Expect(agentLabel["assetType"]).To(Equal("agents"))
 				Expect(agentLabel["displayName"]).To(Equal("Agent templates"))
+
+				By("Verifying no duplicate label names in default sources")
+				labelNames := make(map[string]bool)
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if ok {
+						name, _ := labelMap["name"].(string)
+						Expect(labelNames).ToNot(HaveKey(name), "duplicate label name: "+name)
+						labelNames[name] = true
+					}
+				}
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
