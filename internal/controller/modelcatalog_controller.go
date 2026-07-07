@@ -189,31 +189,19 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		}
 	}
 
-	// Create the user-managed sources ConfigMap if it doesn't exist
-	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-configmap.yaml.tmpl")
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	// Create the user-managed MCP sources ConfigMap if it doesn't exist
-	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-mcp-configmap.yaml.tmpl")
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
-	}
-
-	// Create the user-managed agent sources ConfigMap if it doesn't exist
-	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-agent-configmap.yaml.tmpl")
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	if result2 != ResourceUnchanged {
-		result = result2
+	// Create the user-managed sources ConfigMaps if they don't exist
+	for _, tmpl := range []string{
+		"catalog-configmap.yaml.tmpl",
+		"catalog-mcp-configmap.yaml.tmpl",
+		"catalog-agent-configmap.yaml.tmpl",
+	} {
+		result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, tmpl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	}
 
 	// Create or update Deployment
