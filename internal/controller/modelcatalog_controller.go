@@ -207,6 +207,15 @@ func (r *ModelCatalogReconciler) ensureCatalogResources(ctx context.Context) (ct
 		result = result2
 	}
 
+	// Create the user-managed agent sources ConfigMap if it doesn't exist
+	result2, err = r.manageUserSourcesConfigmap(ctx, catalogParams, "catalog-agent-configmap.yaml.tmpl")
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Create or update Deployment
 	result2, deployment, err := r.createOrUpdateDeployment(ctx, catalogParams, "catalog-deployment.yaml.tmpl", crOwner)
 	if err != nil {
@@ -752,12 +761,14 @@ func (r *ModelCatalogReconciler) removeDefaultSource(doc string) (string, error)
 	// - catalogs: legacy field (aliased to model_catalogs in catalog server)
 	// - model_catalogs: new field name for model catalogs
 	// - mcp_catalogs: MCP server catalogs (new, never had default_catalog)
+	// - agent_catalogs: agent catalogs (new, never had default_catalog)
 	// Additional top-level fields (labels, namedQueries) are captured to avoid
 	// UnmarshalStrict failures when user configmaps include them.
 	var sources struct {
 		Catalogs      []catalog `json:"catalogs,omitempty"`
 		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
 		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
+		AgentCatalogs []catalog `json:"agent_catalogs,omitempty"`
 		Labels        any       `json:"labels,omitempty"`
 		NamedQueries  any       `json:"namedQueries,omitempty"`
 	}
