@@ -57,6 +57,10 @@ data:
         assetType: mcp_servers
         displayName: Red Hat Partner MCP servers
         description: A collection of Red Hat Partner MCP servers.
+      - name: Red Hat
+        assetType: agents
+        displayName: Agent templates
+        description: Pre-built agent templates from the Red Hat agentic starter kits collection.
     namedQueries:
       default-performance-filters:
         "artifacts.use_case.string_value":
@@ -91,3 +95,12 @@ data:
         enabled: true
         properties:
           yamlCatalogPath: /shared-data/community-mcp-servers-catalog.yaml
+    agent_catalogs:
+      - name: Red Hat Agents
+        id: rh_agents
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /shared-data/agents-catalog.yaml
+        labels:
+          - Red Hat
