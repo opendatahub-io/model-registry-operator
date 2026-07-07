@@ -34,6 +34,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
@@ -137,6 +138,8 @@ func main() {
 	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
 	var tlsOpts []func(*tls.Config)
 	var profile oapiconfig.TLSProfileSpec
+	var tlsAdherence oapiconfig.TLSAdherencePolicy
+	tlsAdherenceFetched := false
 	if capabilities.HasConfigAPI {
 		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer bootstrapCancel()
@@ -147,13 +150,28 @@ func main() {
 		}
 		profile, err = tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
 		if err != nil {
-			setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+			switch {
+			case apierrors.IsServiceUnavailable(err),
+				apierrors.IsTimeout(err),
+				apierrors.IsTooManyRequests(err):
+				setupLog.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
+			default:
+				setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+			}
+			profile = *oapiconfig.TLSProfiles[oapiconfig.TLSProfileIntermediateType]
 		}
 		tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
 		if len(unsupportedCiphers) > 0 {
 			setupLog.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
 		}
 		tlsOpts = append(tlsOpts, tlsConfigFn)
+
+		var adherenceErr error
+		tlsAdherence, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
+		if adherenceErr != nil {
+			setupLog.Error(adherenceErr, "unable to fetch TLS adherence policy, watcher will retry")
+		}
+		tlsAdherenceFetched = true
 	}
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.NextProtos = []string{"h2", "http/1.1"}
@@ -349,6 +367,13 @@ func main() {
 				setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
 				cancel()
 			},
+		}
+		if tlsAdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsAdherence
+			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ oapiconfig.TLSAdherencePolicy) {
+				setupLog.Info("TLS adherence policy changed, initiating shutdown to reload")
+				cancel()
+			}
 		}
 		if err := watcher.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to register TLS security profile watcher")
