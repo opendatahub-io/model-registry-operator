@@ -34,6 +34,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
@@ -147,7 +148,14 @@ func main() {
 		}
 		profile, err = tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
 		if err != nil {
-			setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+			switch {
+			case apierrors.IsServiceUnavailable(err),
+				apierrors.IsTimeout(err),
+				apierrors.IsTooManyRequests(err):
+				setupLog.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
+			default:
+				setupLog.Error(err, "unable to fetch TLS profile, using defaults")
+			}
 		}
 		tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
 		if len(unsupportedCiphers) > 0 {
