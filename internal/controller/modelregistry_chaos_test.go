@@ -131,6 +131,8 @@ var _ = Describe("ModelRegistry chaos resilience", func() {
 							Key:  "password",
 						},
 					},
+					// Pre-set KubeRBACProxy so the reconciler safety net doesn't fire before Create faults can be injected
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{},
 				},
 			}
 

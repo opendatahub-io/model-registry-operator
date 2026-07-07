@@ -146,8 +146,27 @@ func TestDefault(t *testing.T) {
 					Rest: v1beta1.RestSpec{
 						ServiceRoute: config.RouteDisabled,
 					},
-					Postgres: nil,
-					MySQL:    nil,
+					Postgres:      nil,
+					MySQL:         nil,
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{ServiceRoute: config.RouteEnabled},
+				},
+			},
+		},
+		{
+			name: "default kube-rbac-proxy when neither proxy configured",
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{ServiceRoute: config.RouteEnabled},
 				},
 			},
 		},
