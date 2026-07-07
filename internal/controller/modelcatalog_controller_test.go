@@ -729,6 +729,34 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(mcpCatalogs).To(HaveLen(0), "mcp_catalogs should be empty by default")
 			})
 
+			It("Should create agent-catalog-sources ConfigMap", func() {
+				By("Creating catalog resources")
+				_, err := catalogReconciler.ensureCatalogResources(ctx)
+				Expect(err).To(Not(HaveOccurred()))
+
+				By("Checking if the agent ConfigMap was created")
+				configMap := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{
+					Name:      "agent-catalog-sources",
+					Namespace: namespaceName,
+				}, configMap)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(configMap.Labels["component"]).To(Equal("model-catalog"))
+				Expect(configMap.Labels["app.kubernetes.io/created-by"]).To(Equal("model-registry-operator"))
+
+				By("Verifying agent ConfigMap has correct structure")
+				Expect(configMap.Data).To(HaveKey("sources.yaml"))
+				var sources map[string]any
+				err = yaml.Unmarshal([]byte(configMap.Data["sources.yaml"]), &sources)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(sources).To(HaveKey("agent_catalogs"))
+
+				// Verify it's an empty array by default
+				agentCatalogs, ok := sources["agent_catalogs"].([]any)
+				Expect(ok).To(BeTrue(), "agent_catalogs should be an array")
+				Expect(agentCatalogs).To(HaveLen(0), "agent_catalogs should be empty by default")
+			})
+
 			It("Should set correct ownerReferences on catalog resources", func() {
 				By("First creating catalog resources")
 				_, err := catalogReconciler.ensureCatalogResources(ctx)
@@ -910,6 +938,38 @@ var _ = Describe("ModelCatalog controller", func() {
 					Expect(labelMap["assetType"]).To(Equal("models"),
 						"label %q should have assetType 'models'", expectedName)
 				}
+
+				By("Verifying default sources ConfigMap contains agent catalog sources")
+				Expect(defaultSources).To(HaveKey("agent_catalogs"))
+				agentCatalogs, ok := defaultSources["agent_catalogs"].([]any)
+				Expect(ok).To(BeTrue(), "agent_catalogs should be an array")
+				Expect(agentCatalogs).To(HaveLen(1), "agent_catalogs should contain Red Hat Agents entry")
+				agentEntry, ok := agentCatalogs[0].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(agentEntry["name"]).To(Equal("Red Hat Agents"))
+				Expect(agentEntry["id"]).To(Equal("rh_agents"))
+				Expect(agentEntry["type"]).To(Equal("yaml"))
+				Expect(agentEntry["enabled"]).To(BeTrue())
+				agentProps, ok := agentEntry["properties"].(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(agentProps["yamlCatalogPath"]).To(Equal("/shared-data/agents-catalog.yaml"))
+				agentLabels, ok := agentEntry["labels"].([]any)
+				Expect(ok).To(BeTrue())
+				Expect(agentLabels).To(ContainElement("Red Hat"))
+
+				By("Verifying default sources ConfigMap contains agent label definition with assetType")
+				var agentLabel map[string]any
+				for _, l := range labels {
+					labelMap, ok := l.(map[string]any)
+					if ok && labelMap["assetType"] == "agents" {
+						agentLabel = labelMap
+						break
+					}
+				}
+				Expect(agentLabel).To(Not(BeNil()), "should have an agent label definition")
+				Expect(agentLabel["name"]).To(Equal("Red Hat"))
+				Expect(agentLabel["assetType"]).To(Equal("agents"))
+				Expect(agentLabel["displayName"]).To(Equal("Agent templates"))
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
@@ -1192,15 +1252,18 @@ catalogs:
 				}, deployment)
 				Expect(err).To(Not(HaveOccurred()))
 
-				By("Verifying deployment has user-model-sources, user-mcp-sources, and default-sources volumes")
+				By("Verifying deployment has user-model-sources, user-mcp-sources, user-agent-sources, and default-sources volumes")
 				volumes := deployment.Spec.Template.Spec.Volumes
-				var userModelSourcesVolume, userMcpSourcesVolume, defaultSourcesVolume *corev1.Volume
+				var userModelSourcesVolume, userMcpSourcesVolume, userAgentSourcesVolume, defaultSourcesVolume *corev1.Volume
 				for i := range volumes {
 					if volumes[i].Name == "user-model-sources" {
 						userModelSourcesVolume = &volumes[i]
 					}
 					if volumes[i].Name == "user-mcp-sources" {
 						userMcpSourcesVolume = &volumes[i]
+					}
+					if volumes[i].Name == "user-agent-sources" {
+						userAgentSourcesVolume = &volumes[i]
 					}
 					if volumes[i].Name == "default-sources" {
 						defaultSourcesVolume = &volumes[i]
@@ -1213,18 +1276,24 @@ catalogs:
 				Expect(userMcpSourcesVolume).To(Not(BeNil()), "user-mcp-sources volume should exist")
 				Expect(userMcpSourcesVolume.ConfigMap.Name).To(Equal("mcp-catalog-sources"))
 
+				Expect(userAgentSourcesVolume).To(Not(BeNil()), "user-agent-sources volume should exist")
+				Expect(userAgentSourcesVolume.ConfigMap.Name).To(Equal("agent-catalog-sources"))
+
 				Expect(defaultSourcesVolume).To(Not(BeNil()), "default-sources volume should exist")
 				Expect(defaultSourcesVolume.ConfigMap.Name).To(Equal("default-catalog-sources"))
 
 				By("Verifying catalog container has all volume mounts")
 				catalogContainer := deployment.Spec.Template.Spec.Containers[0]
-				var userModelSourcesMount, userMcpSourcesMount, defaultSourcesMount *corev1.VolumeMount
+				var userModelSourcesMount, userMcpSourcesMount, userAgentSourcesMount, defaultSourcesMount *corev1.VolumeMount
 				for i := range catalogContainer.VolumeMounts {
 					if catalogContainer.VolumeMounts[i].Name == "user-model-sources" {
 						userModelSourcesMount = &catalogContainer.VolumeMounts[i]
 					}
 					if catalogContainer.VolumeMounts[i].Name == "user-mcp-sources" {
 						userMcpSourcesMount = &catalogContainer.VolumeMounts[i]
+					}
+					if catalogContainer.VolumeMounts[i].Name == "user-agent-sources" {
+						userAgentSourcesMount = &catalogContainer.VolumeMounts[i]
 					}
 					if catalogContainer.VolumeMounts[i].Name == "default-sources" {
 						defaultSourcesMount = &catalogContainer.VolumeMounts[i]
@@ -1237,14 +1306,18 @@ catalogs:
 				Expect(userMcpSourcesMount).To(Not(BeNil()), "user-mcp-sources mount should exist")
 				Expect(userMcpSourcesMount.MountPath).To(Equal("/data/user-mcp-sources"))
 
+				Expect(userAgentSourcesMount).To(Not(BeNil()), "user-agent-sources mount should exist")
+				Expect(userAgentSourcesMount.MountPath).To(Equal("/data/user-agent-sources"))
+
 				Expect(defaultSourcesMount).To(Not(BeNil()), "default-sources mount should exist")
 				Expect(defaultSourcesMount.MountPath).To(Equal("/data/default-sources"))
 
-				By("Verifying catalog container has all three catalogs-path arguments")
+				By("Verifying catalog container has all catalogs-path arguments")
 				args := catalogContainer.Args
 				Expect(args).To(ContainElement("--catalogs-path=/data/default-sources/sources.yaml"))
 				Expect(args).To(ContainElement("--catalogs-path=/data/user-model-sources/sources.yaml"))
 				Expect(args).To(ContainElement("--catalogs-path=/data/user-mcp-sources/sources.yaml"))
+				Expect(args).To(ContainElement("--catalogs-path=/data/user-agent-sources/sources.yaml"))
 			})
 		})
 
@@ -1620,6 +1693,25 @@ catalogs:
 				Expect(result).To(Equal(""), "empty mcp_catalogs should not trigger updates")
 			})
 
+			It("Should handle agent_catalogs field without error", func() {
+				input := `agent_catalogs:
+  - name: My Agent
+    id: my_agent
+    type: yaml`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "agent_catalogs should not trigger updates (no default_catalog to remove)")
+			})
+
+			It("Should handle empty agent_catalogs array", func() {
+				input := `agent_catalogs: []`
+
+				result, err := catalogReconciler.removeDefaultSource(input)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result).To(Equal(""), "empty agent_catalogs should not trigger updates")
+			})
+
 			It("Should handle model_catalogs field and remove default_catalog", func() {
 				input := `model_catalogs:
   - name: Default Catalog
@@ -1637,7 +1729,7 @@ catalogs:
 				Expect(result).To(ContainSubstring("model_catalogs"))
 			})
 
-			It("Should handle all three catalog types (catalogs, model_catalogs, mcp_catalogs)", func() {
+			It("Should handle all four catalog types (catalogs, model_catalogs, mcp_catalogs, agent_catalogs)", func() {
 				input := `catalogs:
   - name: Custom Catalog
     id: custom_catalog
@@ -1649,14 +1741,18 @@ model_catalogs:
 mcp_catalogs:
   - name: My MCP Server
     id: my_mcp_server
-    type: mcp`
+    type: mcp
+agent_catalogs:
+  - name: My Agent
+    id: my_agent
+    type: yaml`
 
 				result, err := catalogReconciler.removeDefaultSource(input)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(result).To(Equal(""), "no default_catalog to remove, should return empty string")
 			})
 
-			It("Should handle all three catalog types with default_catalog in legacy catalogs field", func() {
+			It("Should handle all four catalog types with default_catalog in legacy catalogs field", func() {
 				input := `catalogs:
   - name: Default Catalog
     id: default_catalog
@@ -1671,7 +1767,11 @@ model_catalogs:
 mcp_catalogs:
   - name: My MCP Server
     id: my_mcp_server
-    type: mcp`
+    type: mcp
+agent_catalogs:
+  - name: My Agent
+    id: my_agent
+    type: yaml`
 
 				result, err := catalogReconciler.removeDefaultSource(input)
 				Expect(err).To(Not(HaveOccurred()))
@@ -1680,6 +1780,7 @@ mcp_catalogs:
 				Expect(result).To(ContainSubstring("custom_catalog"))
 				Expect(result).To(ContainSubstring("custom_model_catalog"))
 				Expect(result).To(ContainSubstring("my_mcp_server"))
+				Expect(result).To(ContainSubstring("my_agent"))
 			})
 
 			It("Should preserve mcp_catalogs when removing default_catalog from catalogs", func() {
