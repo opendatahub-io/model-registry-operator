@@ -35,7 +35,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
@@ -159,6 +158,7 @@ func main() {
 			default:
 				setupLog.Error(err, "unable to fetch TLS profile, using defaults")
 			}
+			profile = *oapiconfig.TLSProfiles[oapiconfig.TLSProfileIntermediateType]
 		}
 		tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
 		if len(unsupportedCiphers) > 0 {
@@ -169,20 +169,9 @@ func main() {
 		var adherenceErr error
 		tlsAdherence, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
 		if adherenceErr != nil {
-			switch {
-			case apierrors.IsNotFound(adherenceErr), apimeta.IsNoMatchError(adherenceErr):
-				setupLog.Info("APIServer TLS adherence policy unavailable")
-			case apierrors.IsServiceUnavailable(adherenceErr),
-				apierrors.IsTimeout(adherenceErr),
-				apierrors.IsTooManyRequests(adherenceErr):
-				setupLog.Info("Transient error reading TLS adherence policy", "error", adherenceErr)
-			default:
-				setupLog.Error(adherenceErr, "failed to fetch TLS adherence policy")
-				os.Exit(1)
-			}
-		} else {
-			tlsAdherenceFetched = true
+			setupLog.Error(adherenceErr, "unable to fetch TLS adherence policy, watcher will retry")
 		}
+		tlsAdherenceFetched = true
 	}
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.NextProtos = []string{"h2", "http/1.1"}
