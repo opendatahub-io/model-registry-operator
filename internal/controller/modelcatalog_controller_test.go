@@ -969,7 +969,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(agentLabel).To(Not(BeNil()), "should have an agent label definition")
 				Expect(agentLabel["name"]).To(Equal("Red Hat"))
 				Expect(agentLabel["assetType"]).To(Equal("agents"))
-				Expect(agentLabel["displayName"]).To(Equal("Red Hat Agents"))
+				Expect(agentLabel["displayName"]).To(Equal("Agent templates"))
 			})
 
 			It("Should update default sources ConfigMap when changed", func() {
