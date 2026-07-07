@@ -35,6 +35,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
@@ -138,6 +139,8 @@ func main() {
 	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
 	var tlsOpts []func(*tls.Config)
 	var profile oapiconfig.TLSProfileSpec
+	var tlsAdherence oapiconfig.TLSAdherencePolicy
+	tlsAdherenceFetched := false
 	if capabilities.HasConfigAPI {
 		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer bootstrapCancel()
@@ -162,6 +165,24 @@ func main() {
 			setupLog.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
 		}
 		tlsOpts = append(tlsOpts, tlsConfigFn)
+
+		var adherenceErr error
+		tlsAdherence, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
+		if adherenceErr != nil {
+			switch {
+			case apierrors.IsNotFound(adherenceErr), apimeta.IsNoMatchError(adherenceErr):
+				setupLog.Info("APIServer TLS adherence policy unavailable")
+			case apierrors.IsServiceUnavailable(adherenceErr),
+				apierrors.IsTimeout(adherenceErr),
+				apierrors.IsTooManyRequests(adherenceErr):
+				setupLog.Info("Transient error reading TLS adherence policy", "error", adherenceErr)
+			default:
+				setupLog.Error(adherenceErr, "failed to fetch TLS adherence policy")
+				os.Exit(1)
+			}
+		} else {
+			tlsAdherenceFetched = true
+		}
 	}
 	tlsOpts = append(tlsOpts, func(c *tls.Config) {
 		c.NextProtos = []string{"h2", "http/1.1"}
@@ -357,6 +378,13 @@ func main() {
 				setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
 				cancel()
 			},
+		}
+		if tlsAdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsAdherence
+			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ oapiconfig.TLSAdherencePolicy) {
+				setupLog.Info("TLS adherence policy changed, initiating shutdown to reload")
+				cancel()
+			}
 		}
 		if err := watcher.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to register TLS security profile watcher")
