@@ -952,7 +952,7 @@ var _ = Describe("ModelCatalog controller", func() {
 				Expect(agentEntry["enabled"]).To(BeTrue())
 				agentProps, ok := agentEntry["properties"].(map[string]any)
 				Expect(ok).To(BeTrue())
-				Expect(agentProps["yamlCatalogPath"]).To(Equal("/shared-data/agents-catalog.yaml"))
+				Expect(agentProps["yamlCatalogPath"]).To(Equal("/shared-data/redhat-agents-catalog.yaml"))
 				agentLabels, ok := agentEntry["labels"].([]any)
 				Expect(ok).To(BeTrue())
 				Expect(agentLabels).To(ContainElement("Red Hat Agents"))
