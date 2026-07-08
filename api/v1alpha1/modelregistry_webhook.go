@@ -70,8 +70,9 @@ func (r *ModelRegistry) Default() {
 		r.ReplaceIstioWithOAuthProxy()
 	}
 
-	// default to oauth proxy when neither proxy is configured
-	if r.Spec.Istio == nil && r.Spec.OAuthProxy == nil {
+	// default to oauth proxy when neither proxy is configured (OpenShift only,
+	// since the TLS secret relies on OpenShift's service-ca operator)
+	if r.Spec.Istio == nil && r.Spec.OAuthProxy == nil && config.IsOpenShift() {
 		modelregistrylog.Info("defaulting to oauth proxy", "name", r.Name)
 		r.Spec.OAuthProxy = &OAuthProxyConfig{}
 	}

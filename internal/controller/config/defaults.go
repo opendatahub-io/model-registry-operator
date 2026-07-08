@@ -182,6 +182,10 @@ func GetRegistriesNamespace() string {
 	return defaultRegistriesNamespace
 }
 
+func IsOpenShift() bool {
+	return defaultIsOpenShift
+}
+
 func SetDefaultDomain(domain string, client client.Client, isOpenShift bool) {
 	defaultDomain = domain
 	defaultClient = client
