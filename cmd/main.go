@@ -26,6 +26,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	routev1 "github.com/openshift/api/route/v1"
+	userv1 "github.com/openshift/api/user/v1"
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
@@ -238,7 +239,7 @@ func main() {
 		// This is safe because no Owns()/Watches()/For() registers an informer for Secrets.
 		Client: client.Options{
 			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&corev1.Secret{}},
+				DisableFor: []client.Object{&corev1.Secret{}, &userv1.Group{}},
 			},
 		},
 		Metrics: metricsServerOptions,
