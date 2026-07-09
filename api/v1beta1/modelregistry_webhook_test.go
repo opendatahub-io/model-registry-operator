@@ -128,12 +128,14 @@ func TestDefault(t *testing.T) {
 	httpsRoutePort := int32(443)
 
 	tests := []struct {
-		name       string
-		mrSpec     *v1beta1.ModelRegistry
-		wantMrSpec *v1beta1.ModelRegistry
+		name        string
+		isOpenShift bool
+		mrSpec      *v1beta1.ModelRegistry
+		wantMrSpec  *v1beta1.ModelRegistry
 	}{
 		{
-			name: "set default values",
+			name:        "set default values on openshift",
+			isOpenShift: true,
 			mrSpec: &v1beta1.ModelRegistry{
 				Spec: v1beta1.ModelRegistrySpec{
 					Rest:     v1beta1.RestSpec{},
@@ -146,8 +148,46 @@ func TestDefault(t *testing.T) {
 					Rest: v1beta1.RestSpec{
 						ServiceRoute: config.RouteDisabled,
 					},
-					Postgres: nil,
-					MySQL:    nil,
+					Postgres:      nil,
+					MySQL:         nil,
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{ServiceRoute: config.RouteEnabled},
+				},
+			},
+		},
+		{
+			name:        "default kube-rbac-proxy when neither proxy configured on openshift",
+			isOpenShift: true,
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
+					KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{ServiceRoute: config.RouteEnabled},
+				},
+			},
+		},
+		{
+			name:        "no default proxy on non-openshift",
+			isOpenShift: false,
+			mrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{},
+				},
+			},
+			wantMrSpec: &v1beta1.ModelRegistry{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-registry"},
+				Spec: v1beta1.ModelRegistrySpec{
+					Rest: v1beta1.RestSpec{
+						ServiceRoute: config.RouteDisabled,
+					},
 				},
 			},
 		},
@@ -213,6 +253,8 @@ func TestDefault(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			config.SetDefaultDomain("", nil, tt.isOpenShift)
+			defer config.SetDefaultDomain("", nil, false)
 			tt.mrSpec.Default()
 			if !reflect.DeepEqual(tt.mrSpec, tt.wantMrSpec) {
 				t.Errorf("Default() = %v, want %v", tt.mrSpec, tt.wantMrSpec)
