@@ -170,7 +170,7 @@ func main() {
 		var adherenceErr error
 		tlsAdherence, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
 		if adherenceErr != nil {
-			setupLog.Error(adherenceErr, "unable to fetch TLS adherence policy, watcher will retry")
+			setupLog.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
 		}
 		tlsAdherenceFetched = true
 	}
