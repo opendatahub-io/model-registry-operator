@@ -195,6 +195,19 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// Default to kube-rbac-proxy for existing registries that have no auth proxy configured.
+	// This handles registries created before this hardening change or updated outside the webhook.
+	// Only on OpenShift, since the TLS secret relies on OpenShift's service-ca operator.
+	if modelRegistry.Spec.OAuthProxy == nil && modelRegistry.Spec.KubeRBACProxy == nil && r.Capabilities.IsOpenShift {
+		log.Info("Defaulting to KubeRBACProxy for unauthenticated registry")
+		modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{}
+		if err = r.Update(ctx, modelRegistry); err != nil {
+			log.Error(err, "Failed to update modelRegistry after KubeRBACProxy defaulting")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
 	// remember original spec
 	originalSpec := modelRegistry.Spec.DeepCopy()
 	// set runtime default properties in memory for reconciliation

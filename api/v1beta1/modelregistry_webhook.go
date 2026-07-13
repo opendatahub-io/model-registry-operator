@@ -66,6 +66,13 @@ func (r *ModelRegistry) Default() {
 	// migrate oauth proxy to kube-rbac-proxy if oauth proxy is configured
 	r.MigrateOAuthProxyToKubeRBACProxy()
 
+	// default to kube-rbac-proxy when neither proxy is configured (OpenShift only,
+	// since the TLS secret relies on OpenShift's service-ca operator)
+	if r.Spec.OAuthProxy == nil && r.Spec.KubeRBACProxy == nil && config.IsOpenShift() {
+		modelregistrylog.Info("defaulting to kube-rbac-proxy", "name", r.Name)
+		r.Spec.KubeRBACProxy = &KubeRBACProxyConfig{}
+	}
+
 	// enable kube-rbac-proxy route by default
 	if r.Spec.KubeRBACProxy != nil && len(r.Spec.KubeRBACProxy.ServiceRoute) == 0 {
 		r.Spec.KubeRBACProxy.ServiceRoute = config.RouteEnabled

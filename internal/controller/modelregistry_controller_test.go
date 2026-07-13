@@ -349,6 +349,9 @@ var _ = Describe("ModelRegistry controller", func() {
 				registryName = "model-registry-openshift-with-serviceroute"
 				specInit()
 
+				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
+
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
 				modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
@@ -382,6 +385,9 @@ var _ = Describe("ModelRegistry controller", func() {
 			It("When using OpenShift - serviceRoute disabled", func() {
 				registryName = "model-registry-openshift-without-serviceroute"
 				specInit()
+
+				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
 
 				var mySQLPort int32 = 3306
 				modelRegistry.Spec.Postgres = nil
@@ -435,6 +441,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.Capabilities = ClusterCapabilities{
 					IsOpenShift: true,
@@ -650,6 +657,8 @@ var _ = Describe("ModelRegistry controller", func() {
 							Key:  "database-password",
 						},
 					}
+					// Pre-set KubeRBACProxy so the reconciler safety net doesn't requeue before legacy cleanup runs
+					modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{}
 
 					err = k8sClient.Create(ctx, modelRegistry)
 					Expect(err).To(Not(HaveOccurred()))
@@ -753,6 +762,8 @@ var _ = Describe("ModelRegistry controller", func() {
 					}, 5*time.Second, time.Second).Should(Succeed())
 
 					By("Performing reconciliation")
+					config.SetDefaultDomain("example.com", k8sClient, true)
+					defer config.SetDefaultDomain("", nil, false)
 					modelRegistryReconciler := initModelRegistryReconciler(template)
 					modelRegistryReconciler.Capabilities = ClusterCapabilities{
 						IsOpenShift: true,
@@ -826,6 +837,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.Capabilities = ClusterCapabilities{
 					IsOpenShift: true,
@@ -900,6 +912,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.Capabilities = ClusterCapabilities{
 					IsOpenShift: true,
@@ -981,6 +994,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 
 				config.SetDefaultDomain("example.com", k8sClient, true)
+				defer config.SetDefaultDomain("", nil, false)
 				modelRegistryReconciler := initModelRegistryReconciler(template)
 				modelRegistryReconciler.Capabilities = ClusterCapabilities{
 					IsOpenShift: true,
@@ -1122,16 +1136,11 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 				Image: config.DefaultRestImage,
 			},
 		}
-
-		// mock oauth proxy container
-		if modelRegistry.Spec.KubeRBACProxy != nil {
-			image := modelRegistry.Spec.KubeRBACProxy.Image
-			if len(image) == 0 {
-				image = config.DefaultKubeRBACProxyImage
-			}
+		// On OpenShift, the safety net defaults to kube-rbac-proxy for CRs without a proxy
+		if modelRegistry.Spec.KubeRBACProxy != nil || modelRegistryReconciler.Capabilities.IsOpenShift {
 			mrPod.Spec.Containers = append(mrPod.Spec.Containers, corev1.Container{
 				Name:  "kube-rbac-proxy",
-				Image: image,
+				Image: config.DefaultKubeRBACProxyImage,
 			})
 		}
 
@@ -1216,8 +1225,9 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 					Expect(err).To(Succeed(), "Failed to update mock Endpoints")
 				}
 
-				// Mock route ingress conditions if KubeRBACProxy is configured and routes exist
-				if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.Capabilities.IsOpenShift {
+				// Mock route ingress conditions if running on OpenShift (routes may exist regardless of whether
+				// KubeRBACProxy was pre-configured — the safety net may have added it after CR creation)
+				if modelRegistryReconciler.Capabilities.IsOpenShift {
 					routes := &routev1.RouteList{}
 					rerr := k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
 						"app":       typeNamespaceName.Name,
@@ -1256,7 +1266,7 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
 
-		if modelRegistry.Spec.KubeRBACProxy != nil && modelRegistry.Spec.KubeRBACProxy.ServiceRoute != config.RouteDisabled && modelRegistryReconciler.Capabilities.IsOpenShift {
+		if modelRegistryReconciler.Capabilities.IsOpenShift {
 			By("Checking if the Route was successfully created in the reconciliation")
 			routes := &routev1.RouteList{}
 			err = k8sClient.List(ctx, routes, client.InNamespace(typeNamespaceName.Namespace), client.MatchingLabels{
