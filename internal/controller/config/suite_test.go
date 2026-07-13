@@ -54,7 +54,7 @@ var (
 	testCRDLocalPath = "./testdata/crd"
 	remoteCRDs       = []remoteCRD{
 		{
-			url:      "https://raw.githubusercontent.com/openshift/api/refs/heads/master/config/v1/zz_generated.crd-manifests/0000_10_config-operator_01_ingresses.crd.yaml",
+			url:      "https://raw.githubusercontent.com/openshift/api/refs/heads/master/config/v1/zz_generated.crd-manifests/0000_10_config-operator_01_ingresses-Default.crd.yaml",
 			fileName: "ingress.openshift.io_ingresses.yaml",
 		},
 	}
