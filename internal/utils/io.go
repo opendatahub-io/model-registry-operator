@@ -34,9 +34,14 @@ func DownloadFile(url string, path string) error {
 
 	defer file.Close()
 
-	_, err = io.Copy(file, io.LimitReader(resp.Body, maxDownloadSize))
+	n, err := io.Copy(file, io.LimitReader(resp.Body, maxDownloadSize+1))
 	if err != nil {
 		return err
+	}
+	if n > maxDownloadSize {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return fmt.Errorf("response body for %q exceeds %d bytes", url, maxDownloadSize)
 	}
 
 	return nil
