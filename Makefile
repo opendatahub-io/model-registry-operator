@@ -90,9 +90,14 @@ sync-images:
 	# sync model-registry image
 	$(SED) "s|quay.io/opendatahub/model-registry:.*|${IMAGES_REST_SERVICE}|" $(SED_INPLACE) ./config/manager/manager.yaml
 	$(SED) "s|\"quay.io/opendatahub/model-registry:.*\"|\"${IMAGES_REST_SERVICE}\"|" $(SED_INPLACE) ./internal/controller/config/defaults.go
-	# sync component_metadata.yaml model registry versions on line 6 and 9
-	$(SED) $(SED_INPLACE) "6s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
-	$(SED) $(SED_INPLACE) "9s|: .*|: $(IMAGES_REST_VERSION)|" ./config/component_metadata.yaml
+	# sync component_metadata.yaml model registry versions by component name, not line number.
+	# Skip when IMAGES_REST_SERVICE is the floating "latest" dev tag: component_metadata.yaml
+	# must keep reflecting the last real upstream release version so it stays accurate as it
+	# syncs downstream (main -> stable -> red-hat-data-services fork -> release branches).
+	@if [ "$(IMAGES_REST_VERSION)" != "latest" ]; then \
+		$(SED) $(SED_INPLACE) "/name: Kubeflow Model Registry/{n;s|version: .*|version: $(IMAGES_REST_VERSION)|;}" ./config/component_metadata.yaml; \
+		$(SED) $(SED_INPLACE) "/name: Open Data Hub Model Registry Operator/{n;s|version: .*|version: $(IMAGES_REST_VERSION)|;}" ./config/component_metadata.yaml; \
+	fi
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
