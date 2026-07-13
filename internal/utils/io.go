@@ -11,6 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
+// maxDownloadSize caps DownloadFile's response body to guard against an
+// oversized or malicious response exhausting disk space.
+const maxDownloadSize = 10 * 1024 * 1024 // 10MiB
+
 func DownloadFile(url string, path string) error {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -30,7 +34,7 @@ func DownloadFile(url string, path string) error {
 
 	defer file.Close()
 
-	_, err = io.Copy(file, resp.Body)
+	_, err = io.Copy(file, io.LimitReader(resp.Body, maxDownloadSize))
 	if err != nil {
 		return err
 	}
