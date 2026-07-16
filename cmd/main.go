@@ -153,6 +153,7 @@ func main() {
 			switch {
 			case apierrors.IsServiceUnavailable(err),
 				apierrors.IsTimeout(err),
+				apierrors.IsServerTimeout(err),
 				apierrors.IsTooManyRequests(err):
 				setupLog.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
 			default:
