@@ -61,6 +61,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
@@ -88,6 +90,8 @@ func init() {
 	utilruntime.Must(gatewayapiv1.Install(scheme))
 	utilruntime.Must(gatewayapiv1beta1.Install(scheme))
 
+	utilruntime.Must(aihubv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(catalogv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
