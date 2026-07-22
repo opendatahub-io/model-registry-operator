@@ -38,9 +38,12 @@ import (
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
+	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
 	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+
 	//+kubebuilder:scaffold:imports
 
 	"k8s.io/client-go/discovery"
@@ -67,6 +70,8 @@ func NewScheme() *runtime.Scheme {
 
 	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
+	utilruntime.Must(aihubv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(catalogv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 
 	return scheme
