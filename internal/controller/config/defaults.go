@@ -58,8 +58,17 @@ const (
 	RouteDisabled             = "disabled"
 	RouteEnabled              = "enabled"
 	DefaultIstioIngressName   = "ingressgateway"
+	// RELATED_IMAGE_* env var names (injected by the ODH platform operator).
+	// Names must match the RelatedImages list in the opendatahub-operator
+	// module handler (internal/controller/modules/modelregistry/handler.go).
+	RelatedImageRest          = "RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE"
+	RelatedImageKubeRBACProxy = "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE"
+	RelatedImagePostgres      = "RELATED_IMAGE_POSTGRESQL_16_IMAGE"
+	RelatedImageCatalogData   = "RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE"
+	RelatedImageBenchmarkData = "RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE"
 
 	// config env variables
+	ApplicationsNamespace      = "APPLICATIONS_NAMESPACE"
 	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
 	EnableWebhooks             = "ENABLE_WEBHOOKS"
 	DefaultDomain              = "DEFAULT_DOMAIN"
@@ -123,6 +132,13 @@ func GetStringConfigWithDefault(configName, value string) string {
 		return v
 	}
 	return value
+}
+
+func GetImageWithRelatedFallback(relatedEnv, legacyEnv, defaultValue string) string {
+	if v := os.Getenv(relatedEnv); v != "" {
+		return v
+	}
+	return GetStringConfigWithDefault(legacyEnv, defaultValue)
 }
 
 func GetBoolConfigWithDefault(configName string, defaultValue bool) bool {
