@@ -37,6 +37,7 @@ type CatalogResources struct {
 type CatalogDatabaseVolume struct {
 	// SizeLimit is the storage size requested for the database PVC.
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="quantity(self).isGreaterThan(quantity('0'))",message="sizeLimit must be greater than zero"
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
 
 	// StorageClassName is the name of the StorageClass to use for the database PVC.

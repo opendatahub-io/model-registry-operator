@@ -57,6 +57,9 @@ spec:
                           database PVC.
                         pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                         x-kubernetes-int-or-string: true
+                        x-kubernetes-validations:
+                        - message: sizeLimit must be greater than zero
+                          rule: quantity(self).isGreaterThan(quantity('0'))
                       storageClassName:
                         description: |-
                           StorageClassName is the name of the StorageClass to use for the database PVC.
