@@ -131,8 +131,9 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		result.AdherencePolicy, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
 		if adherenceErr != nil {
 			log.Error(adherenceErr, "unable to fetch TLS adherence policy, watcher will retry")
+		} else {
+			result.AdherenceFetched = true
 		}
-		result.AdherenceFetched = true
 	}
 
 	result.Opts = append(result.Opts, func(c *tls.Config) {

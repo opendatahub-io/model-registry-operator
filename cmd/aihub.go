@@ -17,6 +17,8 @@ limitations under the License.
 package cmd
 
 import (
+	"errors"
+
 	"github.com/spf13/cobra"
 )
 
@@ -27,8 +29,7 @@ var aihubCmd = &cobra.Command{
 	Long: `Runs the AI Hub operator as an independent process.
 
 This subcommand is a placeholder and does not start any controllers yet.`,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		cmd.Println("aihub: not yet implemented")
-		return nil
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return errors.New("aihub: not yet implemented")
 	},
 }
