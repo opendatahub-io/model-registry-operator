@@ -144,11 +144,11 @@ chaos-validate: operator-chaos ## Validate chaos knowledge model and experiments
 
 .PHONY: build
 build: sync-images manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -o bin/manager .
 
 .PHONY: run
 run: manifests generate fmt vet govulncheck ## Run a controller from your host.
-	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) CREATE_AUTH_RESOURCES=$(CREATE_AUTH_RESOURCES) go run ./cmd/main.go
+	ENABLE_WEBHOOKS=$(ENABLE_WEBHOOKS) CREATE_AUTH_RESOURCES=$(CREATE_AUTH_RESOURCES) go run .
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
