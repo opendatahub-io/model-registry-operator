@@ -112,6 +112,7 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 			switch {
 			case apierrors.IsServiceUnavailable(err),
 				apierrors.IsTimeout(err),
+				apierrors.IsServerTimeout(err),
 				apierrors.IsTooManyRequests(err):
 				log.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
 			default:
@@ -130,10 +131,9 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		var adherenceErr error
 		result.AdherencePolicy, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
 		if adherenceErr != nil {
-			log.Error(adherenceErr, "unable to fetch TLS adherence policy, watcher will retry")
-		} else {
-			result.AdherenceFetched = true
+			log.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
 		}
+		result.AdherenceFetched = true
 	}
 
 	result.Opts = append(result.Opts, func(c *tls.Config) {
