@@ -11,6 +11,7 @@ require (
 	github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c
 	github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
 	github.com/openshift/controller-runtime-common v0.0.0-20260428152732-64ee174f5e2e
+	github.com/spf13/cobra v1.10.2
 	istio.io/client-go v1.30.3
 	k8s.io/api v0.36.3
 	k8s.io/apiextensions-apiserver v0.36.3
@@ -72,7 +73,6 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.68.0 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
