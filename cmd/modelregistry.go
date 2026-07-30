@@ -14,117 +14,89 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"flag"
 	"os"
-	"time"
 
+	"github.com/spf13/cobra"
+
+	"github.com/opendatahub-io/model-registry-operator/internal/setup"
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
 	routev1 "github.com/openshift/api/route/v1"
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
-	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
-	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	oapi "github.com/openshift/api"
 	oapiconfig "github.com/openshift/api/config/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	ctrlwebhook "sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	modelregistryv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/v1alpha1"
-	modelregistryv1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/migration"
-	//+kubebuilder:scaffold:imports
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	metricsAddr          string
+	metricsCertDir       string
+	metricsCertName      string
+	metricsKeyName       string
+	secureMetrics        bool
+	enableLeaderElection bool
+	probeAddr            string
 )
 
-func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	// openshift scheme
-	utilruntime.Must(oapi.Install(scheme))
-	utilruntime.Must(oapiconfig.Install(scheme))
-	// istio security scheme
-	utilruntime.Must(security.AddToScheme(scheme))
-	// istio networking scheme
-	utilruntime.Must(networking.AddToScheme(scheme))
-	// CRD scheme
-	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
-	// Gateway API scheme
-	utilruntime.Must(gatewayapiv1.Install(scheme))
-	utilruntime.Must(gatewayapiv1beta1.Install(scheme))
+// modelRegistryCmd runs the ModelRegistry and ModelCatalog controllers in a
+// single manager. This is the historical behavior of the operator binary and
+// is also what runs when the binary is invoked without a subcommand.
+var modelRegistryCmd = &cobra.Command{
+	Use:   "modelregistry",
+	Short: "Run the Model Registry operator (ModelRegistry and ModelCatalog controllers)",
+	Long: `Starts the ModelRegistry and ModelCatalog controllers in a single manager.
 
-	utilruntime.Must(modelregistryv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(modelregistryv1beta1.AddToScheme(scheme))
-	//+kubebuilder:scaffold:scheme
+This is the default behavior when the binary is invoked without a subcommand.`,
+	RunE: runModelRegistry,
 }
 
-func main() {
-	var metricsAddr string
-	var metricsCertDir string
-	var metricsCertName string
-	var metricsKeyName string
-	var secureMetrics bool
-
-	var enableLeaderElection bool
-	var probeAddr string
-
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "The address the metric endpoint binds to.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+// bindModelRegistryFlags registers the modelregistry flags (including zap
+// logger options) on the provided flag set.
+func bindModelRegistryFlags(fs *flag.FlagSet) {
+	fs.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "The address the metric endpoint binds to.")
+	fs.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
-	flag.StringVar(&metricsCertDir, "metrics-cert-dir", "", "The directory that contains the metrics endpoint key and certificate.\n"+
+	fs.StringVar(&metricsCertDir, "metrics-cert-dir", "", "The directory that contains the metrics endpoint key and certificate.\n"+
 		"Generates and uses a self-signed certificate if not specified.\n"+
 		"MUST be specified in production.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "", "The metrics endpoint server certificate filename.")
-	flag.StringVar(&metricsKeyName, "metrics-key-name", "", "The metrics endpoint key filename.")
+	fs.StringVar(&metricsCertName, "metrics-cert-name", "", "The metrics endpoint server certificate filename.")
+	fs.StringVar(&metricsKeyName, "metrics-key-name", "", "The metrics endpoint key filename.")
 
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	fs.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
-	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	zapOpts.BindFlags(fs)
+}
 
-	capabilities, err := getCapabilities()
+func runModelRegistry(_ *cobra.Command, _ []string) error {
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	capabilities, err := setup.GetCapabilities()
 	if err != nil {
 		setupLog.Error(err, "error detecting cluster capabilities")
 		os.Exit(1)
@@ -136,47 +108,11 @@ func main() {
 		"hasAuthAPI", capabilities.HasAuthAPI)
 
 	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
-	var tlsOpts []func(*tls.Config)
-	var profile oapiconfig.TLSProfileSpec
-	var tlsAdherence oapiconfig.TLSAdherencePolicy
-	tlsAdherenceFetched := false
-	if capabilities.HasConfigAPI {
-		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer bootstrapCancel()
-		bootstrapClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
-		if err != nil {
-			setupLog.Error(err, "unable to create bootstrap client for TLS profile")
-			os.Exit(1)
-		}
-		profile, err = tlspkg.FetchAPIServerTLSProfile(bootstrapCtx, bootstrapClient)
-		if err != nil {
-			switch {
-			case apierrors.IsServiceUnavailable(err),
-				apierrors.IsTimeout(err),
-				apierrors.IsServerTimeout(err),
-				apierrors.IsTooManyRequests(err):
-				setupLog.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
-			default:
-				setupLog.Error(err, "unable to fetch TLS profile, using defaults")
-			}
-			profile = *oapiconfig.TLSProfiles[oapiconfig.TLSProfileIntermediateType]
-		}
-		tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
-		if len(unsupportedCiphers) > 0 {
-			setupLog.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
-		}
-		tlsOpts = append(tlsOpts, tlsConfigFn)
-
-		var adherenceErr error
-		tlsAdherence, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(bootstrapCtx, bootstrapClient)
-		if adherenceErr != nil {
-			setupLog.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
-		}
-		tlsAdherenceFetched = true
+	tlsResult, err := setup.ConfigureTLS(scheme, capabilities.HasConfigAPI, setupLog)
+	if err != nil {
+		setupLog.Error(err, "unable to configure TLS")
+		os.Exit(1)
 	}
-	tlsOpts = append(tlsOpts, func(c *tls.Config) {
-		c.NextProtos = []string{"h2", "http/1.1"}
-	})
 
 	// set metrics server options, including custom cert if provided
 	metricsServerOptions := metricsserver.Options{
@@ -185,7 +121,7 @@ func main() {
 		CertDir:       metricsCertDir,
 		CertName:      metricsCertName,
 		KeyName:       metricsKeyName,
-		TLSOpts:       tlsOpts,
+		TLSOpts:       tlsResult.Opts,
 	}
 	if secureMetrics {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -244,7 +180,7 @@ func main() {
 		},
 		Metrics: metricsServerOptions,
 		WebhookServer: ctrlwebhook.NewServer(ctrlwebhook.Options{
-			TLSOpts: tlsOpts,
+			TLSOpts: tlsResult.Opts,
 		}),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
@@ -363,14 +299,14 @@ func main() {
 	if capabilities.HasConfigAPI {
 		watcher := &tlspkg.SecurityProfileWatcher{
 			Client:                mgr.GetClient(),
-			InitialTLSProfileSpec: profile,
+			InitialTLSProfileSpec: tlsResult.Profile,
 			OnProfileChange: func(_ context.Context, _, _ oapiconfig.TLSProfileSpec) {
 				setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
 				cancel()
 			},
 		}
-		if tlsAdherenceFetched {
-			watcher.InitialTLSAdherencePolicy = tlsAdherence
+		if tlsResult.AdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsResult.AdherencePolicy
 			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ oapiconfig.TLSAdherencePolicy) {
 				setupLog.Info("TLS adherence policy changed, initiating shutdown to reload")
 				cancel()
@@ -391,16 +327,6 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
 
-func getCapabilities() (controller.ClusterCapabilities, error) {
-	cfg, err := ctrl.GetConfig()
-	if err != nil {
-		return controller.ClusterCapabilities{}, err
-	}
-	client, err := discovery.NewDiscoveryClientForConfig(cfg)
-	if err != nil {
-		return controller.ClusterCapabilities{}, err
-	}
-	return controller.DetectClusterCapabilities(client)
+	return nil
 }
