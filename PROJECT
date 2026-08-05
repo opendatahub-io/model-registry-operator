@@ -36,4 +36,20 @@ resources:
     spoke:
     - v1alpha1
     webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: false
+  domain: opendatahub.io
+  group: components.platform
+  kind: AIHub
+  path: github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: opendatahub.io
+  group: aihub
+  kind: Catalog
+  path: github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1
+  version: v1alpha1
 version: "3"
