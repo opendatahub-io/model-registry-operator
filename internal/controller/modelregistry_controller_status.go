@@ -141,6 +141,15 @@ func (r *ModelRegistryReconciler) setRegistryStatus(ctx context.Context, req ctr
 		if modelRegistry.Spec.KubeRBACProxy != nil {
 			condition.Status, condition.Reason, condition.Message = r.SetKubeRBACProxyCondition(ctx, req, modelRegistry, condition.Status, condition.Reason, condition.Message)
 		}
+	} else if modelRegistry.Spec.KubeRBACProxy != nil {
+		// Deployment is not available, so the proxy cannot be considered available either.
+		// Re-evaluate instead of leaving a stale True condition from a previous reconcile.
+		meta.SetStatusCondition(&modelRegistry.Status.Conditions, metav1.Condition{
+			Type:    ConditionTypeKubeRBACProxy,
+			Status:  metav1.ConditionFalse,
+			Reason:  ReasonResourcesUnavailable,
+			Message: condition.Message,
+		})
 	}
 
 	meta.SetStatusCondition(&modelRegistry.Status.Conditions, condition)
@@ -485,17 +494,54 @@ func (r *ModelRegistryReconciler) CheckDeploymentPods(ctx context.Context, name 
 		return message, reason, status
 	}
 
-	// check that pods have 2 containers
+	// Filter out terminating pods (e.g., old ReplicaSet pods during rolling update)
+	activePods := make([]corev1.Pod, 0, len(pods.Items))
 	for _, pod := range pods.Items {
-		if len(pod.Spec.Containers) != 2 {
-			message = fmt.Sprintf("%s proxy unavailable in Pod %s", proxyType, pod.Name)
-			reason = ReasonResourcesUnavailable
-			status = metav1.ConditionFalse
-			break
+		if pod.DeletionTimestamp == nil {
+			activePods = append(activePods, pod)
 		}
 	}
 
-	return message, reason, status
+	if len(activePods) == 0 {
+		message = fmt.Sprintf("No active Pods found for Deployment %s", name.Name)
+		reason = ReasonResourcesUnavailable
+		status = metav1.ConditionFalse
+
+		return message, reason, status
+	}
+
+	// The Deployment already reports minimum availability here, so a single
+	// not-ready pod (e.g. a surge pod still starting during a rolling update)
+	// must not flip the condition. Report unavailable only when NO active pod
+	// is fully ready.
+	var lastUnreadyMsg string
+	for _, pod := range activePods {
+		if msg, unready := checkPodReadiness(&pod, proxyType); unready {
+			lastUnreadyMsg = msg
+			continue
+		}
+		return message, reason, status // at least one pod is ready
+	}
+
+	return lastUnreadyMsg, ReasonResourcesUnavailable, metav1.ConditionFalse
+}
+
+func checkPodReadiness(pod *corev1.Pod, proxyType string) (string, bool) {
+	if len(pod.Spec.Containers) != 2 {
+		return fmt.Sprintf("%s proxy unavailable in Pod %s", proxyType, pod.Name), true
+	}
+
+	if len(pod.Status.ContainerStatuses) != len(pod.Spec.Containers) {
+		return fmt.Sprintf("container status not yet available in Pod %s", pod.Name), true
+	}
+
+	for _, cs := range pod.Status.ContainerStatuses {
+		if !cs.Ready {
+			return fmt.Sprintf("container %s not ready in Pod %s", cs.Name, pod.Name), true
+		}
+	}
+
+	return "", false
 }
 
 func (r *ModelRegistryReconciler) CheckRouteIngressConditions(routes *routev1.RouteList, available bool,
