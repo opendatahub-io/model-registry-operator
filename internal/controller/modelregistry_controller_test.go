@@ -1147,6 +1147,18 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 		err := k8sClient.Create(ctx, mrPod)
 		Expect(err).To(Not(HaveOccurred()))
 
+		mrPod.Status.ContainerStatuses = make([]corev1.ContainerStatus, len(mrPod.Spec.Containers))
+		for i, c := range mrPod.Spec.Containers {
+			mrPod.Status.ContainerStatuses[i] = corev1.ContainerStatus{
+				Name:  c.Name,
+				Ready: true,
+				State: corev1.ContainerState{
+					Running: &corev1.ContainerStateRunning{},
+				},
+			}
+		}
+		Expect(k8sClient.Status().Update(ctx, mrPod)).To(Succeed())
+
 		By("Reconciling the custom resource created")
 		Eventually(func() error {
 			result, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
