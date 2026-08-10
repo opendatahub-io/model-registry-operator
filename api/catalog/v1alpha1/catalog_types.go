@@ -64,6 +64,24 @@ type CatalogSpec struct {
 	// Database configures storage for the catalog database.
 	// +optional
 	Database CatalogDatabase `json:"database,omitempty"`
+
+	// CatalogDataImage overrides the catalog data init container image by sha256
+	// digest (e.g. "sha256:<64 hex>") or image tag (e.g. "v2.19"). The operator
+	// pins it onto the trusted repository derived from the default image. A digest
+	// is recommended because a tag can be repointed without triggering a rollout.
+	// Invalid or unset values fall back to the default image.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	CatalogDataImage *string `json:"catalogDataImage,omitempty"`
+
+	// BenchmarkDataImage overrides the benchmark data init container image by
+	// sha256 digest (e.g. "sha256:<64 hex>") or image tag (e.g. "v2.19"). The
+	// operator pins it onto the trusted repository derived from the default image.
+	// A digest is recommended because a tag can be repointed without triggering a
+	// rollout. Invalid or unset values fall back to the default image.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	BenchmarkDataImage *string `json:"benchmarkDataImage,omitempty"`
 }
 
 // CatalogStatus defines the observed state of Catalog.

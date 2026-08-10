@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"text/template"
 
@@ -116,6 +117,47 @@ func createResourceRequirement(RequestsCPU resource.Quantity, RequestsMemory res
 		Requests: requests,
 		Limits:   limits,
 	}
+}
+
+var sha256DigestRe = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+
+// imageTagRe matches a valid Docker image tag: an alphanumeric or underscore,
+// followed by up to 127 chars of alphanumerics, underscores, periods, or dashes.
+var imageTagRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+
+// repoBase strips any tag or digest from an image reference, returning the
+// "registry/repo" portion. It only treats a ':' after the last '/' as a tag
+// separator so that "registry:port/repo" is handled correctly.
+func repoBase(image string) string {
+	if i := strings.IndexByte(image, '@'); i != -1 {
+		image = image[:i]
+	}
+	if slash := strings.LastIndexByte(image, '/'); slash != -1 {
+		if colon := strings.IndexByte(image[slash:], ':'); colon != -1 {
+			image = image[:slash+colon]
+		}
+	}
+	return image
+}
+
+// ResolveImage returns the image to use for an init container. When override is
+// a well-formed sha256 digest it is pinned onto the trusted repository derived
+// from the resolved default image (repoBase(default)@digest). When override is a
+// well-formed image tag it is applied to the same trusted repository
+// (repoBase(default):tag). Any invalid, empty, or nil override falls back to the
+// full default image. The registry/repository is always operator-controlled.
+func ResolveImage(override *string, envName, envDefault string) string {
+	def := GetStringConfigWithDefault(envName, envDefault)
+	if override != nil {
+		v := strings.TrimSpace(*override)
+		switch {
+		case sha256DigestRe.MatchString(v):
+			return repoBase(def) + "@" + v
+		case imageTagRe.MatchString(v):
+			return repoBase(def) + ":" + v
+		}
+	}
+	return def
 }
 
 func GetStringConfigWithDefault(configName, value string) string {

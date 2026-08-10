@@ -62,6 +62,8 @@ func TestCatalogFields(t *testing.T) {
 	mem := resource.MustParse("256Mi")
 	size := resource.MustParse("10Gi")
 	sc := "standard"
+	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 	cat := &v1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
@@ -89,6 +91,8 @@ func TestCatalogFields(t *testing.T) {
 					StorageClassName: &sc,
 				},
 			},
+			CatalogDataImage:   &catalogDigest,
+			BenchmarkDataImage: &benchmarkDigest,
 		},
 	}
 
@@ -106,11 +110,19 @@ func TestCatalogFields(t *testing.T) {
 	if cat.Spec.Database.Volume.StorageClassName == nil || *cat.Spec.Database.Volume.StorageClassName != "standard" {
 		t.Errorf("unexpected storageClassName: %v", cat.Spec.Database.Volume.StorageClassName)
 	}
+	if cat.Spec.CatalogDataImage == nil || *cat.Spec.CatalogDataImage != catalogDigest {
+		t.Errorf("unexpected catalogDataImage: %v", cat.Spec.CatalogDataImage)
+	}
+	if cat.Spec.BenchmarkDataImage == nil || *cat.Spec.BenchmarkDataImage != benchmarkDigest {
+		t.Errorf("unexpected benchmarkDataImage: %v", cat.Spec.BenchmarkDataImage)
+	}
 }
 
 func TestCatalogDeepCopy(t *testing.T) {
 	size := resource.MustParse("10Gi")
 	sc := "standard"
+	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	orig := &v1alpha1.Catalog{
 		Spec: v1alpha1.CatalogSpec{
 			Database: v1alpha1.CatalogDatabase{
@@ -119,6 +131,8 @@ func TestCatalogDeepCopy(t *testing.T) {
 					StorageClassName: &sc,
 				},
 			},
+			CatalogDataImage:   &catalogDigest,
+			BenchmarkDataImage: &benchmarkDigest,
 		},
 	}
 
@@ -127,11 +141,21 @@ func TestCatalogDeepCopy(t *testing.T) {
 	cp.Spec.Database.Volume.SizeLimit = &newSize
 	newSC := "fast"
 	cp.Spec.Database.Volume.StorageClassName = &newSC
+	newCatalogDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	cp.Spec.CatalogDataImage = &newCatalogDigest
+	newBenchmarkDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	cp.Spec.BenchmarkDataImage = &newBenchmarkDigest
 
 	if orig.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Error("DeepCopy did not produce independent SizeLimit")
 	}
 	if *orig.Spec.Database.Volume.StorageClassName != "standard" {
 		t.Error("DeepCopy did not produce independent StorageClassName")
+	}
+	if *orig.Spec.CatalogDataImage != catalogDigest {
+		t.Error("DeepCopy did not produce independent CatalogDataImage")
+	}
+	if *orig.Spec.BenchmarkDataImage != benchmarkDigest {
+		t.Error("DeepCopy did not produce independent BenchmarkDataImage")
 	}
 }
