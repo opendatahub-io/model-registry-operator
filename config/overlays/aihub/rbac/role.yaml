@@ -12,10 +12,6 @@ rules:
   - get
   - list
   - watch
-  - create
-  - update
-  - patch
-  - delete
 - apiGroups:
   - components.platform.opendatahub.io
   resources:

@@ -22,10 +22,13 @@ import (
 	"os"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+	"github.com/opendatahub-io/model-registry-operator/internal/setup"
 	"github.com/spf13/cobra"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 const manifestsTemplatePath = "/opt/manifests-template"
@@ -48,6 +51,35 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("manifests template path is not a directory: %s", manifestsTemplatePath)
 	}
 
+	capabilities, err := setup.GetCapabilities()
+	if err != nil {
+		return fmt.Errorf("error detecting cluster capabilities: %w", err)
+	}
+	setupLog.Info("cluster capabilities detected",
+		"isOpenShift", capabilities.IsOpenShift,
+		"hasUserAPI", capabilities.HasUserAPI,
+		"hasConfigAPI", capabilities.HasConfigAPI,
+		"hasAuthAPI", capabilities.HasAuthAPI)
+
+	// On OpenShift, fetch the cluster TLS security profile for the metrics server
+	tlsResult, err := setup.ConfigureTLS(scheme, capabilities.HasConfigAPI, setupLog)
+	if err != nil {
+		return fmt.Errorf("unable to configure TLS: %w", err)
+	}
+
+	// set metrics server options, including custom cert if provided
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		CertDir:       metricsCertDir,
+		CertName:      metricsCertName,
+		KeyName:       metricsKeyName,
+		TLSOpts:       tlsResult.Opts,
+	}
+	if secureMetrics {
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
 	leaderNS := os.Getenv("POD_NAMESPACE")
 	if enableLeaderElection && leaderNS == "" {
 		return errors.New("leader election requires POD_NAMESPACE to be set")
@@ -55,6 +87,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                  scheme,
+		Metrics:                 metricsServerOptions,
 		HealthProbeBindAddress:  probeAddr,
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "aihub-controller-manager",
