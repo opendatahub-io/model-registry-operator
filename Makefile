@@ -102,6 +102,10 @@ sync-images:
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	# Single-source the AIHub module CRD into the platform-facing overlay (config/overlays/aihub),
+	# not config/crd/bases — the AIHub CRD ships only with the AIHub operator deployment.
+	$(CONTROLLER_GEN) crd paths="./api/aihub/..." output:crd:artifacts:config=config/overlays/aihub
+	rm -f config/crd/bases/components.platform.opendatahub.io_aihubs.yaml
 
 .PHONY: generate
 generate: controller-gen conversion-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
