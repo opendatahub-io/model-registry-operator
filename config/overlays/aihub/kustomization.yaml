@@ -8,7 +8,11 @@ resources:
 - manager.yaml
 - rbac/
 
-images:
-- name: controller
-  newName: quay.io/opendatahub/model-registry-operator
-  newTag: latest
+configMapGenerator:
+- envs:
+    - params.env
+  name: model-registry-operator-parameters
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+- path: replacements.yaml

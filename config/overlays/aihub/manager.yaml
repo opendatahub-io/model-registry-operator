@@ -29,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
       - name: manager
-        image: controller
+        image: quay.io/opendatahub/model-registry-operator:latest
         command:
           - /manager
         args:
