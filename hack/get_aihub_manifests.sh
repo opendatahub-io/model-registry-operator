@@ -10,6 +10,7 @@ mkdir -p "${DST}"
 
 # --- modelregistry: copy local config/ tree ---
 echo -e "\033[32mAssembling \033[33mmodelregistry\033[32m:\033[0m local config/"
+rm -rf "${DST}/modelregistry"
 mkdir -p "${DST}/modelregistry"
 cp -rf "${REPO_ROOT}/config/"* "${DST}/modelregistry/"
 # Remove the aihub overlay from the copy to avoid recursive self-reference
@@ -18,6 +19,7 @@ echo "  modelregistry: $(find "${DST}/modelregistry" -type f | wc -l) files"
 
 # --- catalog: placeholder until EXT-1 delivers manifests ---
 echo -e "\033[32mAssembling \033[33mcatalog\033[32m:\033[0m placeholder"
+rm -rf "${DST}/catalog"
 mkdir -p "${DST}/catalog"
 cat > "${DST}/catalog/PLACEHOLDER.md" <<'EOF'
 # Catalog Operator Manifests — Placeholder
