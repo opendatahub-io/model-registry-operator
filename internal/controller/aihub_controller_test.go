@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -229,6 +230,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(s).
 		WithObjects(aihub, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
 		Build()
 
 	fakeEnvMap := map[string]string{
@@ -314,7 +316,8 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	}
 	var hasAIHubOwner bool
 	for _, ref := range catalog.GetOwnerReferences() {
-		if ref.Kind == "AIHub" {
+		if ref.Kind == "AIHub" && ref.Name == "default" &&
+			ref.Controller != nil && *ref.Controller {
 			hasAIHubOwner = true
 			break
 		}
@@ -379,6 +382,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(s).
 		WithObjects(aihub, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
 		Build()
 
 	reconciler := &AIHubReconciler{
@@ -425,6 +429,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 	aihub := &aihubv1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       "default",
+			UID:        "test-aihub-uid",
 			Finalizers: []string{aihubFinalizer},
 		},
 		Spec: aihubv1alpha1.AIHubSpec{
@@ -440,6 +445,11 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 		},
 	}
 	catalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
+
+	// Set the controller owner reference so IsControlledBy(cat, aihub) returns true.
+	if err := controllerutil.SetControllerReference(aihub, catalog, s); err != nil {
+		t.Fatalf("set owner ref: %v", err)
+	}
 
 	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-ns"}}
 	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
@@ -466,48 +476,29 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 		t.Fatalf("Delete failed: %v", err)
 	}
 
-	// First reconcile: should delete the Catalog and requeue (not-done on same pass).
+	// First reconcile: deletes the owned Catalog, then requeues (cleanup is not
+	// done on the same pass — it always returns false after issuing the Delete).
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("first reconcile after delete failed: %v", err)
 	}
+	if result.RequeueAfter != 5*time.Second {
+		t.Fatalf("first reconcile RequeueAfter = %v, want 5s (cleanup must not finish on the delete pass)", result.RequeueAfter)
+	}
 
-	// The Catalog should be deleted (no finalizer on it → immediate removal).
 	catCheck := &catalogv1alpha1.Catalog{}
 	catErr := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: "default"}, catCheck)
 	if !apierrors.IsNotFound(catErr) {
-		// The fake client may delete it immediately since it has no finalizer.
-		// In that case the cleanup returns done on the first pass and no requeue.
-		// Handle both: if Catalog is already gone, cleanup may have completed.
-		if catErr == nil {
-			t.Error("expected Catalog to be deleted after first reconcile")
-		} else {
-			t.Fatalf("unexpected error checking Catalog: %v", catErr)
-		}
+		t.Fatalf("expected Catalog to be gone after first reconcile, got err=%v", catErr)
 	}
 
-	// If the first reconcile requeued (Catalog was still present when cleanup checked),
-	// run a second reconcile. Otherwise the finalizer was already removed.
-	if result.RequeueAfter > 0 {
-		_, err = reconciler.Reconcile(ctx, req)
-		if err != nil {
-			t.Fatalf("second reconcile after delete failed: %v", err)
-		}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("second reconcile after delete failed: %v", err)
 	}
 
-	// The AIHub should now be gone (fake client removes it once finalizers are empty)
-	// or at least no longer have the finalizer.
 	got := &aihubv1alpha1.AIHub{}
-	getErr := fakeClient.Get(ctx, req.NamespacedName, got)
-	if apierrors.IsNotFound(getErr) {
-		// Object fully removed — expected.
-		return
-	}
-	if getErr != nil {
-		t.Fatalf("unexpected error getting AIHub: %v", getErr)
-	}
-	if controllerutil.ContainsFinalizer(got, aihubFinalizer) {
-		t.Errorf("expected finalizer %q to be removed, got finalizers: %v", aihubFinalizer, got.Finalizers)
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected AIHub to be removed once the finalizer cleared, got err=%v finalizers=%v", err, got.Finalizers)
 	}
 }
 

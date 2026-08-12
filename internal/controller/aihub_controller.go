@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -186,14 +187,29 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		Name:      childDeploymentName,
 	}
 	if err := r.Get(ctx, deployKey, childDeploy); err != nil {
-		log.Info("child deployment not yet available, requeuing", "error", err)
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("getting child deployment %s: %w", deployKey, err)
+		}
+		log.Info("child deployment not yet available, requeuing")
+		if sErr := r.updateStatus(ctx, aihub, aihubv1alpha1.PhaseNotReady,
+			metav1.ConditionFalse, "ChildDeploymentNotReady", "child deployment not found"); sErr != nil {
+			return ctrl.Result{}, sErr
+		}
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	if !isDeploymentAvailable(childDeploy) {
 		log.Info("child deployment not yet Available, requeuing")
+		if sErr := r.updateStatus(ctx, aihub, aihubv1alpha1.PhaseNotReady,
+			metav1.ConditionFalse, "ChildDeploymentNotReady", "child deployment not yet Available"); sErr != nil {
+			return ctrl.Result{}, sErr
+		}
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
+	if sErr := r.updateStatus(ctx, aihub, aihubv1alpha1.PhaseReady,
+		metav1.ConditionTrue, "Reconciled", "AIHub reconciliation complete"); sErr != nil {
+		return ctrl.Result{}, sErr
+	}
 	log.Info("AIHub reconciliation complete")
 	return ctrl.Result{}, nil
 }
@@ -217,6 +233,14 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 		return false, fmt.Errorf("getting Catalog for cleanup: %w", err)
 	}
 
+	// Only delete a Catalog this AIHub owns. A user-controlled
+	// RegistriesNamespace must not let the controller destroy foreign resources.
+	if !metav1.IsControlledBy(cat, aihub) {
+		log.Info("Catalog is not owned by this AIHub, skipping deletion",
+			"namespace", key.Namespace, "name", key.Name)
+		return true, nil
+	}
+
 	if cat.DeletionTimestamp.IsZero() {
 		log.Info("deleting Catalog CR during AIHub teardown", "namespace", key.Namespace, "name", key.Name)
 		if err := r.Delete(ctx, cat); err != nil && !apierrors.IsNotFound(err) {
@@ -225,6 +249,20 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 	}
 	// Still present (deletion in progress / finalizer pending) → not done.
 	return false, nil
+}
+
+// updateStatus sets the AIHub status fields and persists them via the status subresource.
+func (r *AIHubReconciler) updateStatus(ctx context.Context, aihub *aihubv1alpha1.AIHub, phase aihubv1alpha1.Phase, condStatus metav1.ConditionStatus, reason, message string) error {
+	aihub.Status.Phase = phase
+	aihub.Status.ObservedGeneration = aihub.Generation
+	meta.SetStatusCondition(&aihub.Status.Conditions, metav1.Condition{
+		Type:               "Ready",
+		Status:             condStatus,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: aihub.Generation,
+	})
+	return r.Status().Update(ctx, aihub)
 }
 
 func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
