@@ -99,9 +99,26 @@ rules:
   - update
   - watch
 # --- UNION of the child model-registry operator's ClusterRole/Role rules ---
-# AIHub must hold every permission the child roles grant so it can create and
-# bind them WITHOUT the escalate/bind verbs. Keep in sync with the child RBAC
-# rendered by config/overlays/odh.
+#
+# SECURITY NOTE (CWE-269 / CWE-732): This block is intentionally broad. AIHub
+# does NOT use these permissions itself at runtime (it never reads a Secret,
+# PVC, Pod, TokenReview, HTTPRoute, Group, etc.). It holds them purely so it
+# can CREATE the child operator's own Role/ClusterRole/bindings WITHOUT the
+# `escalate`/`bind` verbs: Kubernetes' privilege-escalation-prevention rule
+# requires the grantor to already hold, at the same scope, every permission it
+# grants. Because the child operator ships a cluster-scoped ClusterRole, AIHub
+# must mirror that set cluster-wide.
+#
+# Consequence: a compromise of the AIHub controller pod yields the union of
+# these permissions. This is inherent to any operator that manages RBAC and is
+# mitigated at runtime (pod securityContext, least-privilege node access), NOT
+# by narrowing this role — narrowing it below the child's grant set breaks
+# child-operator provisioning.
+#
+# MAINTENANCE: Keep this a MINIMAL SUPERSET of the RBAC rendered by
+# config/overlays/odh. Do not widen it casually. When the child overlay's RBAC
+# changes, update this block to match — no broader. (A CI check to enforce this
+# superset relationship is tracked as a follow-up.)
 - apiGroups:
   - ""
   resources:
