@@ -102,6 +102,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		Client:                mgr.GetClient(),
 		Scheme:                mgr.GetScheme(),
 		ManifestsTemplatePath: manifestsTemplatePath,
+		Getenv:                os.Getenv,
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to create aihub controller: %w", err)
 	}
