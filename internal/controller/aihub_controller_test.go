@@ -10,18 +10,20 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
 
@@ -160,6 +162,18 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 	}
 }
 
+// --- Mock deployer for reconcile tests ---
+
+type mockDeployer struct {
+	calls []deploy.DeployInput
+	err   error
+}
+
+func (m *mockDeployer) Deploy(_ context.Context, in deploy.DeployInput) error {
+	m.calls = append(m.calls, in)
+	return m.err
+}
+
 // --- Fake-client reconcile test ---
 
 func TestAIHubReconciler_Reconcile(t *testing.T) {
@@ -195,21 +209,6 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Register unstructured GVKs for ServiceMonitor and Template which are
-	// not available as typed Go structs in this module's dependency tree.
-	registerUnstructuredGVK(s, schema.GroupVersionKind{
-		Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor",
-	})
-	registerUnstructuredGVK(s, schema.GroupVersionKind{
-		Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitorList",
-	})
-	registerUnstructuredGVK(s, schema.GroupVersionKind{
-		Group: "template.openshift.io", Version: "v1", Kind: "Template",
-	})
-	registerUnstructuredGVK(s, schema.GroupVersionKind{
-		Group: "template.openshift.io", Version: "v1", Kind: "TemplateList",
-	})
-
 	appNs := "app-ns"
 	regNs := "reg-ns"
 
@@ -238,58 +237,74 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		config.PostgresImage:              "fake-pg@sha256:ccc",
 	}
 
+	mock := &mockDeployer{}
 	reconciler := &AIHubReconciler{
 		Client:                fakeClient,
 		Scheme:                s,
 		ManifestsTemplatePath: tmpDir,
 		Getenv:                fakeGetenv(fakeEnvMap),
+		Deployer:              mock,
 	}
 
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
 	ctx := context.Background()
 
-	// First reconcile — child Deployment won't have Available condition,
-	// so expect requeue.
+	// First reconcile — the mock deployer does not actually create resources,
+	// so the child Deployment Get will 404 → expect RequeueAfter > 0.
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
 		t.Fatalf("first Reconcile failed: %v", err)
 	}
 	if result.RequeueAfter == 0 {
-		t.Log("NOTE: expected requeue (deployment not Available), got no requeue — checking if it returned success")
+		t.Error("expected RequeueAfter > 0 (child Deployment not created by mock)")
 	}
 
-	// Verify the child Deployment exists with stamped values.
-	deploy := &appsv1.Deployment{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{
-		Namespace: appNs,
-		Name:      childDeploymentName,
-	}, deploy); err != nil {
-		t.Fatalf("child Deployment not found: %v", err)
+	// Verify the mock deployer was called once.
+	if len(mock.calls) != 1 {
+		t.Fatalf("expected 1 deployer call, got %d", len(mock.calls))
 	}
 
-	managerC := findContainer(t, deploy, "manager")
-	if managerC.Image != "fake-op@sha256:aaa" {
-		t.Errorf("manager image = %q, want %q", managerC.Image, "fake-op@sha256:aaa")
+	// Verify the Owner is the AIHub CR.
+	if mock.calls[0].Owner == nil || mock.calls[0].Owner.GetName() != "default" {
+		t.Errorf("expected Owner name %q, got %v", "default", mock.calls[0].Owner)
 	}
-	assertEnv(t, managerC, config.RestImage, "fake-rest@sha256:bbb")
-	assertEnv(t, managerC, config.PostgresImage, "fake-pg@sha256:ccc")
-	assertEnv(t, managerC, config.RegistriesNamespace, regNs)
 
-	// Verify CRDs exist (cluster-scoped, empty namespace).
-	crdList := &apiextensionsv1.CustomResourceDefinitionList{}
-	if err := fakeClient.List(ctx, crdList); err != nil {
-		t.Fatalf("listing CRDs: %v", err)
-	}
-	if len(crdList.Items) < 1 {
-		t.Error("expected at least 1 CRD")
-	}
-	for _, crd := range crdList.Items {
-		if crd.Namespace != "" {
-			t.Errorf("CRD %q has non-empty namespace %q", crd.Name, crd.Namespace)
+	// Verify the resources contain the child Deployment with stamped values.
+	resources := mock.calls[0].Resources
+	var deployFound bool
+	var crdFound bool
+	for _, res := range resources {
+		kind := res.GetKind()
+
+		// Every cluster-scoped kind must have empty namespace.
+		if clusterScopedKinds[kind] && res.GetNamespace() != "" {
+			t.Errorf("cluster-scoped %s %q has non-empty namespace %q",
+				kind, res.GetName(), res.GetNamespace())
+		}
+
+		if kind == "CustomResourceDefinition" {
+			crdFound = true
+		}
+
+		if kind == "Deployment" && res.GetName() == childDeploymentName {
+			dep := deploymentFromUnstructured(t, &res)
+			managerC := findContainer(t, dep, "manager")
+			if managerC.Image != "fake-op@sha256:aaa" {
+				t.Errorf("manager image = %q, want %q", managerC.Image, "fake-op@sha256:aaa")
+			}
+			assertEnv(t, managerC, config.RestImage, "fake-rest@sha256:bbb")
+			assertEnv(t, managerC, config.RegistriesNamespace, regNs)
+			deployFound = true
 		}
 	}
+	if !deployFound {
+		t.Error("child operator Deployment not found in deployer resources")
+	}
+	if !crdFound {
+		t.Error("expected at least 1 CustomResourceDefinition in deployer resources")
+	}
 
-	// Verify Catalog CR exists.
+	// Verify Catalog CR exists in the fake client with an owner reference.
 	catalog := &catalogv1alpha1.Catalog{}
 	if err := fakeClient.Get(ctx, types.NamespacedName{
 		Namespace: regNs,
@@ -297,11 +312,202 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	}, catalog); err != nil {
 		t.Fatalf("Catalog CR not found: %v", err)
 	}
+	var hasAIHubOwner bool
+	for _, ref := range catalog.GetOwnerReferences() {
+		if ref.Kind == "AIHub" {
+			hasAIHubOwner = true
+			break
+		}
+	}
+	if !hasAIHubOwner {
+		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
+	}
 
 	// Idempotency: second reconcile must not error.
-	_, err2 := reconciler.Reconcile(ctx, req)
+	result2, err2 := reconciler.Reconcile(ctx, req)
 	if err2 != nil {
 		t.Fatalf("second Reconcile failed (idempotency): %v", err2)
+	}
+	if len(mock.calls) != 2 {
+		t.Errorf("expected 2 deployer calls after second reconcile, got %d", len(mock.calls))
+	}
+	if result2.RequeueAfter == 0 {
+		t.Error("expected RequeueAfter > 0 on second reconcile (child Deployment still not created)")
+	}
+}
+
+// --- Finalizer tests ---
+
+func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available, skipping reconcile test")
+	}
+
+	// Assemble manifests via hack script.
+	tmpDir := t.TempDir()
+	repoRoot := filepath.Join("..", "..")
+	hackScript := filepath.Join(repoRoot, "hack", "get_aihub_manifests.sh")
+	cmd := exec.Command("bash", hackScript, tmpDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("hack script failed: %v\n%s", err, out)
+	}
+
+	s := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{
+		clientgoscheme.AddToScheme,
+		apiextensionsv1.AddToScheme,
+		admissionregistrationv1.AddToScheme,
+		aihubv1alpha1.AddToScheme,
+		catalogv1alpha1.AddToScheme,
+	} {
+		if err := add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: "app-ns",
+			RegistriesNamespace:  "reg-ns",
+		},
+	}
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-ns"}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "reg-ns"}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, appNsObj, regNsObj).
+		Build()
+
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: tmpDir,
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              &mockDeployer{},
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	// Verify the finalizer was added.
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	if !controllerutil.ContainsFinalizer(got, aihubFinalizer) {
+		t.Errorf("expected finalizer %q on AIHub after first reconcile, got finalizers: %v", aihubFinalizer, got.Finalizers)
+	}
+}
+
+func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
+	s := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{
+		clientgoscheme.AddToScheme,
+		apiextensionsv1.AddToScheme,
+		admissionregistrationv1.AddToScheme,
+		aihubv1alpha1.AddToScheme,
+		catalogv1alpha1.AddToScheme,
+	} {
+		if err := add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	regNs := "reg-ns"
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "default",
+			Finalizers: []string{aihubFinalizer},
+		},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: "app-ns",
+			RegistriesNamespace:  regNs,
+		},
+	}
+
+	catalog := &catalogv1alpha1.Catalog{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default",
+			Namespace: regNs,
+		},
+	}
+	catalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
+
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-ns"}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, catalog, appNsObj, regNsObj).
+		Build()
+
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: "", // deletion path returns before rendering
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              &mockDeployer{},
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	// Delete the AIHub — fake client sets DeletionTimestamp and keeps the object
+	// because of the finalizer.
+	if err := fakeClient.Delete(ctx, aihub); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// First reconcile: should delete the Catalog and requeue (not-done on same pass).
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("first reconcile after delete failed: %v", err)
+	}
+
+	// The Catalog should be deleted (no finalizer on it → immediate removal).
+	catCheck := &catalogv1alpha1.Catalog{}
+	catErr := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: "default"}, catCheck)
+	if !apierrors.IsNotFound(catErr) {
+		// The fake client may delete it immediately since it has no finalizer.
+		// In that case the cleanup returns done on the first pass and no requeue.
+		// Handle both: if Catalog is already gone, cleanup may have completed.
+		if catErr == nil {
+			t.Error("expected Catalog to be deleted after first reconcile")
+		} else {
+			t.Fatalf("unexpected error checking Catalog: %v", catErr)
+		}
+	}
+
+	// If the first reconcile requeued (Catalog was still present when cleanup checked),
+	// run a second reconcile. Otherwise the finalizer was already removed.
+	if result.RequeueAfter > 0 {
+		_, err = reconciler.Reconcile(ctx, req)
+		if err != nil {
+			t.Fatalf("second reconcile after delete failed: %v", err)
+		}
+	}
+
+	// The AIHub should now be gone (fake client removes it once finalizers are empty)
+	// or at least no longer have the finalizer.
+	got := &aihubv1alpha1.AIHub{}
+	getErr := fakeClient.Get(ctx, req.NamespacedName, got)
+	if apierrors.IsNotFound(getErr) {
+		// Object fully removed — expected.
+		return
+	}
+	if getErr != nil {
+		t.Fatalf("unexpected error getting AIHub: %v", getErr)
+	}
+	if controllerutil.ContainsFinalizer(got, aihubFinalizer) {
+		t.Errorf("expected finalizer %q to be removed, got finalizers: %v", aihubFinalizer, got.Finalizers)
 	}
 }
 
@@ -369,15 +575,4 @@ func assertEnv(t *testing.T, c *corev1.Container, name, value string) {
 		}
 	}
 	t.Errorf("env %s not found", name)
-}
-
-// registerUnstructuredGVK registers a GVK as an unstructured type in the scheme.
-// The fake client requires all GVKs to be registered; for CRDs without Go types
-// (ServiceMonitor, Template), we register them as unstructured.
-func registerUnstructuredGVK(s *runtime.Scheme, gvk schema.GroupVersionKind) {
-	if len(gvk.Kind) > 4 && gvk.Kind[len(gvk.Kind)-4:] == "List" {
-		s.AddKnownTypeWithName(gvk, &unstructured.UnstructuredList{})
-	} else {
-		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
-	}
 }

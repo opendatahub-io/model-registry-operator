@@ -21,11 +21,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,15 +34,18 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
 
 const (
+	aihubFinalizer        = "aihub.opendatahub.io/finalizer"
 	childDeploymentName   = "model-registry-operator-controller-manager"
 	childManagerContainer = "manager"
 )
@@ -57,11 +61,18 @@ var clusterScopedKinds = map[string]bool{
 	"Namespace":                      true,
 }
 
+// ResourceDeployer applies rendered resources to the cluster. Backed by
+// odh-platform-utilities pkg/deploy.Deployer in production; mocked in tests.
+type ResourceDeployer interface {
+	Deploy(ctx context.Context, input deploy.DeployInput) error
+}
+
 type AIHubReconciler struct {
 	client.Client
 	Scheme                *runtime.Scheme
 	ManifestsTemplatePath string
 	Getenv                func(string) string
+	Deployer              ResourceDeployer
 }
 
 func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,6 +91,32 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if aihub.Name != "default" {
 		log.Info("ignoring non-singleton AIHub", "name", aihub.Name)
 		return ctrl.Result{}, nil
+	}
+
+	// Handle deletion: run ordered cleanup, then release the finalizer.
+	if !aihub.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(aihub, aihubFinalizer) {
+			done, err := r.cleanupOnDelete(ctx, aihub)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if !done {
+				// Dependent (Catalog) not fully removed yet; wait.
+				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+			}
+			controllerutil.RemoveFinalizer(aihub, aihubFinalizer)
+			if err := r.Update(ctx, aihub); err != nil {
+				return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Ensure the finalizer is present before provisioning.
+	if controllerutil.AddFinalizer(aihub, aihubFinalizer) {
+		if err := r.Update(ctx, aihub); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
+		}
 	}
 
 	spec := aihub.Spec
@@ -116,28 +153,16 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	// 6. Sort: CRDs first to avoid ordering issues.
-	sort.SliceStable(resources, func(i, j int) bool {
-		iIsCRD := resources[i].GetKind() == "CustomResourceDefinition"
-		jIsCRD := resources[j].GetKind() == "CustomResourceDefinition"
-		return iIsCRD && !jIsCRD
-	})
-
-	// 7. Apply all rendered resources.
-	rm := ResourceManager{Client: r.Client}
-	for i := range resources {
-		newObj := &resources[i]
-
-		currObj := &unstructured.Unstructured{}
-		currObj.SetGroupVersionKind(newObj.GroupVersionKind())
-
-		if _, err := rm.CreateOrUpdate(ctx, currObj, newObj); err != nil {
-			return ctrl.Result{}, fmt.Errorf("applying %s %s/%s: %w",
-				newObj.GetKind(), newObj.GetNamespace(), newObj.GetName(), err)
-		}
+	// 6. Apply all rendered resources via the Deployer (SSA, CRD-first ordering).
+	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
+		Client:    r.Client,
+		Owner:     aihub,
+		Resources: resources,
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("deploying child operator resources: %w", err)
 	}
 
-	// 8. Create the singleton Catalog CR if absent.
+	// 7. Create the singleton Catalog CR if absent.
 	newCatalog := &catalogv1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
@@ -145,12 +170,16 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		},
 	}
 	newCatalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
+	if err := ctrl.SetControllerReference(aihub, newCatalog, r.Scheme); err != nil {
+		return ctrl.Result{}, fmt.Errorf("setting Catalog owner reference: %w", err)
+	}
+	rm := ResourceManager{Client: r.Client}
 	currCatalog := &catalogv1alpha1.Catalog{}
 	if _, err := rm.CreateIfNotExists(ctx, currCatalog, newCatalog); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
 	}
 
-	// 9. Check child Deployment availability.
+	// 8. Check child Deployment availability.
 	childDeploy := &appsv1.Deployment{}
 	deployKey := types.NamespacedName{
 		Namespace: spec.ApplicationNamespace,
@@ -169,9 +198,49 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
+// cleanupOnDelete performs ordered teardown before the AIHub finalizer is
+// released. It deletes the singleton Catalog CR first and waits for it to be
+// fully removed, so the catalog operator (when present) can finalize its
+// operands before its own Deployment is GC'd by owner-reference cleanup.
+// When no catalog operator exists the Catalog has no finalizer and disappears
+// immediately. Returns (true, nil) when cleanup is complete.
+func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alpha1.AIHub) (bool, error) {
+	log := klog.FromContext(ctx)
+
+	cat := &catalogv1alpha1.Catalog{}
+	key := types.NamespacedName{Namespace: aihub.Spec.RegistriesNamespace, Name: "default"}
+	err := r.Get(ctx, key, cat)
+	if apierrors.IsNotFound(err) {
+		return true, nil // Catalog gone → cleanup complete.
+	}
+	if err != nil {
+		return false, fmt.Errorf("getting Catalog for cleanup: %w", err)
+	}
+
+	if cat.DeletionTimestamp.IsZero() {
+		log.Info("deleting Catalog CR during AIHub teardown", "namespace", key.Namespace, "name", key.Name)
+		if err := r.Delete(ctx, cat); err != nil && !apierrors.IsNotFound(err) {
+			return false, fmt.Errorf("deleting Catalog: %w", err)
+		}
+	}
+	// Still present (deletion in progress / finalizer pending) → not done.
+	return false, nil
+}
+
 func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aihubv1alpha1.AIHub{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&rbacv1.Role{}).
+		Owns(&rbacv1.RoleBinding{}).
+		Owns(&rbacv1.ClusterRole{}).
+		Owns(&rbacv1.ClusterRoleBinding{}).
+		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
+		Owns(&admissionregistrationv1.MutatingWebhookConfiguration{}).
+		Owns(&catalogv1alpha1.Catalog{}).
 		Complete(r)
 }
 
@@ -189,15 +258,15 @@ func isDeploymentAvailable(d *appsv1.Deployment) bool {
 // to set the operator image, upsert operand env vars, and set REGISTRIES_NAMESPACE.
 func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs string) error {
 	// Convert to typed Deployment.
-	deploy := &appsv1.Deployment{}
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, deploy); err != nil {
+	dep := &appsv1.Deployment{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, dep); err != nil {
 		return fmt.Errorf("converting unstructured to Deployment: %w", err)
 	}
 
 	// Find the manager container.
 	var found bool
-	for i := range deploy.Spec.Template.Spec.Containers {
-		c := &deploy.Spec.Template.Spec.Containers[i]
+	for i := range dep.Spec.Template.Spec.Containers {
+		c := &dep.Spec.Template.Spec.Containers[i]
 		if c.Name != childManagerContainer {
 			continue
 		}
@@ -219,11 +288,11 @@ func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImag
 		break
 	}
 	if !found {
-		return fmt.Errorf("container %q not found in Deployment %s", childManagerContainer, deploy.Name)
+		return fmt.Errorf("container %q not found in Deployment %s", childManagerContainer, dep.Name)
 	}
 
 	// Convert back to unstructured.
-	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
+	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(dep)
 	if err != nil {
 		return fmt.Errorf("converting Deployment back to unstructured: %w", err)
 	}

@@ -12,6 +12,8 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - components.platform.opendatahub.io
@@ -34,6 +36,7 @@ rules:
   - catalogs
   verbs:
   - create
+  - delete
   - get
   - list
   - watch

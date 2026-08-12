@@ -23,7 +23,9 @@ import (
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -103,6 +105,15 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		Scheme:                mgr.GetScheme(),
 		ManifestsTemplatePath: manifestsTemplatePath,
 		Getenv:                os.Getenv,
+		Deployer: deploy.NewDeployer(
+			deploy.WithFieldOwner("aihub"),
+			deploy.WithApplyOrder(),
+			deploy.WithCache(),
+			deploy.WithMergeStrategy(
+				schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+				deploy.MergeDeployments,
+			),
+		),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to create aihub controller: %w", err)
 	}
