@@ -1,5 +1,5 @@
 # Include images as env variables
-include ./config/overlays/odh/params.env
+include ./config/overlays/odh/core/params.env
 
 # Cross-platform sed detection for macOS compatibility
 # macOS sed has different -i syntax than GNU sed. This detects the OS and uses:
@@ -101,11 +101,23 @@ sync-images:
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	# Generate the ModelRegistry operator's ClusterRole (config/rbac/role.yaml) from markers
+	# scoped to just its own packages. Deliberately excludes api/catalog/... (see below) —
+	# a plain paths="./..." rbac scan would merge the Catalog operator's rbac markers into
+	# this role too, since controller-gen has no per-generator path exclusion.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role paths="./internal/..." paths="./cmd/..." paths="./api/v1alpha1/..." paths="./api/v1beta1/..." output:rbac:artifacts:config=config/rbac
 	# Single-source the AIHub module CRD into the platform-facing overlay (config/overlays/aihub),
 	# not config/crd/bases — the AIHub CRD ships only with the AIHub operator deployment.
 	$(CONTROLLER_GEN) crd paths="./api/aihub/..." output:crd:artifacts:config=config/overlays/aihub
 	rm -f config/crd/bases/components.platform.opendatahub.io_aihubs.yaml
+	# Single-source the Catalog CRD into the standalone overlay (config/overlays/catalog),
+	# not config/crd/bases — the Catalog CRD ships only with the Catalog operator deployment.
+	$(CONTROLLER_GEN) crd paths="./api/catalog/..." output:crd:artifacts:config=config/overlays/catalog
+	rm -f config/crd/bases/aihub.opendatahub.io_catalogs.yaml
+	# Generate the standalone Catalog operator's ClusterRole from markers in
+	# api/catalog/v1alpha1/rbac.go, scoped the same way as its CRD above.
+	$(CONTROLLER_GEN) rbac:roleName=catalog-manager-role paths="./api/catalog/..." output:rbac:artifacts:config=config/overlays/catalog/rbac
 
 .PHONY: generate
 generate: controller-gen conversion-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -201,12 +213,16 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config. Pick an overlay with OVERLAY=... (e.g. overlays/catalog).
+	@if [ -f config/$(OVERLAY)/params.env ]; then \
+		$(SED) $(SED_INPLACE) "s|^IMAGES_MODELREGISTRY_OPERATOR=.*|IMAGES_MODELREGISTRY_OPERATOR=${IMG}|" config/$(OVERLAY)/params.env; \
+	else \
+		cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}; \
+	fi
 	$(KUSTOMIZE) build config/$(OVERLAY) | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
+undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Pick an overlay with OVERLAY=... (e.g. overlays/catalog). Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/$(OVERLAY) | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Build Dependencies

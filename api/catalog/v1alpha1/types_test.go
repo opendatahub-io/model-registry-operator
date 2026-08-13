@@ -61,7 +61,6 @@ func TestCatalogFields(t *testing.T) {
 	cpu := resource.MustParse("100m")
 	mem := resource.MustParse("256Mi")
 	size := resource.MustParse("10Gi")
-	sc := "standard"
 
 	cat := &v1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
@@ -85,8 +84,7 @@ func TestCatalogFields(t *testing.T) {
 			},
 			Database: v1alpha1.CatalogDatabase{
 				Volume: v1alpha1.CatalogDatabaseVolume{
-					SizeLimit:        &size,
-					StorageClassName: &sc,
+					SizeLimit: &size,
 				},
 			},
 		},
@@ -103,20 +101,15 @@ func TestCatalogFields(t *testing.T) {
 	} else if cat.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Errorf("unexpected sizeLimit: %v", cat.Spec.Database.Volume.SizeLimit)
 	}
-	if cat.Spec.Database.Volume.StorageClassName == nil || *cat.Spec.Database.Volume.StorageClassName != "standard" {
-		t.Errorf("unexpected storageClassName: %v", cat.Spec.Database.Volume.StorageClassName)
-	}
 }
 
 func TestCatalogDeepCopy(t *testing.T) {
 	size := resource.MustParse("10Gi")
-	sc := "standard"
 	orig := &v1alpha1.Catalog{
 		Spec: v1alpha1.CatalogSpec{
 			Database: v1alpha1.CatalogDatabase{
 				Volume: v1alpha1.CatalogDatabaseVolume{
-					SizeLimit:        &size,
-					StorageClassName: &sc,
+					SizeLimit: &size,
 				},
 			},
 		},
@@ -125,13 +118,8 @@ func TestCatalogDeepCopy(t *testing.T) {
 	cp := orig.DeepCopy()
 	newSize := resource.MustParse("20Gi")
 	cp.Spec.Database.Volume.SizeLimit = &newSize
-	newSC := "fast"
-	cp.Spec.Database.Volume.StorageClassName = &newSC
 
 	if orig.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Error("DeepCopy did not produce independent SizeLimit")
-	}
-	if *orig.Spec.Database.Volume.StorageClassName != "standard" {
-		t.Error("DeepCopy did not produce independent StorageClassName")
 	}
 }

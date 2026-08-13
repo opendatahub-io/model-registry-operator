@@ -63,7 +63,6 @@ const (
 	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
 	EnableWebhooks             = "ENABLE_WEBHOOKS"
 	DefaultDomain              = "DEFAULT_DOMAIN"
-	EnableModelCatalog         = "ENABLE_MODEL_CATALOG"
 	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
 
 	// Data Science Gateway env variables and defaults
