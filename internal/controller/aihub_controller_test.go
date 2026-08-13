@@ -24,6 +24,8 @@ import (
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/controller/conditions"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
@@ -175,14 +177,31 @@ func (m *mockDeployer) Deploy(_ context.Context, in deploy.DeployInput) error {
 	return m.err
 }
 
-// --- Fake-client reconcile test ---
+// --- Helpers to build a test scheme and fake client ---
 
-func TestAIHubReconciler_Reconcile(t *testing.T) {
+func testScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	s := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{
+		clientgoscheme.AddToScheme,
+		apiextensionsv1.AddToScheme,
+		admissionregistrationv1.AddToScheme,
+		aihubv1alpha1.AddToScheme,
+		catalogv1alpha1.AddToScheme,
+	} {
+		if err := add(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return s
+}
+
+// assembleManifests runs the hack script into a temp dir and returns the path.
+func assembleManifests(t *testing.T) string {
+	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available, skipping reconcile test")
 	}
-
-	// Assemble manifests via hack script.
 	tmpDir := t.TempDir()
 	repoRoot := filepath.Join("..", "..")
 	hackScript := filepath.Join(repoRoot, "hack", "get_aihub_manifests.sh")
@@ -191,24 +210,14 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hack script failed: %v\n%s", err, out)
 	}
+	return tmpDir
+}
 
-	// Build scheme with all needed types.
-	s := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
-	if err := apiextensionsv1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
-	if err := admissionregistrationv1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
-	if err := aihubv1alpha1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
-	if err := catalogv1alpha1.AddToScheme(s); err != nil {
-		t.Fatal(err)
-	}
+// --- Fake-client reconcile test ---
+
+func TestAIHubReconciler_Reconcile(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
 
 	appNs := "app-ns"
 	regNs := "reg-ns"
@@ -246,6 +255,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		ManifestsTemplatePath: tmpDir,
 		Getenv:                fakeGetenv(fakeEnvMap),
 		Deployer:              mock,
+		APIReader:             fakeClient,
 	}
 
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
@@ -326,6 +336,15 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
 	}
 
+	// Verify status was written with Phase=NotReady (child deployment missing).
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Phase != common.PhaseNotReady {
+		t.Errorf("expected Phase=%q after first reconcile, got %q", common.PhaseNotReady, got.Status.Phase)
+	}
+
 	// Idempotency: second reconcile must not error.
 	result2, err2 := reconciler.Reconcile(ctx, req)
 	if err2 != nil {
@@ -342,32 +361,8 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 // --- Finalizer tests ---
 
 func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not available, skipping reconcile test")
-	}
-
-	// Assemble manifests via hack script.
-	tmpDir := t.TempDir()
-	repoRoot := filepath.Join("..", "..")
-	hackScript := filepath.Join(repoRoot, "hack", "get_aihub_manifests.sh")
-	cmd := exec.Command("bash", hackScript, tmpDir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("hack script failed: %v\n%s", err, out)
-	}
-
-	s := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{
-		clientgoscheme.AddToScheme,
-		apiextensionsv1.AddToScheme,
-		admissionregistrationv1.AddToScheme,
-		aihubv1alpha1.AddToScheme,
-		catalogv1alpha1.AddToScheme,
-	} {
-		if err := add(s); err != nil {
-			t.Fatal(err)
-		}
-	}
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
 
 	aihub := &aihubv1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -391,6 +386,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 		ManifestsTemplatePath: tmpDir,
 		Getenv:                fakeGetenv(map[string]string{}),
 		Deployer:              &mockDeployer{},
+		APIReader:             fakeClient,
 	}
 
 	ctx := context.Background()
@@ -411,18 +407,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 }
 
 func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
-	s := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{
-		clientgoscheme.AddToScheme,
-		apiextensionsv1.AddToScheme,
-		admissionregistrationv1.AddToScheme,
-		aihubv1alpha1.AddToScheme,
-		catalogv1alpha1.AddToScheme,
-	} {
-		if err := add(s); err != nil {
-			t.Fatal(err)
-		}
-	}
+	s := testScheme(t)
 
 	regNs := "reg-ns"
 
@@ -465,6 +450,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 		ManifestsTemplatePath: "", // deletion path returns before rendering
 		Getenv:                fakeGetenv(map[string]string{}),
 		Deployer:              &mockDeployer{},
+		APIReader:             fakeClient,
 	}
 
 	ctx := context.Background()
@@ -502,7 +488,263 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 	}
 }
 
+// --- Status and condition tests ---
+
+func TestAIHubReconciler_StatusReady(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
+
+	appNs := "app-ns"
+	regNs := "reg-ns"
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			RegistriesNamespace:  regNs,
+		},
+	}
+
+	// Seed a child Deployment with Available=True.
+	childDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      childDeploymentName,
+			Namespace: appNs,
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, childDeploy, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
+		Build()
+
+	mock := &mockDeployer{}
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: tmpDir,
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              mock,
+		APIReader:             fakeClient,
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("expected no requeue, got RequeueAfter=%v", result.RequeueAfter)
+	}
+
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Status.Phase != common.PhaseReady {
+		t.Errorf("Phase = %q, want %q", got.Status.Phase, common.PhaseReady)
+	}
+
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
+	assertConditionStatus(t, got, string(common.ConditionTypeProvisioningSucceeded), metav1.ConditionTrue)
+	assertConditionStatus(t, got, ConditionModelRegistryReady, metav1.ConditionTrue)
+}
+
+func TestAIHubReconciler_StatusNotReady_ChildMissing(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
+
+	appNs := "app-ns"
+	regNs := "reg-ns"
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			RegistriesNamespace:  regNs,
+		},
+	}
+
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
+		Build()
+
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: tmpDir,
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              &mockDeployer{},
+		APIReader:             fakeClient,
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Error("expected RequeueAfter > 0 (child Deployment missing)")
+	}
+
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Status.Phase != common.PhaseNotReady {
+		t.Errorf("Phase = %q, want %q", got.Status.Phase, common.PhaseNotReady)
+	}
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
+}
+
+func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
+
+	appNs := "app-ns"
+	regNs := "reg-ns"
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			RegistriesNamespace:  regNs,
+		},
+	}
+
+	childDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      childDeploymentName,
+			Namespace: appNs,
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	platformCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      platformVersionConfigMap,
+			Namespace: appNs,
+		},
+		Data: map[string]string{
+			platformVersionConfigMapKey: "2.20.0",
+		},
+	}
+
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, childDeploy, platformCM, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
+		Build()
+
+	mock := &mockDeployer{}
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: tmpDir,
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              mock,
+		APIReader:             fakeClient,
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+
+	platformVersion := got.GetReleaseStatus().GetPlatformRelease()
+	if platformVersion != "2.20.0" {
+		t.Errorf("platform release = %q, want %q", platformVersion, "2.20.0")
+	}
+
+	// Also verify that component releases were loaded (from the hack script
+	// which copies config/component_metadata.yaml into modelregistry/).
+	if len(got.Status.Releases) < 2 {
+		t.Errorf("expected at least 2 releases (component + platform), got %d: %+v",
+			len(got.Status.Releases), got.Status.Releases)
+	}
+}
+
+func TestAIHubReconciler_ReleasesWithoutPlatformCM(t *testing.T) {
+	// When the platform ConfigMap is missing, releases should still contain
+	// component entries but no platform entry.
+	metadataDir := t.TempDir()
+	writeMetadata(t, metadataDir, "modelregistry", `releases:
+  - name: model-registry-operator
+    version: v1.2.3
+    repoUrl: https://github.com/opendatahub-io/model-registry-operator
+`)
+
+	s := testScheme(t)
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+	}
+
+	r := &AIHubReconciler{
+		ManifestsTemplatePath: metadataDir,
+		APIReader:             fake.NewClientBuilder().WithScheme(s).Build(),
+	}
+
+	r.setReleaseStatus(context.Background(), aihub)
+	if len(aihub.Status.Releases) != 1 {
+		t.Fatalf("expected 1 release, got %d: %+v", len(aihub.Status.Releases), aihub.Status.Releases)
+	}
+	if aihub.Status.Releases[0].Name != "model-registry-operator" {
+		t.Errorf("unexpected release name: %s", aihub.Status.Releases[0].Name)
+	}
+	if aihub.GetReleaseStatus().GetPlatformRelease() != "" {
+		t.Error("expected no platform release without ConfigMap")
+	}
+}
+
 // --- Test helpers ---
+
+func assertConditionStatus(t *testing.T, aihub *aihubv1alpha1.AIHub, condType string, expected metav1.ConditionStatus) {
+	t.Helper()
+	cond := conditions.FindStatusCondition(aihub, condType)
+	if cond == nil {
+		t.Errorf("condition %q not found", condType)
+		return
+	}
+	if cond.Status != expected {
+		t.Errorf("condition %q status = %q, want %q", condType, cond.Status, expected)
+	}
+}
 
 func makeDeploymentUnstructured(t *testing.T, name, ns, containerName, image string, env []corev1.EnvVar) *unstructured.Unstructured {
 	t.Helper()
@@ -567,3 +809,5 @@ func assertEnv(t *testing.T, c *corev1.Container, name, value string) {
 	}
 	t.Errorf("env %s not found", name)
 }
+
+// fakeGetenv is defined in aihub_images_test.go (same package).
