@@ -55,9 +55,9 @@ spec:
                 minLength: 1
                 pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
                 type: string
-              registriesNamespace:
+              instancesNamespace:
                 description: |-
-                  RegistriesNamespace is the namespace where model registry instances, the catalog
+                  InstancesNamespace is the namespace where model registry instances, the catalog
                   service, and the Catalog CR are deployed. It is sourced from the DSC field
                   spec.components.modelregistry.registriesNamespace and MAY equal ApplicationNamespace.
                 maxLength: 63
@@ -66,7 +66,7 @@ spec:
                 type: string
             required:
             - applicationNamespace
-            - registriesNamespace
+            - instancesNamespace
             type: object
           status:
             description: AIHubStatus defines the observed state of AIHub.

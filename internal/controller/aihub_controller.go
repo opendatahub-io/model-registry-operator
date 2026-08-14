@@ -121,7 +121,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	spec := aihub.Spec
-	log.Info("reconciling AIHub", "applicationNamespace", spec.ApplicationNamespace, "registriesNamespace", spec.RegistriesNamespace)
+	log.Info("reconciling AIHub", "applicationNamespace", spec.ApplicationNamespace, "instancesNamespace", spec.InstancesNamespace)
 
 	// 3. Resolve child images from environment.
 	getenv := r.Getenv
@@ -148,7 +148,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		// Stamp the child operator Deployment.
 		if kind == "Deployment" && resources[i].GetName() == childDeploymentName {
-			if err := stampChildOperatorDeployment(&resources[i], images, spec.RegistriesNamespace); err != nil {
+			if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace); err != nil {
 				return ctrl.Result{}, fmt.Errorf("stamping child operator deployment: %w", err)
 			}
 		}
@@ -167,7 +167,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	newCatalog := &catalogv1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
-			Namespace: spec.RegistriesNamespace,
+			Namespace: spec.InstancesNamespace,
 		},
 	}
 	newCatalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
@@ -224,7 +224,7 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 	log := klog.FromContext(ctx)
 
 	cat := &catalogv1alpha1.Catalog{}
-	key := types.NamespacedName{Namespace: aihub.Spec.RegistriesNamespace, Name: "default"}
+	key := types.NamespacedName{Namespace: aihub.Spec.InstancesNamespace, Name: "default"}
 	err := r.Get(ctx, key, cat)
 	if apierrors.IsNotFound(err) {
 		return true, nil // Catalog gone → cleanup complete.
@@ -234,7 +234,7 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 	}
 
 	// Only delete a Catalog this AIHub owns. A user-controlled
-	// RegistriesNamespace must not let the controller destroy foreign resources.
+	// InstancesNamespace must not let the controller destroy foreign resources.
 	if !metav1.IsControlledBy(cat, aihub) {
 		log.Info("Catalog is not owned by this AIHub, skipping deletion",
 			"namespace", key.Namespace, "name", key.Name)

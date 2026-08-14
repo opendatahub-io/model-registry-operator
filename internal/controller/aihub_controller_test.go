@@ -219,7 +219,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 
@@ -373,7 +373,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: "app-ns",
-			RegistriesNamespace:  "reg-ns",
+			InstancesNamespace:   "reg-ns",
 		},
 	}
 	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "app-ns"}}
@@ -434,7 +434,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 		},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: "app-ns",
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 
