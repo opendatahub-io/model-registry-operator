@@ -445,7 +445,7 @@ func TestCatalogDeployment(t *testing.T) {
 
 	config.SetDefaultDomain("example.com", nil, false)
 
-	catalogReconciler := controller.ModelCatalogReconciler{
+	catalogReconciler := controller.CatalogReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
 		Capabilities: controller.ClusterCapabilities{
@@ -454,7 +454,7 @@ func TestCatalogDeployment(t *testing.T) {
 		},
 	}
 
-	params := controller.ModelCatalogParams{
+	params := controller.CatalogParams{
 		Name:      "model-catalog",
 		Namespace: "test-namespace",
 		Component: "model-catalog",
@@ -559,7 +559,7 @@ func TestCatalogPostgresSecret(t *testing.T) {
 		t.FailNow()
 	}
 
-	catalogReconciler := controller.ModelCatalogReconciler{
+	catalogReconciler := controller.CatalogReconciler{
 		Log:      logr.Logger{},
 		Template: templates,
 		Capabilities: controller.ClusterCapabilities{
@@ -568,7 +568,7 @@ func TestCatalogPostgresSecret(t *testing.T) {
 		},
 	}
 
-	params := controller.ModelCatalogParams{
+	params := controller.CatalogParams{
 		Name:      "model-catalog",
 		Namespace: "test-namespace",
 		Component: "model-catalog-postgres",

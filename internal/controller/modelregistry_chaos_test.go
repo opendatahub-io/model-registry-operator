@@ -24,6 +24,7 @@ import (
 	"text/template"
 	"time"
 
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/operator-chaos/pkg/sdk"
@@ -57,18 +58,16 @@ func initChaosReconciler(tmpl *template.Template, cfg *sdk.FaultConfig) *ModelRe
 	}
 }
 
-func initCatalogChaosReconciler(tmpl *template.Template, cfg *sdk.FaultConfig, targetNamespace string) *ModelCatalogReconciler {
+func initCatalogChaosReconciler(tmpl *template.Template, cfg *sdk.FaultConfig) *CatalogReconciler {
 	chaosClient := sdk.NewChaosClient(k8sClient, cfg)
 
-	return &ModelCatalogReconciler{
-		Client:          chaosClient,
-		Scheme:          k8sClient.Scheme(),
-		Recorder:        &events.FakeRecorder{},
-		Log:             ctrl.Log.WithName("chaos-test-catalog"),
-		Template:        tmpl,
-		TargetNamespace: targetNamespace,
-		Enabled:         true,
-		Capabilities:    ClusterCapabilities{},
+	return &CatalogReconciler{
+		Client:       chaosClient,
+		Scheme:       k8sClient.Scheme(),
+		Recorder:     &events.FakeRecorder{},
+		Log:          ctrl.Log.WithName("chaos-test-catalog"),
+		Template:     tmpl,
+		Capabilities: ClusterCapabilities{},
 	}
 }
 
@@ -333,6 +332,16 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 			}
 			err := k8sClient.Create(ctx, namespace)
 			Expect(err).NotTo(HaveOccurred())
+
+			cat := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			err = k8sClient.Create(ctx, cat)
+			Expect(err).NotTo(HaveOccurred())
+
 			return namespaceName
 		}
 
@@ -341,7 +350,7 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 				_ = k8sClient.Delete(ctx, namespace)
 			}
 			crb := &rbac.ClusterRoleBinding{}
-			crbName := modelCatalogName + "-auth-delegator"
+			crbName := "model-catalog-auth-delegator"
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: crbName}, crb); err == nil {
 				_ = k8sClient.Delete(ctx, crb)
 			}
@@ -357,10 +366,10 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 				sdk.OpGet: {ErrorRate: 1.0, Error: "chaos: connection refused"},
 			})
 
-			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg, ns)
+			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+				NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 			})
 
 			Expect(err).To(HaveOccurred())
@@ -374,11 +383,11 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 				sdk.OpGet: {ErrorRate: 1.0, Error: "chaos: transient connection refused"},
 			})
 
-			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg, ns)
+			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg)
 
 			By("Verifying reconciler fails while faults are active")
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+				NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 			})
 			Expect(err).To(HaveOccurred())
 
@@ -387,7 +396,7 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 
 			Eventually(func() error {
 				_, err := reconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+					NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 				})
 				return err
 			}, 30*time.Second, 500*time.Millisecond).Should(Succeed(),
@@ -400,10 +409,10 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 				sdk.OpCreate: {ErrorRate: 1.0, Error: "chaos: quota exceeded"},
 			})
 
-			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg, ns)
+			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg)
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+				NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 			})
 
 			Expect(err).To(HaveOccurred(), "catalog reconciler should return error when all Creates fail")
@@ -419,11 +428,11 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 				sdk.OpCreate: {ErrorRate: 1.0, Error: "chaos: quota exceeded"},
 			})
 
-			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg, ns)
+			reconciler := initCatalogChaosReconciler(chaosTemplate, cfg)
 
 			By("Verifying reconciler fails while faults are active")
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+				NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 			})
 			Expect(err).To(HaveOccurred())
 
@@ -432,7 +441,7 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 
 			Eventually(func() error {
 				_, err := reconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: types.NamespacedName{Name: modelCatalogName, Namespace: ns},
+					NamespacedName: types.NamespacedName{Name: "catalog", Namespace: ns},
 				})
 				return err
 			}, 30*time.Second, 500*time.Millisecond).Should(Succeed(),
@@ -440,12 +449,12 @@ var _ = Describe("ModelCatalog chaos resilience", func() {
 
 			By("Verifying catalog deployment was created")
 			deploy := &appsv1.Deployment{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: modelCatalogName, Namespace: ns}, deploy)
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: ns}, deploy)
 			Expect(err).NotTo(HaveOccurred(), "catalog deployment should exist after convergence")
 
 			By("Verifying catalog service account was created")
 			sa := &corev1.ServiceAccount{}
-			err = k8sClient.Get(ctx, types.NamespacedName{Name: modelCatalogName, Namespace: ns}, sa)
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: ns}, sa)
 			Expect(err).NotTo(HaveOccurred(), "catalog service account should exist after convergence")
 		})
 	})

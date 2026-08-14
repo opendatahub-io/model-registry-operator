@@ -492,7 +492,7 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 	}
 
 	// Clean up old catalog resources from before it was moved to ModelCatalogReconciler
-	if err := r.deleteOldCatalogResources(ctx, params); err != nil {
+	if err := r.deleteOldCatalogResources(ctx, params, registry); err != nil {
 		return result, err
 	}
 
@@ -967,8 +967,11 @@ func (r *ModelRegistryReconciler) handleReconcileErrors(ctx context.Context, reg
 	return result, err
 }
 
-// deleteOldCatalogResources removes old catalog resources that were created before the ModelCatalogReconciler.
-func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context, params *ModelRegistryParams) error {
+// deleteOldCatalogResources removes old catalog resources that were created before the
+// ModelCatalogReconciler. It only deletes resources this ModelRegistry CR still controls:
+// the standalone Catalog operator now owns fixed-named "model-catalog" resources that can
+// collide with a ModelRegistry named "model", and those must never be deleted here.
+func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context, params *ModelRegistryParams, registry *v1beta1.ModelRegistry) error {
 	log := klog.FromContext(ctx)
 
 	deleteObject := func(name string, obj client.Object) error {
@@ -979,6 +982,11 @@ func (r *ModelRegistryReconciler) deleteOldCatalogResources(ctx context.Context,
 		err := r.Get(ctx, nsName, obj)
 		if err != nil {
 			return client.IgnoreNotFound(err)
+		}
+
+		if !metav1.IsControlledBy(obj, registry) {
+			// Not ours (e.g. owned by the standalone Catalog operator) - leave it alone.
+			return nil
 		}
 
 		return r.Delete(ctx, obj)

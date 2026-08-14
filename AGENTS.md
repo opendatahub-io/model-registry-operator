@@ -110,6 +110,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)
 - `config/default/` — Base kustomization that composes CRD, manager, RBAC, webhook, and cert-manager
 - `config/overlays/odh/` — Production overlay used by the ODH operator; adds auth proxy, webhook patches, Istio config, and `params.env` for image/domain overrides
+- `config/overlays/catalog/` — Self-contained overlay for the standalone Catalog operator (CRD, manager, RBAC, webhook); deploy with `make deploy OVERLAY=overlays/catalog`
 - `config/manager/` — Operator Deployment manifest
 - `config/rbac/` — ClusterRole, ServiceAccount, and role bindings for the operator itself
 - `config/webhook/` — Mutating/validating/conversion webhook configurations
