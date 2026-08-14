@@ -501,7 +501,7 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 
@@ -574,7 +574,7 @@ func TestAIHubReconciler_StatusNotReady_ChildMissing(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 
@@ -629,7 +629,7 @@ func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 

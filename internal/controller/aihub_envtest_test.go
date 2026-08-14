@@ -107,7 +107,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "not-default"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: appNs,
-				RegistriesNamespace:  regNs,
+				InstancesNamespace:   regNs,
 			},
 		}
 		err := k8sClient.Create(ctx, bad)
@@ -137,7 +137,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
-			RegistriesNamespace:  regNs,
+			InstancesNamespace:   regNs,
 		},
 	}
 	if err := k8sClient.Create(ctx, aihub); err != nil {
