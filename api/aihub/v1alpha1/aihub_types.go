@@ -98,6 +98,7 @@ type AIHub struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +kubebuilder:validation:Required
 	Spec   AIHubSpec   `json:"spec,omitempty"`
 	Status AIHubStatus `json:"status,omitempty"`
 }

@@ -17,10 +17,13 @@ limitations under the License.
 package v1alpha1_test
 
 import (
+	"os"
 	"testing"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 )
@@ -125,5 +128,36 @@ func TestAIHubDeepCopy(t *testing.T) {
 	}
 	if orig.Status.Phase != v1alpha1.PhaseReady {
 		t.Error("DeepCopy did not produce independent phase")
+	}
+}
+
+func TestAIHubCRDRequiresSpec(t *testing.T) {
+	data, err := os.ReadFile("../../../config/overlays/aihub/components.platform.opendatahub.io_aihubs.yaml")
+	if err != nil {
+		t.Fatalf("reading generated CRD: %v", err)
+	}
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(data, crd); err != nil {
+		t.Fatalf("unmarshaling CRD: %v", err)
+	}
+	var schema *apiextensionsv1.JSONSchemaProps
+	for i := range crd.Spec.Versions {
+		if crd.Spec.Versions[i].Name == "v1alpha1" {
+			schema = crd.Spec.Versions[i].Schema.OpenAPIV3Schema
+			break
+		}
+	}
+	if schema == nil {
+		t.Fatal("v1alpha1 version schema not found in CRD")
+	}
+	found := false
+	for _, r := range schema.Required {
+		if r == "spec" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected top-level CRD schema to require \"spec\", got required=%v", schema.Required)
 	}
 }
