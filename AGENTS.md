@@ -104,7 +104,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `ENABLE_WEBHOOKS` - Toggle webhooks (default: true in-cluster, false for `make run`)
 - `DEFAULT_DOMAIN` - Route domain override
 - `ENABLE_MODEL_CATALOG` - Toggle catalog controller
-- Image overrides: `REST_IMAGE`, `KUBE_RBAC_PROXY_IMAGE`, `POSTGRES_IMAGE`, `CATALOG_DATA_IMAGE`
+- Image overrides: `REST_IMAGE`, `KUBE_RBAC_PROXY_IMAGE`, `POSTGRES_IMAGE`, `CATALOG_DATA_IMAGE`, `BENCHMARK_DATA_IMAGE`. `CATALOG_DATA_IMAGE` and `BENCHMARK_DATA_IMAGE` defaults also drive the trusted base repo for the Catalog CR's `catalogDataImage`/`benchmarkDataImage` override fields, which accept a sha256 digest or an image tag pinned onto the trusted base repo derived from the default images.
 
 ### Kustomize Layout (`config/`)
 - `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)
