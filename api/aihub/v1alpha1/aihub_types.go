@@ -48,12 +48,22 @@ type ComponentRelease struct {
 
 // AIHubSpec defines the desired state of AIHub.
 type AIHubSpec struct {
-	// ApplicationNamespace is the namespace where model registries and the catalog are deployed.
+	// ApplicationNamespace is the namespace where the child operators (model registry
+	// and catalog operators) run.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
 	ApplicationNamespace string `json:"applicationNamespace"`
+
+	// InstancesNamespace is the namespace where model registry instances, the catalog
+	// service, and the Catalog CR are deployed. It is sourced from the DSC field
+	// spec.components.modelregistry.registriesNamespace and MAY equal ApplicationNamespace.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
+	InstancesNamespace string `json:"instancesNamespace"`
 }
 
 // AIHubStatus defines the observed state of AIHub.
@@ -88,6 +98,7 @@ type AIHub struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +kubebuilder:validation:Required
 	Spec   AIHubSpec   `json:"spec,omitempty"`
 	Status AIHubStatus `json:"status,omitempty"`
 }

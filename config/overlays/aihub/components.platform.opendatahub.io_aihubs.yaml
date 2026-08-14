@@ -48,14 +48,25 @@ spec:
             description: AIHubSpec defines the desired state of AIHub.
             properties:
               applicationNamespace:
-                description: ApplicationNamespace is the namespace where model registries
-                  and the catalog are deployed.
+                description: |-
+                  ApplicationNamespace is the namespace where the child operators (model registry
+                  and catalog operators) run.
+                maxLength: 63
+                minLength: 1
+                pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+                type: string
+              instancesNamespace:
+                description: |-
+                  InstancesNamespace is the namespace where model registry instances, the catalog
+                  service, and the Catalog CR are deployed. It is sourced from the DSC field
+                  spec.components.modelregistry.registriesNamespace and MAY equal ApplicationNamespace.
                 maxLength: 63
                 minLength: 1
                 pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
                 type: string
             required:
             - applicationNamespace
+            - instancesNamespace
             type: object
           status:
             description: AIHubStatus defines the observed state of AIHub.
@@ -156,6 +167,8 @@ spec:
                   type: object
                 type: array
             type: object
+        required:
+        - spec
         type: object
         x-kubernetes-validations:
         - message: Only the name 'default' is allowed
