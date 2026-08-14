@@ -73,6 +73,7 @@ spec:
         securityContext:
           capabilities: {}
           privileged: false
+        {{- if and .PostgresResources (or .PostgresResources.Requests .PostgresResources.Limits) }}
         {{- with .PostgresResources }}
         resources:
           {{- if .Requests }}
@@ -87,6 +88,7 @@ spec:
             {{$key}}: {{quantityToString $value}}
           {{- end }}
           {{- end }}
+        {{- end }}
         {{- else }}
         resources:
           requests:

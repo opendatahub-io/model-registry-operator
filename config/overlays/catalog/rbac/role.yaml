@@ -140,7 +140,6 @@ rules:
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -163,15 +162,4 @@ rules:
   verbs:
   - get
   - list
-  - watch
-- apiGroups:
-  - user.openshift.io
-  resources:
-  - groups
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - update
   - watch

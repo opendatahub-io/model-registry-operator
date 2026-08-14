@@ -18,6 +18,7 @@ webhooks:
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vcatalog.aihub.opendatahub.io
+  timeoutSeconds: 5
   rules:
   - apiGroups:
     - aihub.opendatahub.io

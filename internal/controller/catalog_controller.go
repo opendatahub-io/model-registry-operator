@@ -989,7 +989,11 @@ func (r *CatalogReconciler) fetchAuthConfig(ctx context.Context) ([]string, erro
 	}
 
 	adminGroups, found, err := unstructured.NestedStringSlice(authConfig.Object, "spec", "adminGroups")
-	if err != nil || !found {
+	if err != nil {
+		r.Log.Error(err, "Auth CR spec.adminGroups has an unexpected type, treating as empty")
+		return nil, nil
+	}
+	if !found {
 		r.Log.Info("No adminGroups found in auth CR spec")
 		return nil, nil
 	}
