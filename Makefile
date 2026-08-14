@@ -27,17 +27,17 @@ ifndef SED_INPLACE
 endif
 
 # Image URL to use all building/pushing image targets
-IMG_REGISTRY ?= "quay.io"
-IMG_ORG ?= "opendatahub"
-IMG_REPO ?= "model-registry-operator"
-IMG_VERSION ?= "latest"
-IMG ?= "${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}"
+IMG_REGISTRY ?= quay.io
+IMG_ORG ?= opendatahub
+IMG_REPO ?= model-registry-operator
+IMG_VERSION ?= latest
+IMG ?= ${IMG_REGISTRY}/${IMG_ORG}/${IMG_REPO}:${IMG_VERSION}
 export IMG
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.35
 
 # Kustomize overlay to use for deploy/undeploy
-OVERLAY ?= "default"
+OVERLAY ?= default
 export OVERLAY
 
 # Disable operator webhooks by default for local testing
