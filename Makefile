@@ -212,7 +212,9 @@ install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+	@IGNORE_NOT_FOUND="$(ignore-not-found)"; \
+	case "$$IGNORE_NOT_FOUND" in true|false) ;; *) echo "ignore-not-found must be true or false"; exit 1;; esac; \
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found="$$IGNORE_NOT_FOUND" -f -
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config. Pick an overlay with OVERLAY=... (e.g. overlays/catalog).
@@ -226,7 +228,9 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Pick an overlay with OVERLAY=... (e.g. overlays/catalog). Call with ignore-not-found=true to ignore resource not found errors during deletion.
-	$(KUSTOMIZE) build "config/$$OVERLAY" | $(KUBECTL) delete --ignore-not-found=$(ignore-not-found) -f -
+	@IGNORE_NOT_FOUND="$(ignore-not-found)"; \
+	case "$$IGNORE_NOT_FOUND" in true|false) ;; *) echo "ignore-not-found must be true or false"; exit 1;; esac; \
+	$(KUSTOMIZE) build "config/$$OVERLAY" | $(KUBECTL) delete --ignore-not-found="$$IGNORE_NOT_FOUND" -f -
 
 ##@ Build Dependencies
 
