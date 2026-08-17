@@ -242,7 +242,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	// Available first (the catalog validating webhook needs a backing service).
 	catalogCheck := &catalogv1alpha1.Catalog{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: regNs, Name: "default",
+		Namespace: regNs, Name: catalogCRName,
 	}, catalogCheck); !apierrors.IsNotFound(err) {
 		t.Errorf("expected Catalog CR to not exist after reconcile #1, got err=%v", err)
 	}
@@ -352,14 +352,14 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		t.Errorf("ObservedGeneration = %d, want %d (Generation)", got2.Status.ObservedGeneration, got2.Generation)
 	}
 
-	// Assert the Catalog CR "default" exists in reg-ns with a controller owner
+	// Assert the Catalog CR "catalog" exists in reg-ns with a controller owner
 	// reference Kind=AIHub. Created only after both children are Available
 	// (reconcile #2). This also validates the Catalog CR content against the
 	// real catalogs CRD schema (WI-6 item 3: "CRD schema validation for the
 	// Catalog CR AIHub builds").
 	catalog := &catalogv1alpha1.Catalog{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: regNs, Name: "default",
+		Namespace: regNs, Name: catalogCRName,
 	}, catalog); err != nil {
 		t.Fatalf("Catalog CR not found after reconcile #2: %v", err)
 	}
@@ -397,8 +397,8 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		// Catalog CR still present.
 		catCheck := &catalogv1alpha1.Catalog{}
 		if err := k8sClient.Get(ctx, types.NamespacedName{
-			Namespace: regNs, Name: "default",
-		}, catCheck); err != nil {
+		Namespace: regNs, Name: catalogCRName,
+	}, catCheck); err != nil {
 			t.Errorf("Catalog CR gone after idempotent reconcile: %v", err)
 		}
 

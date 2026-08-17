@@ -435,7 +435,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 
 	catalog := &catalogv1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
+			Name:      catalogCRName,
 			Namespace: regNs,
 		},
 	}
@@ -483,7 +483,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 	}
 
 	catCheck := &catalogv1alpha1.Catalog{}
-	catErr := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: "default"}, catCheck)
+	catErr := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: catalogCRName}, catCheck)
 	if !apierrors.IsNotFound(catErr) {
 		t.Fatalf("expected Catalog to be gone after first reconcile, got err=%v", catErr)
 	}

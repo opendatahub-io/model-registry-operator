@@ -5,6 +5,7 @@ namespace: opendatahub
 
 resources:
 - components.platform.opendatahub.io_aihubs.yaml
+- aihub.opendatahub.io_catalogs.yaml
 - manager.yaml
 - rbac/
 

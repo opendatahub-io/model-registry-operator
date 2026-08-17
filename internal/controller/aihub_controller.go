@@ -49,6 +49,7 @@ import (
 
 const (
 	aihubFinalizer        = "aihub.opendatahub.io/finalizer"
+	catalogCRName         = "catalog"
 	childDeploymentName   = "model-registry-operator-controller-manager"
 	catalogDeploymentName = "catalog-controller-manager"
 	childManagerContainer = "manager"
@@ -252,7 +253,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// has no backing endpoints and rejects the create.
 	newCatalog := &catalogv1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "default",
+			Name:      catalogCRName,
 			Namespace: spec.InstancesNamespace,
 		},
 	}
@@ -287,7 +288,7 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 	log := klog.FromContext(ctx)
 
 	cat := &catalogv1alpha1.Catalog{}
-	key := types.NamespacedName{Namespace: aihub.Spec.InstancesNamespace, Name: "default"}
+	key := types.NamespacedName{Namespace: aihub.Spec.InstancesNamespace, Name: catalogCRName}
 	err := r.Get(ctx, key, cat)
 	if apierrors.IsNotFound(err) {
 		return true, nil // Catalog gone → cleanup complete.
