@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -26,6 +27,28 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 )
+
+// webhookCleanupDeployer wraps a ResourceDeployer and deletes the catalog
+// ValidatingWebhookConfiguration after each deploy call. In envtest there is
+// no backing webhook service, so the VWC with failurePolicy=Fail would block
+// Catalog CR creation. This is a test-only workaround.
+type webhookCleanupDeployer struct {
+	inner  ResourceDeployer
+	client client.Client
+}
+
+func (w *webhookCleanupDeployer) Deploy(ctx context.Context, input deploy.DeployInput) error {
+	if err := w.inner.Deploy(ctx, input); err != nil {
+		return err
+	}
+	// Delete the catalog VWC so the Catalog CR creation in the same reconcile
+	// pass is not blocked by a webhook with no backing service.
+	vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: "catalog-validating-webhook-configuration"},
+	}
+	_ = w.client.Delete(ctx, vwc) // ignore NotFound
+	return nil
+}
 
 // TestAIHubReconcile_Envtest runs the AIHub reconciler against a real envtest
 // apiserver to validate the full reconcile loop including SSA apply, CRD
@@ -155,15 +178,18 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			config.RestImage:                  "fake-rest@sha256:bbb",
 			config.PostgresImage:              "fake-pg@sha256:ccc",
 		}),
-		Deployer: deploy.NewDeployer(
-			deploy.WithFieldOwner("aihub"),
-			deploy.WithApplyOrder(),
-			deploy.WithCache(),
-			deploy.WithMergeStrategy(
-				schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
-				deploy.MergeDeployments,
+		Deployer: &webhookCleanupDeployer{
+			inner: deploy.NewDeployer(
+				deploy.WithFieldOwner("aihub"),
+				deploy.WithApplyOrder(),
+				deploy.WithCache(),
+				deploy.WithMergeStrategy(
+					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+					deploy.MergeDeployments,
+				),
 			),
-		),
+			client: k8sClient,
+		},
 	}
 
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
@@ -177,7 +203,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		t.Error("reconcile #1: expected RequeueAfter > 0 (child Deployment not Available)")
 	}
 
-	// Assert child Deployment exists with stamped images.
+	// Assert MR child Deployment exists with stamped images.
 	childDep := &appsv1.Deployment{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{
 		Namespace: appNs, Name: childDeploymentName,
@@ -191,6 +217,19 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	assertEnv(t, managerC, config.RestImage, "fake-rest@sha256:bbb")
 	assertEnv(t, managerC, config.RegistriesNamespace, regNs)
 
+	// Assert catalog child Deployment exists with stamped images.
+	catalogDep := &appsv1.Deployment{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: appNs, Name: catalogDeploymentName,
+	}, catalogDep); err != nil {
+		t.Fatalf("catalog Deployment %s not found: %v", catalogDeploymentName, err)
+	}
+	catalogManagerC := findContainer(t, catalogDep, childManagerContainer)
+	if catalogManagerC.Image != "fake-op@sha256:aaa" {
+		t.Errorf("catalog manager image = %q, want %q", catalogManagerC.Image, "fake-op@sha256:aaa")
+	}
+	assertEnv(t, catalogManagerC, config.RegistriesNamespace, regNs)
+
 	// Assert modelregistries CRD exists (CRDs applied).
 	mrCRD := &apiextensionsv1.CustomResourceDefinition{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{
@@ -199,26 +238,13 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		t.Fatalf("modelregistries CRD not found: %v", err)
 	}
 
-	// Assert the Catalog CR "default" exists in reg-ns with a controller owner
-	// reference Kind=AIHub. This also validates the Catalog CR content against
-	// the real catalogs CRD schema (WI-6 item 3: "CRD schema validation for
-	// the Catalog CR AIHub builds").
-	catalog := &catalogv1alpha1.Catalog{}
+	// The Catalog CR is NOT created yet — both child Deployments must be
+	// Available first (the catalog validating webhook needs a backing service).
+	catalogCheck := &catalogv1alpha1.Catalog{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{
 		Namespace: regNs, Name: "default",
-	}, catalog); err != nil {
-		t.Fatalf("Catalog CR not found: %v", err)
-	}
-	var hasAIHubOwner bool
-	for _, ref := range catalog.GetOwnerReferences() {
-		if ref.Kind == "AIHub" && ref.Name == "default" &&
-			ref.Controller != nil && *ref.Controller {
-			hasAIHubOwner = true
-			break
-		}
-	}
-	if !hasAIHubOwner {
-		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
+	}, catalogCheck); !apierrors.IsNotFound(err) {
+		t.Errorf("expected Catalog CR to not exist after reconcile #1, got err=%v", err)
 	}
 
 	// Assert finalizer present.
@@ -243,7 +269,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	}
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
 
-	// --- Patch child Deployment to Available ---
+	// --- Patch MR child Deployment to Available ---
 	if err := k8sClient.Get(ctx, types.NamespacedName{
 		Namespace: appNs, Name: childDeploymentName,
 	}, childDep); err != nil {
@@ -254,6 +280,35 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	}
 	if err := k8sClient.Status().Update(ctx, childDep); err != nil {
 		t.Fatalf("patching child Deployment status: %v", err)
+	}
+
+	// --- Reconcile #1b: MR Available but catalog not yet → still NotReady ---
+	result1b, err := r.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("reconcile #1b failed: %v", err)
+	}
+	if result1b.RequeueAfter == 0 {
+		t.Error("reconcile #1b: expected RequeueAfter > 0 (catalog Deployment not Available)")
+	}
+	got1b := &aihubv1alpha1.AIHub{}
+	if err := k8sClient.Get(ctx, req.NamespacedName, got1b); err != nil {
+		t.Fatal(err)
+	}
+	assertConditionStatus(t, got1b, ConditionModelRegistryReady, metav1.ConditionTrue)
+	assertConditionStatus(t, got1b, ConditionCatalogReady, metav1.ConditionFalse)
+	assertConditionStatus(t, got1b, string(common.ConditionTypeReady), metav1.ConditionFalse)
+
+	// --- Patch catalog Deployment to Available ---
+	if err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: appNs, Name: catalogDeploymentName,
+	}, catalogDep); err != nil {
+		t.Fatalf("re-fetching catalog Deployment: %v", err)
+	}
+	catalogDep.Status.Conditions = []appsv1.DeploymentCondition{
+		{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+	}
+	if err := k8sClient.Status().Update(ctx, catalogDep); err != nil {
+		t.Fatalf("patching catalog Deployment status: %v", err)
 	}
 
 	// --- Platform version handshake: create ConfigMap before reconcile #2 ---
@@ -291,9 +346,33 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	assertConditionStatus(t, got2, string(common.ConditionTypeReady), metav1.ConditionTrue)
 	assertConditionStatus(t, got2, string(common.ConditionTypeProvisioningSucceeded), metav1.ConditionTrue)
 	assertConditionStatus(t, got2, ConditionModelRegistryReady, metav1.ConditionTrue)
+	assertConditionStatus(t, got2, ConditionCatalogReady, metav1.ConditionTrue)
 
 	if got2.Status.ObservedGeneration != got2.Generation {
 		t.Errorf("ObservedGeneration = %d, want %d (Generation)", got2.Status.ObservedGeneration, got2.Generation)
+	}
+
+	// Assert the Catalog CR "default" exists in reg-ns with a controller owner
+	// reference Kind=AIHub. Created only after both children are Available
+	// (reconcile #2). This also validates the Catalog CR content against the
+	// real catalogs CRD schema (WI-6 item 3: "CRD schema validation for the
+	// Catalog CR AIHub builds").
+	catalog := &catalogv1alpha1.Catalog{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: regNs, Name: "default",
+	}, catalog); err != nil {
+		t.Fatalf("Catalog CR not found after reconcile #2: %v", err)
+	}
+	var hasAIHubOwner bool
+	for _, ref := range catalog.GetOwnerReferences() {
+		if ref.Kind == "AIHub" && ref.Name == "default" &&
+			ref.Controller != nil && *ref.Controller {
+			hasAIHubOwner = true
+			break
+		}
+	}
+	if !hasAIHubOwner {
+		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
 	}
 
 	platformVersion := got2.GetReleaseStatus().GetPlatformRelease()

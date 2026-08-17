@@ -50,11 +50,16 @@ import (
 const (
 	aihubFinalizer        = "aihub.opendatahub.io/finalizer"
 	childDeploymentName   = "model-registry-operator-controller-manager"
+	catalogDeploymentName = "catalog-controller-manager"
 	childManagerContainer = "manager"
 
 	// ConditionModelRegistryReady tracks whether the child model-registry
 	// operator Deployment is available.
 	ConditionModelRegistryReady = "ModelRegistryReady"
+
+	// ConditionCatalogReady tracks whether the catalog operator Deployment
+	// is available.
+	ConditionCatalogReady = "CatalogReady"
 
 	// Platform version ConfigMap (created by the orchestrator in the
 	// application namespace).
@@ -92,14 +97,16 @@ type AIHubReconciler struct {
 }
 
 // newAIHubConditionManager creates a conditions.Manager for the AIHub CR.
-// The happy condition is Ready; ProvisioningSucceeded and
-// ConditionModelRegistryReady are dependents. Degraded is set independently
-// and is NOT registered as a dependent (matching the kserve precedent).
+// The happy condition is Ready; ProvisioningSucceeded,
+// ConditionModelRegistryReady and ConditionCatalogReady are dependents.
+// Degraded is set independently and is NOT registered as a dependent
+// (matching the kserve precedent).
 func newAIHubConditionManager(aihub *aihubv1alpha1.AIHub) *conditions.Manager {
 	return conditions.NewManager(aihub,
 		string(common.ConditionTypeReady),
 		string(common.ConditionTypeProvisioningSucceeded),
 		ConditionModelRegistryReady,
+		ConditionCatalogReady,
 	)
 }
 
@@ -175,10 +182,13 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			resources[i].SetNamespace("")
 		}
 
-		// Stamp the child operator Deployment.
-		if kind == "Deployment" && resources[i].GetName() == childDeploymentName {
-			if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace); err != nil {
-				return ctrl.Result{}, fmt.Errorf("stamping child operator deployment: %w", err)
+		// Stamp the child operator Deployments.
+		if kind == "Deployment" {
+			name := resources[i].GetName()
+			if name == childDeploymentName || name == catalogDeploymentName {
+				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace); err != nil {
+					return ctrl.Result{}, fmt.Errorf("stamping child operator deployment %s: %w", name, err)
+				}
 			}
 		}
 	}
@@ -204,7 +214,42 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	condMgr.MarkTrue(string(common.ConditionTypeProvisioningSucceeded),
 		conditions.WithReason("AllResourcesApplied"))
 
-	// 7. Create the singleton Catalog CR if absent.
+	// 7. Check child Deployment availability (model-registry operator).
+	ready, requeue, err := r.checkChildDeploymentReady(ctx, spec.ApplicationNamespace, childDeploymentName, condMgr, ConditionModelRegistryReady)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue {
+		if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
+			return ctrl.Result{}, sErr
+		}
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if ready {
+		condMgr.MarkTrue(ConditionModelRegistryReady,
+			conditions.WithReason("AllDeploymentsAvailable"))
+	}
+
+	// 8. Check child Deployment availability (catalog operator).
+	ready, requeue, err = r.checkChildDeploymentReady(ctx, spec.ApplicationNamespace, catalogDeploymentName, condMgr, ConditionCatalogReady)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if requeue {
+		if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
+			return ctrl.Result{}, sErr
+		}
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if ready {
+		condMgr.MarkTrue(ConditionCatalogReady,
+			conditions.WithReason("AllDeploymentsAvailable"))
+	}
+
+	// 9. Create the singleton Catalog CR if absent.
+	// The catalog operator (and its validating webhook with failurePolicy=Fail)
+	// must be Available before the Catalog CR is created, otherwise the webhook
+	// has no backing endpoints and rejects the create.
 	newCatalog := &catalogv1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default",
@@ -221,44 +266,6 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
 	}
 
-	// 8. Check child Deployment availability.
-	childDeploy := &appsv1.Deployment{}
-	deployKey := types.NamespacedName{
-		Namespace: spec.ApplicationNamespace,
-		Name:      childDeploymentName,
-	}
-	if err := r.Get(ctx, deployKey, childDeploy); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, fmt.Errorf("getting child deployment %s: %w", deployKey, err)
-		}
-		log.Info("child deployment not yet available, requeuing")
-		condMgr.MarkFalse(ConditionModelRegistryReady,
-			conditions.WithReason("ChildDeploymentNotReady"),
-			conditions.WithMessage("child deployment not found"))
-		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
-			conditions.WithSeverity(common.ConditionSeverityInfo),
-			conditions.WithReason("NoDegradation"))
-		if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
-			return ctrl.Result{}, sErr
-		}
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
-	}
-	if !isDeploymentAvailable(childDeploy) {
-		log.Info("child deployment not yet Available, requeuing")
-		condMgr.MarkFalse(ConditionModelRegistryReady,
-			conditions.WithReason("ChildDeploymentNotReady"),
-			conditions.WithMessage("child deployment not yet Available"))
-		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
-			conditions.WithSeverity(common.ConditionSeverityInfo),
-			conditions.WithReason("NoDegradation"))
-		if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
-			return ctrl.Result{}, sErr
-		}
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
-	}
-
-	condMgr.MarkTrue(ConditionModelRegistryReady,
-		conditions.WithReason("AllDeploymentsAvailable"))
 	condMgr.MarkFalse(string(common.ConditionTypeDegraded),
 		conditions.WithSeverity(common.ConditionSeverityInfo),
 		conditions.WithReason("NoDegradation"))
@@ -393,6 +400,40 @@ func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&admissionregistrationv1.MutatingWebhookConfiguration{}).
 		Owns(&catalogv1alpha1.Catalog{}).
 		Complete(r)
+}
+
+// checkChildDeploymentReady checks if the named Deployment exists and is
+// Available. Returns (true, false, nil) when Available, (false, true, nil)
+// when not found or not yet Available (caller should requeue), and
+// (false, false, err) on unexpected errors.
+func (r *AIHubReconciler) checkChildDeploymentReady(ctx context.Context, namespace, name string, condMgr *conditions.Manager, conditionType string) (ready, requeue bool, err error) {
+	log := klog.FromContext(ctx)
+	dep := &appsv1.Deployment{}
+	key := types.NamespacedName{Namespace: namespace, Name: name}
+	if err := r.Get(ctx, key, dep); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return false, false, fmt.Errorf("getting child deployment %s: %w", key, err)
+		}
+		log.Info("child deployment not yet available, requeuing", "deployment", name)
+		condMgr.MarkFalse(conditionType,
+			conditions.WithReason("ChildDeploymentNotReady"),
+			conditions.WithMessage("child deployment %s not found", name))
+		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("NoDegradation"))
+		return false, true, nil
+	}
+	if !isDeploymentAvailable(dep) {
+		log.Info("child deployment not yet Available, requeuing", "deployment", name)
+		condMgr.MarkFalse(conditionType,
+			conditions.WithReason("ChildDeploymentNotReady"),
+			conditions.WithMessage("child deployment %s not yet Available", name))
+		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("NoDegradation"))
+		return false, true, nil
+	}
+	return true, false, nil
 }
 
 // isDeploymentAvailable returns true if the Deployment has condition Available == True.

@@ -127,7 +127,7 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 		},
 	}
 
-	var deployFound bool
+	var mrDeployFound, catalogDeployFound bool
 	var crdCount int
 	for i := range resources {
 		kind := resources[i].GetKind()
@@ -142,23 +142,33 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 			crdCount++
 		}
 
-		if kind == "Deployment" && resources[i].GetName() == childDeploymentName {
-			if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns"); err != nil {
-				t.Fatalf("stampChildOperatorDeployment: %v", err)
+		if kind == "Deployment" {
+			name := resources[i].GetName()
+			if name == childDeploymentName || name == catalogDeploymentName {
+				if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns"); err != nil {
+					t.Fatalf("stampChildOperatorDeployment(%s): %v", name, err)
+				}
+				deploy := deploymentFromUnstructured(t, &resources[i])
+				c := findContainer(t, deploy, "manager")
+				if c.Image != images.OperatorImage {
+					t.Errorf("%s: stamped Image = %q, want %q", name, c.Image, images.OperatorImage)
+				}
+				assertEnv(t, c, config.RegistriesNamespace, "my-reg-ns")
+				if name == childDeploymentName {
+					assertEnv(t, c, config.RestImage, "stamped-rest@sha256:222")
+					mrDeployFound = true
+				} else {
+					catalogDeployFound = true
+				}
 			}
-			deploy := deploymentFromUnstructured(t, &resources[i])
-			c := findContainer(t, deploy, "manager")
-			if c.Image != images.OperatorImage {
-				t.Errorf("stamped Image = %q, want %q", c.Image, images.OperatorImage)
-			}
-			assertEnv(t, c, config.RestImage, "stamped-rest@sha256:222")
-			assertEnv(t, c, config.RegistriesNamespace, "my-reg-ns")
-			deployFound = true
 		}
 	}
 
-	if !deployFound {
-		t.Error("child operator Deployment not found in rendered resources")
+	if !mrDeployFound {
+		t.Error("MR operator Deployment not found in rendered resources")
+	}
+	if !catalogDeployFound {
+		t.Error("catalog operator Deployment not found in rendered resources")
 	}
 	if crdCount < 1 {
 		t.Errorf("expected at least 1 CRD, got %d", crdCount)
@@ -281,9 +291,9 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		t.Errorf("expected Owner name %q, got %v", "default", mock.calls[0].Owner)
 	}
 
-	// Verify the resources contain the child Deployment with stamped values.
+	// Verify the resources contain the child Deployments with stamped values.
 	resources := mock.calls[0].Resources
-	var deployFound bool
+	var mrDeployFound, catalogDeployFound bool
 	var crdFound bool
 	for _, res := range resources {
 		kind := res.GetKind()
@@ -298,42 +308,42 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 			crdFound = true
 		}
 
-		if kind == "Deployment" && res.GetName() == childDeploymentName {
-			dep := deploymentFromUnstructured(t, &res)
-			managerC := findContainer(t, dep, "manager")
-			if managerC.Image != "fake-op@sha256:aaa" {
-				t.Errorf("manager image = %q, want %q", managerC.Image, "fake-op@sha256:aaa")
+		if kind == "Deployment" {
+			name := res.GetName()
+			if name == childDeploymentName || name == catalogDeploymentName {
+				dep := deploymentFromUnstructured(t, &res)
+				managerC := findContainer(t, dep, "manager")
+				if managerC.Image != "fake-op@sha256:aaa" {
+					t.Errorf("%s: manager image = %q, want %q", name, managerC.Image, "fake-op@sha256:aaa")
+				}
+				assertEnv(t, managerC, config.RegistriesNamespace, regNs)
+				if name == childDeploymentName {
+					assertEnv(t, managerC, config.RestImage, "fake-rest@sha256:bbb")
+					mrDeployFound = true
+				} else {
+					catalogDeployFound = true
+				}
 			}
-			assertEnv(t, managerC, config.RestImage, "fake-rest@sha256:bbb")
-			assertEnv(t, managerC, config.RegistriesNamespace, regNs)
-			deployFound = true
 		}
 	}
-	if !deployFound {
-		t.Error("child operator Deployment not found in deployer resources")
+	if !mrDeployFound {
+		t.Error("MR operator Deployment not found in deployer resources")
+	}
+	if !catalogDeployFound {
+		t.Error("catalog operator Deployment not found in deployer resources")
 	}
 	if !crdFound {
 		t.Error("expected at least 1 CustomResourceDefinition in deployer resources")
 	}
 
-	// Verify Catalog CR exists in the fake client with an owner reference.
-	catalog := &catalogv1alpha1.Catalog{}
+	// Catalog CR must NOT exist yet — it is only created after both child
+	// Deployments are Available, which the mock deployer does not simulate.
+	catalogCR := &catalogv1alpha1.Catalog{}
 	if err := fakeClient.Get(ctx, types.NamespacedName{
 		Namespace: regNs,
 		Name:      "default",
-	}, catalog); err != nil {
-		t.Fatalf("Catalog CR not found: %v", err)
-	}
-	var hasAIHubOwner bool
-	for _, ref := range catalog.GetOwnerReferences() {
-		if ref.Kind == "AIHub" && ref.Name == "default" &&
-			ref.Controller != nil && *ref.Controller {
-			hasAIHubOwner = true
-			break
-		}
-	}
-	if !hasAIHubOwner {
-		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
+	}, catalogCR); !apierrors.IsNotFound(err) {
+		t.Errorf("expected Catalog CR to not exist before children are Available, got err=%v", err)
 	}
 
 	// Verify status was written with Phase=NotReady (child deployment missing).
@@ -505,10 +515,22 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 		},
 	}
 
-	// Seed a child Deployment with Available=True.
+	// Seed child Deployments with Available=True.
 	childDeploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      childDeploymentName,
+			Namespace: appNs,
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	catalogDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      catalogDeploymentName,
 			Namespace: appNs,
 			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
 		},
@@ -524,7 +546,7 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(s).
-		WithObjects(aihub, childDeploy, appNsObj, regNsObj).
+		WithObjects(aihub, childDeploy, catalogDeploy, appNsObj, regNsObj).
 		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
 		Build()
 
@@ -561,6 +583,78 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 	assertConditionStatus(t, got, string(common.ConditionTypeProvisioningSucceeded), metav1.ConditionTrue)
 	assertConditionStatus(t, got, ConditionModelRegistryReady, metav1.ConditionTrue)
+	assertConditionStatus(t, got, ConditionCatalogReady, metav1.ConditionTrue)
+}
+
+func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
+
+	appNs := "app-ns"
+	regNs := "reg-ns"
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			InstancesNamespace:   regNs,
+		},
+	}
+
+	// Seed only the MR Deployment with Available=True; catalog Deployment missing.
+	childDeploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      childDeploymentName,
+			Namespace: appNs,
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+	regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+	fakeClient := fake.NewClientBuilder().
+		WithScheme(s).
+		WithObjects(aihub, childDeploy, appNsObj, regNsObj).
+		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
+		Build()
+
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: tmpDir,
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              &mockDeployer{},
+		APIReader:             fakeClient,
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("Reconcile failed: %v", err)
+	}
+	if result.RequeueAfter == 0 {
+		t.Error("expected RequeueAfter > 0 (catalog Deployment missing)")
+	}
+
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Status.Phase != common.PhaseNotReady {
+		t.Errorf("Phase = %q, want %q", got.Status.Phase, common.PhaseNotReady)
+	}
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
+	assertConditionStatus(t, got, ConditionModelRegistryReady, metav1.ConditionTrue)
+	assertConditionStatus(t, got, ConditionCatalogReady, metav1.ConditionFalse)
 }
 
 func TestAIHubReconciler_StatusNotReady_ChildMissing(t *testing.T) {
@@ -645,6 +739,18 @@ func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
 			},
 		},
 	}
+	catalogDeploy2 := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      catalogDeploymentName,
+			Namespace: appNs,
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Status: appsv1.DeploymentStatus{
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
 
 	platformCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -661,7 +767,7 @@ func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
 
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(s).
-		WithObjects(aihub, childDeploy, platformCM, appNsObj, regNsObj).
+		WithObjects(aihub, childDeploy, catalogDeploy2, platformCM, appNsObj, regNsObj).
 		WithStatusSubresource(&aihubv1alpha1.AIHub{}).
 		Build()
 
