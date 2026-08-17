@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -543,6 +544,147 @@ func TestCatalogDeployment(t *testing.T) {
 			kubeRBACProxyContainer.ReadinessProbe.HTTPGet.Port.StrVal != "proxy-healthz" ||
 			kubeRBACProxyContainer.ReadinessProbe.HTTPGet.Path != "/healthz" {
 			t.Errorf("kube-rbac-proxy readiness probe should target /healthz on proxy-healthz")
+		}
+	})
+}
+
+func TestCatalogDeploymentProxy(t *testing.T) {
+	// Clear any env vars from previous tests
+	os.Unsetenv(config.RestImage)
+
+	// parse all templates
+	templates, err := config.ParseTemplates()
+	if err != nil {
+		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow()
+	}
+
+	config.SetDefaultDomain("example.com", nil, false)
+
+	catalogReconciler := controller.CatalogReconciler{
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+		},
+	}
+
+	findCatalogContainer := func(deployment *appsv1.Deployment) *corev1.Container {
+		for i, container := range deployment.Spec.Template.Spec.Containers {
+			if container.Name == "catalog" {
+				return &deployment.Spec.Template.Spec.Containers[i]
+			}
+		}
+		return nil
+	}
+
+	t.Run("proxy configured sets proxy env vars", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+			Proxy: &catalogv1alpha1.ProxyConfig{
+				HTTPProxy:  "http://proxy.example.com:3128",
+				HTTPSProxy: "https://proxy.example.com:3128",
+				NoProxy:    ".svc,.cluster.local,localhost",
+			},
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		want := map[string]string{
+			"HTTP_PROXY":  "http://proxy.example.com:3128",
+			"HTTPS_PROXY": "https://proxy.example.com:3128",
+			"NO_PROXY":    ".svc,.cluster.local,localhost",
+		}
+		for name, value := range want {
+			found := false
+			for _, e := range catalogContainer.Env {
+				if e.Name == name {
+					found = true
+					if e.Value != value {
+						t.Errorf("env %s = %v, want %v", name, e.Value, value)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected env var %s to be set on catalog container", name)
+			}
+		}
+	})
+
+	t.Run("proxy unset omits proxy env vars", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		for _, e := range catalogContainer.Env {
+			if e.Name == "HTTP_PROXY" || e.Name == "HTTPS_PROXY" || e.Name == "NO_PROXY" {
+				t.Errorf("did not expect env var %s to be set when Proxy is unset", e.Name)
+			}
+		}
+	})
+
+	t.Run("proxy with wildcard NoProxy is rendered safely", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+			Proxy: &catalogv1alpha1.ProxyConfig{
+				NoProxy: "*.example.com",
+			},
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		found := false
+		for _, e := range catalogContainer.Env {
+			if e.Name == "NO_PROXY" {
+				found = true
+				if e.Value != "*.example.com" {
+					t.Errorf("env NO_PROXY = %v, want %v", e.Value, "*.example.com")
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected env var NO_PROXY to be set on catalog container")
 		}
 	})
 }

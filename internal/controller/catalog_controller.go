@@ -103,6 +103,7 @@ type CatalogParams struct {
 	GatewayName             string
 	GatewayNamespace        string
 	HTTPRouteNamespace      string
+	Proxy                   *catalogv1alpha1.ProxyConfig
 }
 
 func (r *CatalogReconciler) createPostgresParams(catalog *catalogv1alpha1.Catalog) *CatalogParams {
@@ -130,6 +131,7 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		GatewayName:             r.GatewayName,
 		GatewayNamespace:        r.GatewayNamespace,
 		HTTPRouteNamespace:      r.HTTPRouteNamespace,
+		Proxy:                   catalog.Spec.Proxy,
 	}
 }
 
@@ -1172,6 +1174,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName             string
 		GatewayNamespace        string
 		HTTPRouteNamespace      string
+		Proxy                   *catalogv1alpha1.ProxyConfig
 	}{
 		Name:                    params.Name,
 		Namespace:               params.Namespace,
@@ -1189,6 +1192,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName:             params.GatewayName,
 		GatewayNamespace:        params.GatewayNamespace,
 		HTTPRouteNamespace:      params.HTTPRouteNamespace,
+		Proxy:                   params.Proxy,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
