@@ -397,8 +397,8 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		// Catalog CR still present.
 		catCheck := &catalogv1alpha1.Catalog{}
 		if err := k8sClient.Get(ctx, types.NamespacedName{
-		Namespace: regNs, Name: catalogCRName,
-	}, catCheck); err != nil {
+			Namespace: regNs, Name: catalogCRName,
+		}, catCheck); err != nil {
 			t.Errorf("Catalog CR gone after idempotent reconcile: %v", err)
 		}
 
