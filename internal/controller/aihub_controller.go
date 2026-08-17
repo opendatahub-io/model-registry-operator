@@ -373,8 +373,11 @@ func (r *AIHubReconciler) getPlatformVersion(ctx context.Context, applicationNam
 	cm := &corev1.ConfigMap{}
 	key := types.NamespacedName{Name: platformVersionConfigMap, Namespace: applicationNamespace}
 	if err := r.APIReader.Get(ctx, key, cm); err != nil {
-		ctrl.LoggerFrom(ctx).V(1).Info("Platform ConfigMap not found",
-			"configmap", key, "error", err)
+		if apierrors.IsNotFound(err) {
+			ctrl.LoggerFrom(ctx).V(1).Info("platform ConfigMap not found", "configmap", key)
+			return ""
+		}
+		ctrl.LoggerFrom(ctx).Error(err, "reading platform ConfigMap failed", "configmap", key)
 		return ""
 	}
 	return cm.Data[platformVersionConfigMapKey]

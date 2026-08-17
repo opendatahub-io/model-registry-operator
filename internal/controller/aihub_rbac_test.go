@@ -93,7 +93,12 @@ func TestAIHubRBAC_SupersetGate(t *testing.T) {
 	t.Logf("child union: %d resource perms, %d non-resource perms", len(childResPerms), len(childNonResPerms))
 	t.Logf("aihub role:  %d resource perms, %d non-resource perms", len(aihubResPerms), len(aihubNonResPerms))
 
-	// --- 4. No wildcards / no escalate / no bind ---
+	// --- 4. No wildcards / no escalate / impersonate / bind ---
+	forbiddenVerbs := map[string]bool{
+		"escalate":    true,
+		"impersonate": true,
+		"bind":        true,
+	}
 	for _, rule := range aihubRules {
 		for _, g := range rule.APIGroups {
 			if g == "*" {
@@ -109,11 +114,8 @@ func TestAIHubRBAC_SupersetGate(t *testing.T) {
 			if v == "*" {
 				t.Errorf("AIHub ClusterRole contains wildcard verb '*'")
 			}
-			if v == "escalate" {
-				t.Errorf("AIHub ClusterRole contains forbidden verb 'escalate'")
-			}
-			if v == "bind" {
-				t.Errorf("AIHub ClusterRole contains forbidden verb 'bind'")
+			if forbiddenVerbs[v] {
+				t.Errorf("AIHub ClusterRole contains forbidden verb %q", v)
 			}
 		}
 	}

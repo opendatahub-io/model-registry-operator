@@ -341,7 +341,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	catalogCR := &catalogv1alpha1.Catalog{}
 	if err := fakeClient.Get(ctx, types.NamespacedName{
 		Namespace: regNs,
-		Name:      "default",
+		Name:      catalogCRName,
 	}, catalogCR); !apierrors.IsNotFound(err) {
 		t.Errorf("expected Catalog CR to not exist before children are Available, got err=%v", err)
 	}
