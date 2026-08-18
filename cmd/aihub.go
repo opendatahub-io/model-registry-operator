@@ -134,6 +134,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		Scheme:                mgr.GetScheme(),
 		ManifestsTemplatePath: manifestsTemplatePath,
 		Getenv:                os.Getenv,
+		APIReader:             mgr.GetAPIReader(),
 		Deployer: deploy.NewDeployer(
 			deploy.WithFieldOwner("aihub"),
 			deploy.WithApplyOrder(),
