@@ -51,7 +51,7 @@ Kubebuilder-based operator that deploys Model Registry instances from `ModelRegi
 
 ### Context & Upstream Dependencies
 This repo is one piece of a larger system — see [docs/architecture.md](docs/architecture.md) for a diagram.
-- **[opendatahub-io/model-registry](https://github.com/opendatahub-io/model-registry)** — the actual Model Registry server (Go/REST). This operator deploys it via the `REST_IMAGE` container image.
+- **[opendatahub-io/model-registry](https://github.com/opendatahub-io/model-registry)** — the actual Model Registry server (Go/REST). This operator deploys it via the `RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE` container image.
 - **[opendatahub-io/opendatahub-operator](https://github.com/opendatahub-io/opendatahub-operator)** — the parent ODH operator. It deploys *this* operator via the `config/overlays/odh/` kustomize overlay when `modelregistry.managementState: Managed` is set in the DataScienceCluster CR.
 
 ### Controllers
@@ -104,7 +104,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `ENABLE_WEBHOOKS` - Toggle webhooks (default: true in-cluster, false for `make run`)
 - `DEFAULT_DOMAIN` - Route domain override
 - `ENABLE_MODEL_CATALOG` - Toggle catalog controller
-- Image overrides: `REST_IMAGE`, `KUBE_RBAC_PROXY_IMAGE`, `POSTGRES_IMAGE`, `CATALOG_DATA_IMAGE`
+- Image overrides: `RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE`, `RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE`, `RELATED_IMAGE_POSTGRESQL_16_IMAGE`, `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
 
 ### Kustomize Layout (`config/`)
 - `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)
