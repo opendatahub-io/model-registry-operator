@@ -30,13 +30,19 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
@@ -64,7 +70,7 @@ const (
 
 	// Platform version ConfigMap (created by the orchestrator in the
 	// application namespace).
-	platformVersionConfigMap    = "odh-aihub-config"
+	platformVersionConfigMap    = "odh-modelregistry-config"
 	platformVersionConfigMapKey = "platformVersion"
 )
 
@@ -95,6 +101,11 @@ type AIHubReconciler struct {
 	// outside the label-scoped manager cache (e.g. the platform version
 	// ConfigMap created by the orchestrator).
 	APIReader client.Reader
+
+	// onReconcile is a test-only hook invoked at the start of each Reconcile
+	// call. It is nil in production and only set in manager-based tests to
+	// observe reconcile invocations triggered by watches.
+	onReconcile func()
 }
 
 // newAIHubConditionManager creates a conditions.Manager for the AIHub CR.
@@ -112,6 +123,9 @@ func newAIHubConditionManager(aihub *aihubv1alpha1.AIHub) *conditions.Manager {
 }
 
 func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.onReconcile != nil {
+		r.onReconcile()
+	}
 	log := klog.FromContext(ctx)
 
 	// 1. Get the AIHub singleton.
@@ -386,12 +400,25 @@ func (r *AIHubReconciler) getPlatformVersion(ctx context.Context, applicationNam
 }
 
 func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// NOTE: The platform-version ConfigMap (odh-aihub-config) is read on-demand
-	// via the uncached APIReader in getPlatformVersion. Adding a Watch for it is
-	// deferred because the manager cache is label-scoped for ConfigMaps, so an
-	// Owns/Watches informer would not receive events for this platform-created
-	// ConfigMap. A future follow-up can add a direct informer or periodic
-	// re-sync trigger.
+	// A dedicated cache watches the platform-version ConfigMap
+	// (odh-modelregistry-config) created by the orchestrator. This is separate
+	// from the manager's main cache, which is label-scoped for ConfigMaps
+	// (part-of=aihub) and must continue to serve the Owns(&ConfigMap{})
+	// informer for the deployer-managed ConfigMaps. The dedicated cache uses a
+	// field selector on metadata.name so it watches only the single platform CM.
+	cmCache, err := cache.New(mgr.GetConfig(), cache.Options{
+		Scheme: mgr.GetScheme(),
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.ConfigMap{}: {Field: fields.OneTermEqualSelector("metadata.name", platformVersionConfigMap)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating platform ConfigMap cache: %w", err)
+	}
+	if err := mgr.Add(cmCache); err != nil {
+		return fmt.Errorf("adding platform ConfigMap cache to manager: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aihubv1alpha1.AIHub{}).
 		Owns(&appsv1.Deployment{}).
@@ -405,7 +432,26 @@ func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
 		Owns(&admissionregistrationv1.MutatingWebhookConfiguration{}).
 		Owns(&catalogv1alpha1.Catalog{}).
+		WatchesRawSource(source.Kind(cmCache, &corev1.ConfigMap{},
+			handler.TypedEnqueueRequestsFromMapFunc(platformConfigMapToAIHub),
+			predicate.NewTypedPredicateFuncs(isPlatformConfigMap),
+		)).
 		Complete(r)
+}
+
+// platformConfigMapToAIHub maps a platform ConfigMap event to a reconcile
+// request for the singleton AIHub CR (name "default", cluster-scoped).
+func platformConfigMapToAIHub(_ context.Context, obj *corev1.ConfigMap) []reconcile.Request {
+	if obj.GetName() != platformVersionConfigMap {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "default"}}}
+}
+
+// isPlatformConfigMap is a predicate filter that accepts only the platform
+// version ConfigMap by name.
+func isPlatformConfigMap(obj *corev1.ConfigMap) bool {
+	return obj.GetName() == platformVersionConfigMap
 }
 
 // checkChildDeploymentReady checks if the named Deployment exists and is
