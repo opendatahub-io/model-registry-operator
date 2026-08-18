@@ -350,7 +350,9 @@ func (r *AIHubReconciler) setReleaseStatus(ctx context.Context, aihub *aihubv1al
 		[]string{"modelregistry", "catalog"})
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
-		return
+		// Still record the fallback releases (and the platform version below)
+		// so the release status is not left empty on metadata load failure.
+		releases = append([]common.ComponentRelease(nil), fallbackReleases...)
 	}
 
 	if v := r.getPlatformVersion(ctx, aihub.Spec.ApplicationNamespace); v != "" {
