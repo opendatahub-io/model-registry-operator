@@ -67,7 +67,7 @@ func loadComponentReleases(manifestsPath string, componentDirs []string) ([]comm
 	}
 
 	if len(all) == 0 {
-		return fallbackReleases, nil
+		all = append(all, fallbackReleases...)
 	}
 
 	return all, nil
