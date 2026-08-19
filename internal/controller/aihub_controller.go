@@ -30,13 +30,19 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
@@ -48,11 +54,12 @@ import (
 )
 
 const (
-	aihubFinalizer        = "aihub.opendatahub.io/finalizer"
-	catalogCRName         = "catalog"
-	childDeploymentName   = "model-registry-operator-controller-manager"
-	catalogDeploymentName = "catalog-controller-manager"
-	childManagerContainer = "manager"
+	aihubFinalizer          = "aihub.opendatahub.io/finalizer"
+	catalogCRName           = "catalog"
+	childDeploymentName     = "model-registry-operator-controller-manager"
+	catalogDeploymentName   = "catalog-controller-manager"
+	childManagerContainer   = "manager"
+	asyncUploadTemplateName = "jobs-async-upload-s3-to-oci-template"
 
 	// ConditionModelRegistryReady tracks whether the child model-registry
 	// operator Deployment is available.
@@ -64,7 +71,7 @@ const (
 
 	// Platform version ConfigMap (created by the orchestrator in the
 	// application namespace).
-	platformVersionConfigMap    = "odh-aihub-config"
+	platformVersionConfigMap    = "odh-modelregistry-config"
 	platformVersionConfigMapKey = "platformVersion"
 )
 
@@ -95,6 +102,11 @@ type AIHubReconciler struct {
 	// outside the label-scoped manager cache (e.g. the platform version
 	// ConfigMap created by the orchestrator).
 	APIReader client.Reader
+
+	// onReconcile is a test-only hook invoked at the start of each Reconcile
+	// call. It is nil in production and only set in manager-based tests to
+	// observe reconcile invocations triggered by watches.
+	onReconcile func()
 }
 
 // newAIHubConditionManager creates a conditions.Manager for the AIHub CR.
@@ -112,6 +124,9 @@ func newAIHubConditionManager(aihub *aihubv1alpha1.AIHub) *conditions.Manager {
 }
 
 func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.onReconcile != nil {
+		r.onReconcile()
+	}
 	log := klog.FromContext(ctx)
 
 	// 1. Get the AIHub singleton.
@@ -158,6 +173,30 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	spec := aihub.Spec
 	log.Info("reconciling AIHub", "applicationNamespace", spec.ApplicationNamespace, "instancesNamespace", spec.InstancesNamespace)
 
+	// Ensure the instances namespace exists before provisioning registries into it.
+	// Skip when it collapses to the (platform-managed) applications namespace.
+	//
+	// Intentionally NO owner-reference is set on the namespace. AIHub is
+	// cluster-scoped, so an owner-ref would be honored and would cascade-delete the
+	// namespace — along with every ModelRegistry CR and catalog resource a user
+	// created in it — when the AIHub CR is removed (e.g. turning modelregistry off
+	// in the DSC). The in-tree opendatahub-operator component deliberately created
+	// this namespace without owning it for the same reason; an orphaned empty
+	// namespace after removal is preferable to destroying user data. CreateIfNotExists
+	// also never mutates a pre-existing/shared namespace.
+	if spec.InstancesNamespace != "" && spec.InstancesNamespace != spec.ApplicationNamespace {
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: spec.InstancesNamespace}}
+		rm := ResourceManager{Client: r.Client}
+		if _, err := rm.CreateIfNotExists(ctx, &corev1.Namespace{}, ns); err != nil {
+			return ctrl.Result{}, fmt.Errorf("ensuring instances namespace %q: %w", spec.InstancesNamespace, err)
+		}
+	}
+
+	var gatewayDomain string
+	if spec.Gateway != nil {
+		gatewayDomain = spec.Gateway.Domain
+	}
+
 	condMgr := newAIHubConditionManager(aihub)
 
 	// 3. Resolve child images from environment.
@@ -187,9 +226,17 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if kind == "Deployment" {
 			name := resources[i].GetName()
 			if name == childDeploymentName || name == catalogDeploymentName {
-				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace); err != nil {
+				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace, spec.ApplicationNamespace, gatewayDomain); err != nil {
 					return ctrl.Result{}, fmt.Errorf("stamping child operator deployment %s: %w", name, err)
 				}
+			}
+		}
+
+		// Stamp the async-upload Template's JOB_IMAGE parameter with the
+		// platform-pinned image when available.
+		if kind == "Template" && resources[i].GetName() == asyncUploadTemplateName && images.AsyncUploadImage != "" {
+			if err := stampAsyncUploadTemplate(&resources[i], images.AsyncUploadImage); err != nil {
+				return ctrl.Result{}, fmt.Errorf("stamping async-upload template JOB_IMAGE: %w", err)
 			}
 		}
 	}
@@ -267,9 +314,16 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
 	}
 
-	condMgr.MarkFalse(string(common.ConditionTypeDegraded),
-		conditions.WithSeverity(common.ConditionSeverityInfo),
-		conditions.WithReason("NoDegradation"))
+	if gatewayDomain == "" {
+		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("GatewayDomainUnavailable"),
+			conditions.WithMessage("Data Science Gateway domain not yet available; external routing for model registry instances is disabled until spec.gateway.domain is set"))
+	} else {
+		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("NoDegradation"))
+	}
 
 	if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
 		return ctrl.Result{}, sErr
@@ -386,12 +440,25 @@ func (r *AIHubReconciler) getPlatformVersion(ctx context.Context, applicationNam
 }
 
 func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// NOTE: The platform-version ConfigMap (odh-aihub-config) is read on-demand
-	// via the uncached APIReader in getPlatformVersion. Adding a Watch for it is
-	// deferred because the manager cache is label-scoped for ConfigMaps, so an
-	// Owns/Watches informer would not receive events for this platform-created
-	// ConfigMap. A future follow-up can add a direct informer or periodic
-	// re-sync trigger.
+	// A dedicated cache watches the platform-version ConfigMap
+	// (odh-modelregistry-config) created by the orchestrator. This is separate
+	// from the manager's main cache, which is label-scoped for ConfigMaps
+	// (part-of=aihub) and must continue to serve the Owns(&ConfigMap{})
+	// informer for the deployer-managed ConfigMaps. The dedicated cache uses a
+	// field selector on metadata.name so it watches only the single platform CM.
+	cmCache, err := cache.New(mgr.GetConfig(), cache.Options{
+		Scheme: mgr.GetScheme(),
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.ConfigMap{}: {Field: fields.OneTermEqualSelector("metadata.name", platformVersionConfigMap)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating platform ConfigMap cache: %w", err)
+	}
+	if err := mgr.Add(cmCache); err != nil {
+		return fmt.Errorf("adding platform ConfigMap cache to manager: %w", err)
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aihubv1alpha1.AIHub{}).
 		Owns(&appsv1.Deployment{}).
@@ -405,7 +472,26 @@ func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&admissionregistrationv1.ValidatingWebhookConfiguration{}).
 		Owns(&admissionregistrationv1.MutatingWebhookConfiguration{}).
 		Owns(&catalogv1alpha1.Catalog{}).
+		WatchesRawSource(source.Kind(cmCache, &corev1.ConfigMap{},
+			handler.TypedEnqueueRequestsFromMapFunc(platformConfigMapToAIHub),
+			predicate.NewTypedPredicateFuncs(isPlatformConfigMap),
+		)).
 		Complete(r)
+}
+
+// platformConfigMapToAIHub maps a platform ConfigMap event to a reconcile
+// request for the singleton AIHub CR (name "default", cluster-scoped).
+func platformConfigMapToAIHub(_ context.Context, obj *corev1.ConfigMap) []reconcile.Request {
+	if obj.GetName() != platformVersionConfigMap {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "default"}}}
+}
+
+// isPlatformConfigMap is a predicate filter that accepts only the platform
+// version ConfigMap by name.
+func isPlatformConfigMap(obj *corev1.ConfigMap) bool {
+	return obj.GetName() == platformVersionConfigMap
 }
 
 // checkChildDeploymentReady checks if the named Deployment exists and is
@@ -453,8 +539,10 @@ func isDeploymentAvailable(d *appsv1.Deployment) bool {
 }
 
 // stampChildOperatorDeployment mutates the rendered child operator Deployment unstructured
-// to set the operator image, upsert operand env vars, and set REGISTRIES_NAMESPACE.
-func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs string) error {
+// to set the operator image, upsert operand env vars, set REGISTRIES_NAMESPACE,
+// stamp HTTPROUTE_NAMESPACE so the child creates HTTPRoutes in the applications
+// namespace, and optionally stamp GATEWAY_DOMAIN when non-empty.
+func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs, httpRouteNamespace, gatewayDomain string) error {
 	// Convert to typed Deployment.
 	dep := &appsv1.Deployment{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, dep); err != nil {
@@ -483,6 +571,15 @@ func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImag
 		// Upsert REGISTRIES_NAMESPACE.
 		upsertEnv(c, corev1.EnvVar{Name: config.RegistriesNamespace, Value: registriesNs})
 
+		// Upsert HTTPROUTE_NAMESPACE so the child creates HTTPRoutes in the
+		// applications namespace instead of the RHOAI-specific built-in default.
+		upsertEnv(c, corev1.EnvVar{Name: config.HTTPRouteNamespaceEnv, Value: httpRouteNamespace})
+
+		// Upsert GATEWAY_DOMAIN only when the platform has provided a domain.
+		if gatewayDomain != "" {
+			upsertEnv(c, corev1.EnvVar{Name: config.GatewayDomainEnv, Value: gatewayDomain})
+		}
+
 		break
 	}
 	if !found {
@@ -507,4 +604,26 @@ func upsertEnv(c *corev1.Container, env corev1.EnvVar) {
 		}
 	}
 	c.Env = append(c.Env, env)
+}
+
+// stampAsyncUploadTemplate sets the JOB_IMAGE parameter on the async-upload
+// OpenShift Template so async-upload jobs run the platform-pinned image
+// instead of the floating template default. No-op when image is empty.
+func stampAsyncUploadTemplate(u *unstructured.Unstructured, image string) error {
+	params, found, err := unstructured.NestedSlice(u.Object, "parameters")
+	if err != nil || !found {
+		return err
+	}
+	for i := range params {
+		p, ok := params[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if p["name"] == "JOB_IMAGE" {
+			p["value"] = image
+			params[i] = p
+			return unstructured.SetNestedSlice(u.Object, params, "parameters")
+		}
+	}
+	return nil
 }

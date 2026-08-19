@@ -27,6 +27,16 @@ import (
 // through a uniform interface across all modules.
 var _ common.PlatformObject = &AIHub{}
 
+// GatewaySpec carries Data Science Gateway settings projected by the platform.
+type GatewaySpec struct {
+	// Domain is the Data Science Gateway wildcard domain used to build
+	// per-instance HTTPRoute hostnames.
+	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*$`
+	Domain string `json:"domain,omitempty"`
+}
+
 // AIHubSpec defines the desired state of AIHub.
 type AIHubSpec struct {
 	// ApplicationNamespace is the namespace where the child operators (model registry
@@ -45,6 +55,11 @@ type AIHubSpec struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
 	InstancesNamespace string `json:"instancesNamespace"`
+
+	// Gateway carries Data Science Gateway settings projected by the platform.
+	// Optional: absent until the gateway domain is available.
+	// +optional
+	Gateway *GatewaySpec `json:"gateway,omitempty"`
 }
 
 // AIHubStatus defines the observed state of AIHub.

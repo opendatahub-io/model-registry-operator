@@ -47,7 +47,7 @@ func TestStampChildOperatorDeployment_Full(t *testing.T) {
 		},
 	}
 
-	if err := stampChildOperatorDeployment(u, images, "my-reg-ns"); err != nil {
+	if err := stampChildOperatorDeployment(u, images, "my-reg-ns", "my-app-ns", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -61,6 +61,7 @@ func TestStampChildOperatorDeployment_Full(t *testing.T) {
 	assertEnv(t, c, config.RestImage, "new-rest@sha256:abc")
 	assertEnv(t, c, config.PostgresImage, "new-pg@sha256:def")
 	assertEnv(t, c, config.RegistriesNamespace, "my-reg-ns")
+	assertEnv(t, c, config.HTTPRouteNamespaceEnv, "my-app-ns")
 }
 
 func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
@@ -69,7 +70,7 @@ func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
 
 	images := ChildImages{OperatorImage: ""}
 
-	if err := stampChildOperatorDeployment(u, images, "reg-ns"); err != nil {
+	if err := stampChildOperatorDeployment(u, images, "reg-ns", "app-ns", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,9 +85,102 @@ func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
 
 func TestStampChildOperatorDeployment_MissingContainer(t *testing.T) {
 	u := makeDeploymentUnstructured(t, "test-deploy", "ns", "not-manager", "img:v1", nil)
-	err := stampChildOperatorDeployment(u, ChildImages{}, "ns")
+	err := stampChildOperatorDeployment(u, ChildImages{}, "ns", "app-ns", "")
 	if err == nil {
 		t.Fatal("expected error for missing manager container")
+	}
+}
+
+// TestStampAsyncUploadTemplate verifies the helper that patches the JOB_IMAGE
+// parameter on the async-upload OpenShift Template (Gap 2 unit test).
+// Envtest does not register template.openshift.io, so this is a focused unit test.
+func TestStampAsyncUploadTemplate(t *testing.T) {
+	t.Run("stamps JOB_IMAGE", func(t *testing.T) {
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "template.openshift.io/v1",
+			"kind":       "Template",
+			"metadata": map[string]interface{}{
+				"name": asyncUploadTemplateName,
+			},
+			"parameters": []interface{}{
+				map[string]interface{}{
+					"name":  "JOB_IMAGE",
+					"value": "quay.io/opendatahub/model-registry-job-async-upload:latest",
+				},
+				map[string]interface{}{
+					"name":  "OTHER_PARAM",
+					"value": "untouched",
+				},
+			},
+		}}
+
+		if err := stampAsyncUploadTemplate(u, "pinned-image@sha256:abc"); err != nil {
+			t.Fatal(err)
+		}
+
+		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
+		for _, raw := range params {
+			p := raw.(map[string]interface{})
+			if p["name"] == "JOB_IMAGE" {
+				if p["value"] != "pinned-image@sha256:abc" {
+					t.Errorf("JOB_IMAGE = %q, want %q", p["value"], "pinned-image@sha256:abc")
+				}
+			}
+			if p["name"] == "OTHER_PARAM" {
+				if p["value"] != "untouched" {
+					t.Errorf("OTHER_PARAM = %q, want %q", p["value"], "untouched")
+				}
+			}
+		}
+	})
+
+	t.Run("no-op when no parameters", func(t *testing.T) {
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "template.openshift.io/v1",
+			"kind":       "Template",
+			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
+		}}
+		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("no-op when JOB_IMAGE absent", func(t *testing.T) {
+		u := &unstructured.Unstructured{Object: map[string]interface{}{
+			"apiVersion": "template.openshift.io/v1",
+			"kind":       "Template",
+			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
+			"parameters": []interface{}{
+				map[string]interface{}{"name": "SOMETHING_ELSE", "value": "v1"},
+			},
+		}}
+		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
+			t.Fatal(err)
+		}
+		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
+		p := params[0].(map[string]interface{})
+		if p["value"] != "v1" {
+			t.Errorf("SOMETHING_ELSE value = %q, want %q", p["value"], "v1")
+		}
+	})
+}
+
+// TestResolveChildImages_AsyncUpload verifies that AsyncUploadImage is
+// populated from the RELATED_IMAGE env var (Gap 2 unit test).
+func TestResolveChildImages_AsyncUpload(t *testing.T) {
+	env := map[string]string{
+		config.AsyncUploadImage: "pinned-async@sha256:xyz",
+	}
+	got := ResolveChildImages(fakeGetenv(env))
+	if got.AsyncUploadImage != "pinned-async@sha256:xyz" {
+		t.Errorf("AsyncUploadImage = %q, want %q", got.AsyncUploadImage, "pinned-async@sha256:xyz")
+	}
+
+	// Verify it is NOT in OperandEnv (not a container env passthrough).
+	for _, e := range got.OperandEnv {
+		if e.Name == config.AsyncUploadImage {
+			t.Errorf("AsyncUploadImage should NOT be in OperandEnv, but found %+v", e)
+		}
 	}
 }
 
@@ -145,7 +239,7 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 		if kind == "Deployment" {
 			name := resources[i].GetName()
 			if name == childDeploymentName || name == catalogDeploymentName {
-				if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns"); err != nil {
+				if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns", "test-app-ns", ""); err != nil {
 					t.Fatalf("stampChildOperatorDeployment(%s): %v", name, err)
 				}
 				deploy := deploymentFromUnstructured(t, &resources[i])
@@ -914,6 +1008,31 @@ func assertEnv(t *testing.T, c *corev1.Container, name, value string) {
 		}
 	}
 	t.Errorf("env %s not found", name)
+}
+
+func assertEnvEmpty(t *testing.T, c *corev1.Container, name string) {
+	t.Helper()
+	for _, e := range c.Env {
+		if e.Name == name {
+			if e.Value != "" {
+				t.Errorf("env %s = %q, want empty (not stamped)", name, e.Value)
+			}
+			return
+		}
+	}
+	// Not present at all — also acceptable.
+}
+
+func assertConditionReason(t *testing.T, aihub *aihubv1alpha1.AIHub, condType, expectedReason string) {
+	t.Helper()
+	cond := conditions.FindStatusCondition(aihub, condType)
+	if cond == nil {
+		t.Errorf("condition %q not found", condType)
+		return
+	}
+	if cond.Reason != expectedReason {
+		t.Errorf("condition %q reason = %q, want %q", condType, cond.Reason, expectedReason)
+	}
 }
 
 // fakeGetenv is defined in aihub_images_test.go (same package).

@@ -43,6 +43,12 @@ type ChildImages struct {
 	// Env vars whose source value is unset/empty are omitted so the child's own
 	// default remains untouched.
 	OperandEnv []corev1.EnvVar
+
+	// AsyncUploadImage is the platform-pinned image for the async-upload
+	// OpenShift Template's JOB_IMAGE parameter. It is NOT a container env
+	// var — it targets the Template directly. Empty means "leave the
+	// template's floating default untouched".
+	AsyncUploadImage string
 }
 
 // ResolveChildImages reads AIHub's own environment via getenv and projects the images
@@ -51,7 +57,8 @@ type ChildImages struct {
 // operator image is the only special case (it targets the child container image field).
 func ResolveChildImages(getenv func(string) string) ChildImages {
 	result := ChildImages{
-		OperatorImage: getenv(config.ModelRegistryOperatorImage),
+		OperatorImage:    getenv(config.ModelRegistryOperatorImage),
+		AsyncUploadImage: getenv(config.AsyncUploadImage),
 	}
 	for _, name := range operandImageEnvNames {
 		if v := getenv(name); v != "" {
