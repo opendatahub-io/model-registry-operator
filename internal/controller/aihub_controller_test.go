@@ -1010,16 +1010,6 @@ func assertEnv(t *testing.T, c *corev1.Container, name, value string) {
 	t.Errorf("env %s not found", name)
 }
 
-func assertNoEnv(t *testing.T, c *corev1.Container, name string) {
-	t.Helper()
-	for _, e := range c.Env {
-		if e.Name == name {
-			t.Errorf("env %s unexpectedly present with value %q", name, e.Value)
-			return
-		}
-	}
-}
-
 func assertEnvEmpty(t *testing.T, c *corev1.Container, name string) {
 	t.Helper()
 	for _, e := range c.Env {
