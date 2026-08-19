@@ -104,7 +104,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `ENABLE_WEBHOOKS` - Toggle webhooks (default: true in-cluster, false for `make run`)
 - `DEFAULT_DOMAIN` - Route domain override
 - `ENABLE_MODEL_CATALOG` - Toggle catalog controller
-- Image overrides: `RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE`, `RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE`, `RELATED_IMAGE_POSTGRESQL_16_IMAGE`, `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
+- Image overrides: `RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE`, `RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE`, `RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE`, `RELATED_IMAGE_POSTGRESQL_16_IMAGE`, `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`, `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, `RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE`
 
 ### Kustomize Layout (`config/`)
 - `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)

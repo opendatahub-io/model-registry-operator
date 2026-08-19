@@ -32,6 +32,8 @@ type GatewaySpec struct {
 	// Domain is the Data Science Gateway wildcard domain used to build
 	// per-instance HTTPRoute hostnames.
 	// +optional
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	Domain string `json:"domain,omitempty"`
 }
 

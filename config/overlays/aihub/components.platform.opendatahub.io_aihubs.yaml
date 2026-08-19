@@ -64,6 +64,8 @@ spec:
                     description: |-
                       Domain is the Data Science Gateway wildcard domain used to build
                       per-instance HTTPRoute hostnames.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                 type: object
               instancesNamespace:
