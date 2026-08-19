@@ -43,27 +43,27 @@ import (
 var templateFS embed.FS
 
 const (
-	RestImage                 = "REST_IMAGE"
-	OAuthProxyImage           = "OAUTH_PROXY_IMAGE"
-	KubeRBACProxyImage        = "KUBE_RBAC_PROXY_IMAGE"
-	PostgresImage             = "POSTGRES_IMAGE"
-	CatalogDataImage          = "CATALOG_DATA_IMAGE"
-	BenchmarkDataImage        = "BENCHMARK_DATA_IMAGE"
-	DefaultRestImage          = "quay.io/opendatahub/model-registry:latest"
-	DefaultOAuthProxyImage    = "quay.io/openshift/origin-oauth-proxy:latest"
-	DefaultKubeRBACProxyImage = "quay.io/openshift/origin-kube-rbac-proxy:latest"
-	DefaultPostgresImage      = "quay.io/sclorg/postgresql-16-c10s:latest"
-	DefaultCatalogDataImage   = "quay.io/opendatahub/odh-model-metadata-collection:latest"
-	DefaultBenchmarkDataImage = "quay.io/opendatahub/odh-model-metadata-collection:latest"
-	RouteDisabled             = "disabled"
-	RouteEnabled              = "enabled"
-	DefaultIstioIngressName   = "ingressgateway"
+	RestImage                  = "REST_IMAGE"
+	OAuthProxyImage            = "OAUTH_PROXY_IMAGE"
+	KubeRBACProxyImage         = "KUBE_RBAC_PROXY_IMAGE"
+	PostgresImage              = "POSTGRES_IMAGE"
+	CatalogDataImage           = "CATALOG_DATA_IMAGE"
+	BenchmarkDataImage         = "BENCHMARK_DATA_IMAGE"
+	ModelRegistryOperatorImage = "MODEL_REGISTRY_OPERATOR_IMAGE"
+	DefaultRestImage           = "quay.io/opendatahub/model-registry:latest"
+	DefaultOAuthProxyImage     = "quay.io/openshift/origin-oauth-proxy:latest"
+	DefaultKubeRBACProxyImage  = "quay.io/openshift/origin-kube-rbac-proxy:latest"
+	DefaultPostgresImage       = "quay.io/sclorg/postgresql-16-c10s:latest"
+	DefaultCatalogDataImage    = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	DefaultBenchmarkDataImage  = "quay.io/opendatahub/odh-model-metadata-collection:latest"
+	RouteDisabled              = "disabled"
+	RouteEnabled               = "enabled"
+	DefaultIstioIngressName    = "ingressgateway"
 
 	// config env variables
 	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
 	EnableWebhooks             = "ENABLE_WEBHOOKS"
 	DefaultDomain              = "DEFAULT_DOMAIN"
-	EnableModelCatalog         = "ENABLE_MODEL_CATALOG"
 	SkipModelCatalogDBCreation = "SKIP_MODEL_CATALOG_DB_CREATION"
 
 	// Data Science Gateway env variables and defaults

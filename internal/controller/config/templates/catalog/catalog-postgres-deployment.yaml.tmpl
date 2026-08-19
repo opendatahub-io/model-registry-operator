@@ -73,6 +73,23 @@ spec:
         securityContext:
           capabilities: {}
           privileged: false
+        {{- if and .PostgresResources (or .PostgresResources.Requests .PostgresResources.Limits) }}
+        {{- with .PostgresResources }}
+        resources:
+          {{- if .Requests }}
+          requests:
+          {{- range $key, $value := .Requests }}
+            {{$key}}: {{quantityToString $value}}
+          {{- end }}
+          {{- end }}
+          {{- if .Limits }}
+          limits:
+          {{- range $key, $value := .Limits }}
+            {{$key}}: {{quantityToString $value}}
+          {{- end }}
+          {{- end }}
+        {{- end }}
+        {{- else }}
         resources:
           requests:
             memory: "256Mi"
@@ -80,6 +97,7 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
+        {{- end }}
         terminationMessagePath: /dev/termination-log
         volumeMounts:
           - name: postgres-data
@@ -89,4 +107,4 @@ spec:
       volumes:
         - name: postgres-data
           emptyDir:
-            sizeLimit: 5Gi
+            sizeLimit: {{if .DatabaseVolumeSizeLimit}}{{quantityToString .DatabaseVolumeSizeLimit}}{{else}}5Gi{{end}}

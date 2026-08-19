@@ -17,17 +17,9 @@ cp -rf "${REPO_ROOT}/config/"* "${DST}/modelregistry/"
 rm -rf "${DST}/modelregistry/overlays/aihub"
 echo "  modelregistry: $(find "${DST}/modelregistry" -type f | wc -l) files"
 
-# --- catalog: placeholder until EXT-1 delivers manifests ---
-echo -e "\033[32mAssembling \033[33mcatalog\033[32m:\033[0m placeholder"
-rm -rf "${DST}/catalog"
-mkdir -p "${DST}/catalog"
-cat > "${DST}/catalog/PLACEHOLDER.md" <<'EOF'
-# Catalog Operator Manifests — Placeholder
-
-The catalog operator manifests are delivered by EXT-1 (the catalog-operator owner)
-and are not yet available. This directory will be populated once those manifests
-are ready.
-EOF
-echo "  catalog: placeholder created"
+# --- catalog: delivered via the odh overlay composition ---
+# Catalog manifests are included in modelregistry/overlays/odh (which composes
+# ../catalog). No separate copy is needed.
+echo -e "\033[32mCatalog:\033[0m delivered via modelregistry/overlays/odh composition (../catalog)"
 
 echo "Done."

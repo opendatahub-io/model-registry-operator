@@ -18,62 +18,39 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
-// Phase represents the top-level lifecycle phase of a module.
-// +kubebuilder:validation:Enum=Ready;"Not Ready";""
-type Phase string
-
-const (
-	PhaseReady    Phase = "Ready"
-	PhaseNotReady Phase = "Not Ready"
-)
-
-// ComponentRelease tracks the version of a component installed by the module.
-type ComponentRelease struct {
-	// Name identifies the component (e.g. "platform" for the version handshake).
-	// +kubebuilder:validation:MaxLength=253
-	Name string `json:"name"`
-
-	// RepoURL is the source repository for the component.
-	// +optional
-	// +kubebuilder:validation:MaxLength=2048
-	RepoURL string `json:"repoUrl,omitempty"`
-
-	// Version is the installed version string.
-	// +optional
-	// +kubebuilder:validation:MaxLength=64
-	Version string `json:"version,omitempty"`
-}
+// Compile-time check: AIHub must implement common.PlatformObject so the
+// orchestrator (ODH Operator) can read status, conditions, and releases
+// through a uniform interface across all modules.
+var _ common.PlatformObject = &AIHub{}
 
 // AIHubSpec defines the desired state of AIHub.
 type AIHubSpec struct {
-	// ApplicationNamespace is the namespace where model registries and the catalog are deployed.
+	// ApplicationNamespace is the namespace where the child operators (model registry
+	// and catalog operators) run.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
 	ApplicationNamespace string `json:"applicationNamespace"`
+
+	// InstancesNamespace is the namespace where model registry instances, the catalog
+	// service, and the Catalog CR are deployed. It is sourced from the DSC field
+	// spec.components.modelregistry.registriesNamespace and MAY equal ApplicationNamespace.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
+	InstancesNamespace string `json:"instancesNamespace"`
 }
 
 // AIHubStatus defines the observed state of AIHub.
 type AIHubStatus struct {
-	// Phase is the top-level lifecycle phase (Ready, Not Ready).
-	// +optional
-	Phase Phase `json:"phase,omitempty"`
-
-	// ObservedGeneration is the most recent generation observed by the controller.
-	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-
-	// Conditions represent the latest available observations of the AIHub's state.
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// Releases tracks installed component versions. The entry with name "platform"
-	// participates in the platform version handshake.
-	// +optional
-	Releases []ComponentRelease `json:"releases,omitempty"`
+	common.Status                 `json:",inline"`
+	common.ComponentReleaseStatus `json:",inline"`
 }
 
 //+kubebuilder:object:root=true
@@ -88,6 +65,7 @@ type AIHub struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	// +kubebuilder:validation:Required
 	Spec   AIHubSpec   `json:"spec,omitempty"`
 	Status AIHubStatus `json:"status,omitempty"`
 }
@@ -99,4 +77,30 @@ type AIHubList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AIHub `json:"items"`
+}
+
+// PlatformObject accessor methods.
+// The orchestrator uses these to read/write module status generically:
+//   - GetStatus: Phase, Conditions, ObservedGeneration
+//   - Get/SetConditions: Ready, ProvisioningSucceeded, Degraded
+//   - Get/SetReleaseStatus: deployed component versions (model-registry-operator, model-registry)
+
+func (a *AIHub) GetStatus() *common.Status {
+	return &a.Status.Status
+}
+
+func (a *AIHub) GetConditions() []common.Condition {
+	return a.Status.Conditions
+}
+
+func (a *AIHub) SetConditions(conditions []common.Condition) {
+	a.Status.Conditions = conditions
+}
+
+func (a *AIHub) GetReleaseStatus() *common.ComponentReleaseStatus {
+	return &a.Status.ComponentReleaseStatus
+}
+
+func (a *AIHub) SetReleaseStatus(status common.ComponentReleaseStatus) {
+	a.Status.ComponentReleaseStatus = status
 }

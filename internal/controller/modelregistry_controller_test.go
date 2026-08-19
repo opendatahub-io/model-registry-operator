@@ -24,6 +24,7 @@ import (
 	"text/template"
 	"time"
 
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -693,6 +694,12 @@ var _ = Describe("ModelRegistry controller", func() {
 							},
 						},
 					}
+					// Legacy catalog resources were created via the same generic
+					// createOrUpdate* helpers used for the main deployment, which set the
+					// ModelRegistry CR as controller owner - simulate that here so the
+					// ownership guard in deleteOldCatalogResources recognizes them.
+					err = ctrl.SetControllerReference(modelRegistry, legacyDeployment, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
 					err = k8sClient.Create(ctx, legacyDeployment)
 					Expect(err).To(Not(HaveOccurred()))
 
@@ -715,6 +722,8 @@ var _ = Describe("ModelRegistry controller", func() {
 							}},
 						},
 					}
+					err = ctrl.SetControllerReference(modelRegistry, legacyService, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
 					err = k8sClient.Create(ctx, legacyService)
 					Expect(err).To(Not(HaveOccurred()))
 
@@ -736,6 +745,8 @@ var _ = Describe("ModelRegistry controller", func() {
 							},
 						},
 					}
+					err = ctrl.SetControllerReference(modelRegistry, legacyRoute, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
 					err = k8sClient.Create(ctx, legacyRoute)
 					Expect(err).To(Not(HaveOccurred()))
 
@@ -750,6 +761,8 @@ var _ = Describe("ModelRegistry controller", func() {
 							},
 						},
 					}
+					err = ctrl.SetControllerReference(modelRegistry, legacyNetworkPolicy, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
 					err = k8sClient.Create(ctx, legacyNetworkPolicy)
 					Expect(err).To(Not(HaveOccurred()))
 
@@ -808,6 +821,114 @@ var _ = Describe("ModelRegistry controller", func() {
 							Namespace: modelRegistry.Namespace,
 						}, &networkingv1.NetworkPolicy{})
 					}, 10*time.Second, time.Second).ShouldNot(Succeed())
+				})
+
+				It("Should not delete a colliding-named Deployment/Service owned by the standalone Catalog operator", func() {
+					// A ModelRegistry named "model" produces the legacy cleanup target
+					// name "model-catalog", identical to the standalone Catalog
+					// operator's fixed resource name. The cleanup must never delete
+					// resources it does not own.
+					registryName = "model"
+					specInit()
+
+					var mySQLPort int32 = 3306
+					modelRegistry.Spec.Postgres = nil
+					modelRegistry.Spec.MySQL = &v1beta1.MySQLConfig{
+						Host:     "model-registry-db",
+						Port:     &mySQLPort,
+						Database: "model_registry",
+						Username: "modelregistryuser",
+						PasswordSecret: &v1beta1.SecretKeyValue{
+							Name: "model-registry-db",
+							Key:  "database-password",
+						},
+					}
+					// Pre-set KubeRBACProxy so the reconciler safety net doesn't requeue before legacy cleanup runs
+					modelRegistry.Spec.KubeRBACProxy = &v1beta1.KubeRBACProxyConfig{}
+
+					err = k8sClient.Create(ctx, modelRegistry)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Creating a Deployment and Service owned by the Catalog operator with the colliding name")
+					catalog := &catalogv1alpha1.Catalog{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "catalog",
+							Namespace: modelRegistry.Namespace,
+							UID:       "11111111-1111-1111-1111-111111111111",
+						},
+					}
+
+					catalogDeployment := &appsv1.Deployment{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+							Namespace: modelRegistry.Namespace,
+						},
+						Spec: appsv1.DeploymentSpec{
+							Selector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{"app": "model-catalog"},
+							},
+							Template: corev1.PodTemplateSpec{
+								ObjectMeta: metav1.ObjectMeta{
+									Labels: map[string]string{"app": "model-catalog"},
+								},
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{{
+										Name:  "catalog",
+										Image: "registry.redhat.io/ubi8/ubi:latest",
+									}},
+								},
+							},
+						},
+					}
+					err = ctrl.SetControllerReference(catalog, catalogDeployment, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
+					err = k8sClient.Create(ctx, catalogDeployment)
+					Expect(err).To(Not(HaveOccurred()))
+
+					catalogService := &corev1.Service{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+							Namespace: modelRegistry.Namespace,
+						},
+						Spec: corev1.ServiceSpec{
+							Selector: map[string]string{"app": "model-catalog"},
+							Ports: []corev1.ServicePort{{
+								Port: 8080,
+								Name: "http",
+							}},
+						},
+					}
+					err = ctrl.SetControllerReference(catalog, catalogService, k8sClient.Scheme())
+					Expect(err).To(Not(HaveOccurred()))
+					err = k8sClient.Create(ctx, catalogService)
+					Expect(err).To(Not(HaveOccurred()))
+
+					By("Reconciling the ModelRegistry")
+					modelRegistryReconciler := initModelRegistryReconciler(template)
+					Eventually(func() error {
+						_, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{
+							NamespacedName: types.NamespacedName{
+								Name:      modelRegistry.Name,
+								Namespace: modelRegistry.Namespace,
+							},
+						})
+						return err
+					}, time.Minute, time.Second).Should(Succeed())
+
+					By("Verifying the Catalog-owned Deployment and Service were NOT deleted")
+					Consistently(func() error {
+						return k8sClient.Get(ctx, types.NamespacedName{
+							Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+							Namespace: modelRegistry.Namespace,
+						}, &appsv1.Deployment{})
+					}, 5*time.Second, time.Second).Should(Succeed())
+
+					Consistently(func() error {
+						return k8sClient.Get(ctx, types.NamespacedName{
+							Name:      fmt.Sprintf("%s-catalog", modelRegistry.Name),
+							Namespace: modelRegistry.Namespace,
+						}, &corev1.Service{})
+					}, 5*time.Second, time.Second).Should(Succeed())
 				})
 			})
 
