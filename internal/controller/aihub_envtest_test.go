@@ -173,6 +173,9 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			_ = k8sClient.Delete(ctx, bad)
 			t.Fatal("expected create of AIHub with an over-long gateway domain label to be rejected by the pattern, but it succeeded")
 		}
+		if !strings.Contains(err.Error(), "spec.gateway.domain") {
+			t.Fatalf("expected rejection to cite spec.gateway.domain, got: %v", err)
+		}
 		t.Logf("correctly rejected AIHub with over-long domain label: %v", err)
 	})
 
