@@ -47,7 +47,7 @@ func TestStampChildOperatorDeployment_Full(t *testing.T) {
 		},
 	}
 
-	if err := stampChildOperatorDeployment(u, images, "my-reg-ns"); err != nil {
+	if err := stampChildOperatorDeployment(u, images, "my-reg-ns", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,7 +69,7 @@ func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
 
 	images := ChildImages{OperatorImage: ""}
 
-	if err := stampChildOperatorDeployment(u, images, "reg-ns"); err != nil {
+	if err := stampChildOperatorDeployment(u, images, "reg-ns", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,7 +84,7 @@ func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
 
 func TestStampChildOperatorDeployment_MissingContainer(t *testing.T) {
 	u := makeDeploymentUnstructured(t, "test-deploy", "ns", "not-manager", "img:v1", nil)
-	err := stampChildOperatorDeployment(u, ChildImages{}, "ns")
+	err := stampChildOperatorDeployment(u, ChildImages{}, "ns", "")
 	if err == nil {
 		t.Fatal("expected error for missing manager container")
 	}
@@ -145,7 +145,7 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 		if kind == "Deployment" {
 			name := resources[i].GetName()
 			if name == childDeploymentName || name == catalogDeploymentName {
-				if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns"); err != nil {
+				if err := stampChildOperatorDeployment(&resources[i], images, "my-reg-ns", ""); err != nil {
 					t.Fatalf("stampChildOperatorDeployment(%s): %v", name, err)
 				}
 				deploy := deploymentFromUnstructured(t, &resources[i])
@@ -914,6 +914,41 @@ func assertEnv(t *testing.T, c *corev1.Container, name, value string) {
 		}
 	}
 	t.Errorf("env %s not found", name)
+}
+
+func assertNoEnv(t *testing.T, c *corev1.Container, name string) {
+	t.Helper()
+	for _, e := range c.Env {
+		if e.Name == name {
+			t.Errorf("env %s unexpectedly present with value %q", name, e.Value)
+			return
+		}
+	}
+}
+
+func assertEnvEmpty(t *testing.T, c *corev1.Container, name string) {
+	t.Helper()
+	for _, e := range c.Env {
+		if e.Name == name {
+			if e.Value != "" {
+				t.Errorf("env %s = %q, want empty (not stamped)", name, e.Value)
+			}
+			return
+		}
+	}
+	// Not present at all — also acceptable.
+}
+
+func assertConditionReason(t *testing.T, aihub *aihubv1alpha1.AIHub, condType, expectedReason string) {
+	t.Helper()
+	cond := conditions.FindStatusCondition(aihub, condType)
+	if cond == nil {
+		t.Errorf("condition %q not found", condType)
+		return
+	}
+	if cond.Reason != expectedReason {
+		t.Errorf("condition %q reason = %q, want %q", condType, cond.Reason, expectedReason)
+	}
 }
 
 // fakeGetenv is defined in aihub_images_test.go (same package).

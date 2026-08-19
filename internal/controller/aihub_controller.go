@@ -172,6 +172,11 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	spec := aihub.Spec
 	log.Info("reconciling AIHub", "applicationNamespace", spec.ApplicationNamespace, "instancesNamespace", spec.InstancesNamespace)
 
+	var gatewayDomain string
+	if spec.Gateway != nil {
+		gatewayDomain = spec.Gateway.Domain
+	}
+
 	condMgr := newAIHubConditionManager(aihub)
 
 	// 3. Resolve child images from environment.
@@ -201,7 +206,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if kind == "Deployment" {
 			name := resources[i].GetName()
 			if name == childDeploymentName || name == catalogDeploymentName {
-				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace); err != nil {
+				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace, gatewayDomain); err != nil {
 					return ctrl.Result{}, fmt.Errorf("stamping child operator deployment %s: %w", name, err)
 				}
 			}
@@ -281,9 +286,16 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
 	}
 
-	condMgr.MarkFalse(string(common.ConditionTypeDegraded),
-		conditions.WithSeverity(common.ConditionSeverityInfo),
-		conditions.WithReason("NoDegradation"))
+	if gatewayDomain == "" {
+		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("GatewayDomainUnavailable"),
+			conditions.WithMessage("Data Science Gateway domain not yet available; external routing for model registry instances is disabled until spec.gateway.domain is set"))
+	} else {
+		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("NoDegradation"))
+	}
 
 	if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
 		return ctrl.Result{}, sErr
@@ -499,8 +511,9 @@ func isDeploymentAvailable(d *appsv1.Deployment) bool {
 }
 
 // stampChildOperatorDeployment mutates the rendered child operator Deployment unstructured
-// to set the operator image, upsert operand env vars, and set REGISTRIES_NAMESPACE.
-func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs string) error {
+// to set the operator image, upsert operand env vars, set REGISTRIES_NAMESPACE,
+// and optionally stamp GATEWAY_DOMAIN when non-empty.
+func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs, gatewayDomain string) error {
 	// Convert to typed Deployment.
 	dep := &appsv1.Deployment{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, dep); err != nil {
@@ -528,6 +541,11 @@ func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImag
 
 		// Upsert REGISTRIES_NAMESPACE.
 		upsertEnv(c, corev1.EnvVar{Name: config.RegistriesNamespace, Value: registriesNs})
+
+		// Upsert GATEWAY_DOMAIN only when the platform has provided a domain.
+		if gatewayDomain != "" {
+			upsertEnv(c, corev1.EnvVar{Name: config.GatewayDomainEnv, Value: gatewayDomain})
+		}
 
 		break
 	}

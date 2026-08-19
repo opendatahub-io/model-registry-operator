@@ -411,6 +411,13 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		}
 	})
 
+	// --- Assert Degraded=True when no gateway domain ---
+	// The pre-existing test creates an AIHub without spec.gateway, so after
+	// the gateway domain plumbing, Degraded must be True/GatewayDomainUnavailable.
+	assertConditionStatus(t, got2, string(common.ConditionTypeDegraded), metav1.ConditionTrue)
+	assertConditionReason(t, got2, string(common.ConditionTypeDegraded), "GatewayDomainUnavailable")
+
+	// --- Deletion / finalizer teardown ---
 	// --- Deletion / finalizer teardown ---
 	t.Run("deletion/finalizer", func(t *testing.T) {
 		// Re-fetch to get latest resourceVersion.
@@ -438,5 +445,251 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			time.Sleep(100 * time.Millisecond)
 		}
 		t.Fatalf("AIHub not removed after %d reconcile iterations", maxIter)
+	})
+}
+
+// TestAIHubGatewayDomain_Envtest verifies the gateway domain plumbing:
+// (1) when spec.gateway.domain is set, GATEWAY_DOMAIN is stamped on both children;
+// (2) when spec.gateway is absent, GATEWAY_DOMAIN is NOT stamped and Degraded is True.
+func TestAIHubGatewayDomain_Envtest(t *testing.T) {
+	// --- Skip guard: envtest binaries ---
+	binAssetsDir := filepath.Join("..", "..", "bin", "k8s",
+		fmt.Sprintf("1.35.0-%s-%s", goruntime.GOOS, goruntime.GOARCH))
+	if v := os.Getenv("KUBEBUILDER_ASSETS"); v != "" {
+		binAssetsDir = v
+	}
+	if _, err := os.Stat(filepath.Join(binAssetsDir, "kube-apiserver")); err != nil {
+		t.Skipf("envtest binaries not available at %s: %v", binAssetsDir, err)
+	}
+
+	tmpDir := assembleManifests(t)
+	scheme := testScheme(t)
+
+	// Copy AIHub CRD.
+	aihubCRDPath := filepath.Join("..", "..", "config", "overlays", "aihub",
+		"components.platform.opendatahub.io_aihubs.yaml")
+	aihubCRDBytes, err := os.ReadFile(aihubCRDPath)
+	if err != nil {
+		t.Fatalf("reading AIHub CRD: %v", err)
+	}
+	crdTmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(crdTmpDir, "aihubs.yaml"), aihubCRDBytes, 0o644); err != nil {
+		t.Fatalf("writing AIHub CRD to temp dir: %v", err)
+	}
+
+	useExisting := false
+	testEnvLocal := &envtest.Environment{
+		Scheme: scheme,
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crd"),
+			crdTmpDir,
+		},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: binAssetsDir,
+		UseExistingCluster:    &useExisting,
+	}
+
+	cfg, err := testEnvLocal.Start()
+	if err != nil {
+		t.Fatalf("starting envtest: %v", err)
+	}
+	defer func() {
+		if err := testEnvLocal.Stop(); err != nil {
+			t.Logf("warning: stopping envtest: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	newReconciler := func(t *testing.T, k client.Client, tmpDir string) *AIHubReconciler {
+		t.Helper()
+		return &AIHubReconciler{
+			Client:                k,
+			Scheme:                scheme,
+			ManifestsTemplatePath: tmpDir,
+			APIReader:             k,
+			Getenv: fakeGetenv(map[string]string{
+				config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+				config.RestImage:                  "fake-rest@sha256:bbb",
+				config.PostgresImage:              "fake-pg@sha256:ccc",
+			}),
+			Deployer: &webhookCleanupDeployer{
+				inner: deploy.NewDeployer(
+					deploy.WithFieldOwner("aihub"),
+					deploy.WithApplyOrder(),
+					deploy.WithCache(),
+					deploy.WithMergeStrategy(
+						schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+						deploy.MergeDeployments,
+					),
+				),
+				client: k,
+			},
+		}
+	}
+
+	// patchChildrenAvailable patches both child Deployments to Available.
+	patchChildrenAvailable := func(t *testing.T, k client.Client, ns string) {
+		t.Helper()
+		for _, name := range []string{childDeploymentName, catalogDeploymentName} {
+			dep := &appsv1.Deployment{}
+			if err := k.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, dep); err != nil {
+				t.Fatalf("getting %s: %v", name, err)
+			}
+			dep.Status.Conditions = []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			}
+			if err := k.Status().Update(ctx, dep); err != nil {
+				t.Fatalf("patching %s status: %v", name, err)
+			}
+		}
+	}
+
+	t.Run("domain set", func(t *testing.T) {
+		appNs := "gw-app-ns"
+		regNs := "gw-reg-ns"
+		for _, ns := range []string{appNs, regNs} {
+			nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+			if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+				t.Fatalf("creating namespace %s: %v", ns, err)
+			}
+		}
+
+		aihub := &aihubv1alpha1.AIHub{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: aihubv1alpha1.AIHubSpec{
+				ApplicationNamespace: appNs,
+				InstancesNamespace:   regNs,
+				Gateway:              &aihubv1alpha1.GatewaySpec{Domain: "apps.example.com"},
+			},
+		}
+		if err := k8sClient.Create(ctx, aihub); err != nil {
+			t.Fatalf("creating AIHub: %v", err)
+		}
+		defer func() {
+			_ = k8sClient.Delete(ctx, aihub)
+			// Drain finalizer.
+			for i := 0; i < 10; i++ {
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				check := &aihubv1alpha1.AIHub{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		r := newReconciler(t, k8sClient, tmpDir)
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+		// Reconcile #1: children not Available yet.
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #1 failed: %v", err)
+		}
+
+		// Assert GATEWAY_DOMAIN on both children after first reconcile.
+		for _, depName := range []string{childDeploymentName, catalogDeploymentName} {
+			dep := &appsv1.Deployment{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: appNs, Name: depName}, dep); err != nil {
+				t.Fatalf("%s not found: %v", depName, err)
+			}
+			c := findContainer(t, dep, childManagerContainer)
+			assertEnv(t, c, config.GatewayDomainEnv, "apps.example.com")
+		}
+
+		// Patch children to Available and reconcile to Ready.
+		patchChildrenAvailable(t, k8sClient, appNs)
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #2 failed: %v", err)
+		}
+
+		got := &aihubv1alpha1.AIHub{}
+		if err := k8sClient.Get(ctx, req.NamespacedName, got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status.Phase != common.PhaseReady {
+			t.Errorf("Phase = %q, want %q", got.Status.Phase, common.PhaseReady)
+		}
+		assertConditionStatus(t, got, string(common.ConditionTypeDegraded), metav1.ConditionFalse)
+	})
+
+	t.Run("domain absent", func(t *testing.T) {
+		appNs := "gw-absent-app-ns"
+		regNs := "gw-absent-reg-ns"
+		for _, ns := range []string{appNs, regNs} {
+			nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+			if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+				t.Fatalf("creating namespace %s: %v", ns, err)
+			}
+		}
+
+		aihub := &aihubv1alpha1.AIHub{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: aihubv1alpha1.AIHubSpec{
+				ApplicationNamespace: appNs,
+				InstancesNamespace:   regNs,
+			},
+		}
+		if err := k8sClient.Create(ctx, aihub); err != nil {
+			t.Fatalf("creating AIHub: %v", err)
+		}
+		defer func() {
+			_ = k8sClient.Delete(ctx, aihub)
+			for i := 0; i < 10; i++ {
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				check := &aihubv1alpha1.AIHub{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		r := newReconciler(t, k8sClient, tmpDir)
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+		// Reconcile #1: children not Available yet.
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #1 failed: %v", err)
+		}
+
+		// Assert GATEWAY_DOMAIN is NOT stamped with a real domain on either child.
+		// The kustomize-rendered template may include GATEWAY_DOMAIN="" as a
+		// placeholder; that is fine — the child treats empty as "disabled".
+		for _, depName := range []string{childDeploymentName, catalogDeploymentName} {
+			dep := &appsv1.Deployment{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: appNs, Name: depName}, dep); err != nil {
+				t.Fatalf("%s not found: %v", depName, err)
+			}
+			c := findContainer(t, dep, childManagerContainer)
+			assertEnvEmpty(t, c, config.GatewayDomainEnv)
+		}
+
+		// Patch children to Available and reconcile to Ready.
+		patchChildrenAvailable(t, k8sClient, appNs)
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #2 failed: %v", err)
+		}
+
+		got := &aihubv1alpha1.AIHub{}
+		if err := k8sClient.Get(ctx, req.NamespacedName, got); err != nil {
+			t.Fatal(err)
+		}
+
+		// Degraded=True with reason GatewayDomainUnavailable.
+		assertConditionStatus(t, got, string(common.ConditionTypeDegraded), metav1.ConditionTrue)
+		assertConditionReason(t, got, string(common.ConditionTypeDegraded), "GatewayDomainUnavailable")
+
+		// Phase is still Ready — Degraded does not block readiness.
+		if got.Status.Phase != common.PhaseReady {
+			t.Errorf("Phase = %q, want %q (Degraded must not block readiness)", got.Status.Phase, common.PhaseReady)
+		}
+		assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 	})
 }
