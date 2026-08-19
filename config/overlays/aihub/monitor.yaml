@@ -15,7 +15,11 @@ spec:
       scheme: https
       bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
       tlsConfig:
-        insecureSkipVerify: true
+        ca:
+          configMap:
+            name: openshift-service-ca.crt
+            key: service-ca.crt
+        serverName: aihub-controller-manager-metrics-service.NAMESPACE.svc
   selector:
     matchLabels:
       control-plane: aihub-controller-manager

@@ -35,6 +35,9 @@ spec:
         args:
         - "aihub"
         - "--leader-elect"
+        - "--metrics-cert-dir=/tmp/k8s-metrics-server/serving-certs"
+        - "--metrics-cert-name=tls.crt"
+        - "--metrics-key-name=tls.key"
         env:
           - name: POD_NAMESPACE
             valueFrom:
@@ -93,6 +96,9 @@ spec:
         - name: trusted-ca
           mountPath: /etc/pki/tls/custom
           readOnly: true
+        - name: metrics-certs
+          mountPath: /tmp/k8s-metrics-server/serving-certs
+          readOnly: true
       volumes:
       - name: manifests
         emptyDir:
@@ -103,3 +109,6 @@ spec:
         configMap:
           name: odh-trusted-ca-bundle
           optional: true
+      - name: metrics-certs
+        secret:
+          secretName: aihub-controller-manager-metrics-tls
