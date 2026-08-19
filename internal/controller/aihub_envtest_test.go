@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +154,26 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			t.Fatal("expected create of AIHub with empty namespaces to be rejected, but it succeeded")
 		}
 		t.Logf("correctly rejected AIHub with empty namespaces: %v", err)
+	})
+
+	t.Run("schema validation — gateway domain label too long", func(t *testing.T) {
+		bad := &aihubv1alpha1.AIHub{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: aihubv1alpha1.AIHubSpec{
+				ApplicationNamespace: appNs,
+				InstancesNamespace:   regNs,
+				Gateway: &aihubv1alpha1.GatewaySpec{
+					// A single DNS label of 64 chars exceeds the 63-char limit.
+					Domain: strings.Repeat("a", 64) + ".example.com",
+				},
+			},
+		}
+		err := k8sClient.Create(ctx, bad)
+		if err == nil {
+			_ = k8sClient.Delete(ctx, bad)
+			t.Fatal("expected create of AIHub with an over-long gateway domain label to be rejected by the pattern, but it succeeded")
+		}
+		t.Logf("correctly rejected AIHub with over-long domain label: %v", err)
 	})
 
 	// --- Create the real singleton AIHub ---
