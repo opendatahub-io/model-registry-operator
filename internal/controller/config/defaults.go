@@ -43,13 +43,15 @@ import (
 var templateFS embed.FS
 
 const (
-	RestImage                  = "REST_IMAGE"
+	RestImage                  = "RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE"
 	OAuthProxyImage            = "OAUTH_PROXY_IMAGE"
-	KubeRBACProxyImage         = "KUBE_RBAC_PROXY_IMAGE"
-	PostgresImage              = "POSTGRES_IMAGE"
-	CatalogDataImage           = "CATALOG_DATA_IMAGE"
-	BenchmarkDataImage         = "BENCHMARK_DATA_IMAGE"
-	ModelRegistryOperatorImage = "MODEL_REGISTRY_OPERATOR_IMAGE"
+	KubeRBACProxyImage         = "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE"
+	PostgresImage              = "RELATED_IMAGE_POSTGRESQL_16_IMAGE"
+	CatalogDataImage           = "RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE"
+	BenchmarkDataImage         = "RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE"
+	ModelRegistryOperatorImage = "RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE"
+	AsyncUploadImage           = "RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE"
+	DefaultAsyncUploadImage    = "quay.io/opendatahub/model-registry-job-async-upload:latest"
 	DefaultRestImage           = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage     = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage  = "quay.io/openshift/origin-kube-rbac-proxy:latest"
