@@ -1,7 +1,7 @@
 # replacements from configmap using params.env for use in opendatahub-operator
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE
   targets:
     - select:
@@ -11,7 +11,7 @@
         - spec.template.spec.containers.[name=manager].image
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE
   targets:
     - select:
@@ -21,7 +21,7 @@
         - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE].value
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE
   targets:
     - select:
@@ -31,7 +31,7 @@
         - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE].value
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_POSTGRESQL_16_IMAGE
   targets:
     - select:
@@ -41,7 +41,7 @@
         - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_POSTGRESQL_16_IMAGE].value
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE
   targets:
     - select:
@@ -51,7 +51,7 @@
         - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE].value
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE
   targets:
     - select:
@@ -61,7 +61,7 @@
         - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE].value
 - source:
     kind: ConfigMap
-    name: model-registry-operator-parameters
+    name: aihub-controller-parameters
     fieldPath: data.RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE
   targets:
     - select:

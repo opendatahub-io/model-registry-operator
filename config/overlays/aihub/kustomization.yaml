@@ -14,7 +14,7 @@ resources:
 configMapGenerator:
 - envs:
     - params.env
-  name: model-registry-operator-parameters
+  name: aihub-controller-parameters
 generatorOptions:
   disableNameSuffixHash: true
 replacements:
