@@ -868,17 +868,13 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 			t.Fatalf("instances namespace %q not created: %v", regNs, err)
 		}
 
-		// Assert it has an owner reference to the AIHub.
-		var hasOwner bool
+		// Assert it has NO AIHub owner reference: an owner-ref would cascade-delete
+		// the namespace (and all user data in it) when the AIHub CR is removed. The
+		// namespace is intentionally created unowned, matching the old in-tree component.
 		for _, ref := range createdNs.GetOwnerReferences() {
-			if ref.Kind == "AIHub" && ref.Name == "default" &&
-				ref.Controller != nil && *ref.Controller {
-				hasOwner = true
-				break
+			if ref.Kind == "AIHub" {
+				t.Errorf("instances namespace unexpectedly has an AIHub owner reference (%+v); it must be unowned to avoid cascade-deleting user data on removal", ref)
 			}
-		}
-		if !hasOwner {
-			t.Error("instances namespace missing controller owner reference with Kind=AIHub")
 		}
 
 		// Patch children available and reconcile to Ready — Catalog CR must succeed.

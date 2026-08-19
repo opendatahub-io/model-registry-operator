@@ -175,15 +175,17 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Ensure the instances namespace exists before provisioning registries into it.
 	// Skip when it collapses to the (platform-managed) applications namespace.
+	//
+	// Intentionally NO owner-reference is set on the namespace. AIHub is
+	// cluster-scoped, so an owner-ref would be honored and would cascade-delete the
+	// namespace — along with every ModelRegistry CR and catalog resource a user
+	// created in it — when the AIHub CR is removed (e.g. turning modelregistry off
+	// in the DSC). The in-tree opendatahub-operator component deliberately created
+	// this namespace without owning it for the same reason; an orphaned empty
+	// namespace after removal is preferable to destroying user data. CreateIfNotExists
+	// also never mutates a pre-existing/shared namespace.
 	if spec.InstancesNamespace != "" && spec.InstancesNamespace != spec.ApplicationNamespace {
 		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: spec.InstancesNamespace}}
-		// AIHub is cluster-scoped, so it may own a cluster-scoped Namespace. Set the
-		// owner-ref only on the object we attempt to create; CreateIfNotExists never
-		// touches a pre-existing namespace, so a user-provided/shared namespace is
-		// never adopted or mutated.
-		if err := ctrl.SetControllerReference(aihub, ns, r.Scheme); err != nil {
-			return ctrl.Result{}, fmt.Errorf("setting instances namespace owner reference: %w", err)
-		}
 		rm := ResourceManager{Client: r.Client}
 		if _, err := rm.CreateIfNotExists(ctx, &corev1.Namespace{}, ns); err != nil {
 			return ctrl.Result{}, fmt.Errorf("ensuring instances namespace %q: %w", spec.InstancesNamespace, err)
