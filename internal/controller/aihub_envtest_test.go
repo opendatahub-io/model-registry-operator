@@ -693,3 +693,339 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 	})
 }
+
+// TestAIHubNamespaceEnsure_Envtest verifies Gap 1: the controller creates the
+// instances namespace when it differs from the applications namespace, and
+// skips creation when they are equal.
+func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
+	// --- Skip guard: envtest binaries ---
+	binAssetsDir := filepath.Join("..", "..", "bin", "k8s",
+		fmt.Sprintf("1.35.0-%s-%s", goruntime.GOOS, goruntime.GOARCH))
+	if v := os.Getenv("KUBEBUILDER_ASSETS"); v != "" {
+		binAssetsDir = v
+	}
+	if _, err := os.Stat(filepath.Join(binAssetsDir, "kube-apiserver")); err != nil {
+		t.Skipf("envtest binaries not available at %s: %v", binAssetsDir, err)
+	}
+
+	tmpDir := assembleManifests(t)
+	scheme := testScheme(t)
+
+	// Copy AIHub CRD.
+	aihubCRDPath := filepath.Join("..", "..", "config", "overlays", "aihub",
+		"components.platform.opendatahub.io_aihubs.yaml")
+	aihubCRDBytes, err := os.ReadFile(aihubCRDPath)
+	if err != nil {
+		t.Fatalf("reading AIHub CRD: %v", err)
+	}
+	crdTmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(crdTmpDir, "aihubs.yaml"), aihubCRDBytes, 0o644); err != nil {
+		t.Fatalf("writing AIHub CRD to temp dir: %v", err)
+	}
+
+	useExisting := false
+	testEnvLocal := &envtest.Environment{
+		Scheme: scheme,
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crd"),
+			crdTmpDir,
+		},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: binAssetsDir,
+		UseExistingCluster:    &useExisting,
+	}
+
+	cfg, err := testEnvLocal.Start()
+	if err != nil {
+		t.Fatalf("starting envtest: %v", err)
+	}
+	defer func() {
+		if err := testEnvLocal.Stop(); err != nil {
+			t.Logf("warning: stopping envtest: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	newReconciler := func(t *testing.T, k client.Client, dir string) *AIHubReconciler {
+		t.Helper()
+		return &AIHubReconciler{
+			Client:                k,
+			Scheme:                scheme,
+			ManifestsTemplatePath: dir,
+			APIReader:             k,
+			Getenv: fakeGetenv(map[string]string{
+				config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+				config.RestImage:                  "fake-rest@sha256:bbb",
+				config.PostgresImage:              "fake-pg@sha256:ccc",
+			}),
+			Deployer: &webhookCleanupDeployer{
+				inner: deploy.NewDeployer(
+					deploy.WithFieldOwner("aihub"),
+					deploy.WithApplyOrder(),
+					deploy.WithCache(),
+					deploy.WithMergeStrategy(
+						schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+						deploy.MergeDeployments,
+					),
+				),
+				client: k,
+			},
+		}
+	}
+
+	patchChildrenAvailable := func(t *testing.T, k client.Client, ns string) {
+		t.Helper()
+		for _, name := range []string{childDeploymentName, catalogDeploymentName} {
+			dep := &appsv1.Deployment{}
+			if err := k.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, dep); err != nil {
+				t.Fatalf("getting %s: %v", name, err)
+			}
+			dep.Status.Conditions = []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			}
+			if err := k.Status().Update(ctx, dep); err != nil {
+				t.Fatalf("patching %s status: %v", name, err)
+			}
+		}
+	}
+
+	// Gap 1a: instances namespace differs from app namespace and does NOT
+	// exist — the controller must create it.
+	t.Run("creates instances namespace", func(t *testing.T) {
+		appNs := "ns-ensure-app"
+		regNs := "ns-ensure-reg" // NOT pre-created
+
+		// Only create the app namespace.
+		nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+		if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("creating app namespace: %v", err)
+		}
+
+		aihub := &aihubv1alpha1.AIHub{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: aihubv1alpha1.AIHubSpec{
+				ApplicationNamespace: appNs,
+				InstancesNamespace:   regNs,
+			},
+		}
+		if err := k8sClient.Create(ctx, aihub); err != nil {
+			t.Fatalf("creating AIHub: %v", err)
+		}
+		defer func() {
+			_ = k8sClient.Delete(ctx, aihub)
+			for i := 0; i < 10; i++ {
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				check := &aihubv1alpha1.AIHub{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		r := newReconciler(t, k8sClient, tmpDir)
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+		// Reconcile #1 — should create the instances namespace.
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #1 failed: %v", err)
+		}
+
+		// Assert the instances namespace now exists.
+		createdNs := &corev1.Namespace{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: regNs}, createdNs); err != nil {
+			t.Fatalf("instances namespace %q not created: %v", regNs, err)
+		}
+
+		// Assert it has an owner reference to the AIHub.
+		var hasOwner bool
+		for _, ref := range createdNs.GetOwnerReferences() {
+			if ref.Kind == "AIHub" && ref.Name == "default" &&
+				ref.Controller != nil && *ref.Controller {
+				hasOwner = true
+				break
+			}
+		}
+		if !hasOwner {
+			t.Error("instances namespace missing controller owner reference with Kind=AIHub")
+		}
+
+		// Patch children available and reconcile to Ready — Catalog CR must succeed.
+		patchChildrenAvailable(t, k8sClient, appNs)
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile #2 failed: %v", err)
+		}
+
+		catalog := &catalogv1alpha1.Catalog{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: regNs, Name: catalogCRName,
+		}, catalog); err != nil {
+			t.Fatalf("Catalog CR not found after reconcile #2: %v", err)
+		}
+	})
+
+	// Gap 1b: instances namespace == app namespace — controller must NOT error
+	// and must NOT create a duplicate namespace.
+	t.Run("same namespace no error", func(t *testing.T) {
+		sameNs := "ns-ensure-same"
+
+		nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: sameNs}}
+		if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("creating namespace: %v", err)
+		}
+
+		aihub := &aihubv1alpha1.AIHub{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Spec: aihubv1alpha1.AIHubSpec{
+				ApplicationNamespace: sameNs,
+				InstancesNamespace:   sameNs,
+			},
+		}
+		if err := k8sClient.Create(ctx, aihub); err != nil {
+			t.Fatalf("creating AIHub: %v", err)
+		}
+		defer func() {
+			_ = k8sClient.Delete(ctx, aihub)
+			for i := 0; i < 10; i++ {
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				check := &aihubv1alpha1.AIHub{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}()
+
+		r := newReconciler(t, k8sClient, tmpDir)
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+
+		// Reconcile must not error.
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatalf("reconcile failed: %v", err)
+		}
+	})
+}
+
+// TestAIHubHTTPRouteNamespace_Envtest verifies Gap 3: HTTPROUTE_NAMESPACE is
+// stamped on both child Deployments with the applications namespace value.
+func TestAIHubHTTPRouteNamespace_Envtest(t *testing.T) {
+	// --- Skip guard: envtest binaries ---
+	binAssetsDir := filepath.Join("..", "..", "bin", "k8s",
+		fmt.Sprintf("1.35.0-%s-%s", goruntime.GOOS, goruntime.GOARCH))
+	if v := os.Getenv("KUBEBUILDER_ASSETS"); v != "" {
+		binAssetsDir = v
+	}
+	if _, err := os.Stat(filepath.Join(binAssetsDir, "kube-apiserver")); err != nil {
+		t.Skipf("envtest binaries not available at %s: %v", binAssetsDir, err)
+	}
+
+	tmpDir := assembleManifests(t)
+	scheme := testScheme(t)
+
+	// Copy AIHub CRD.
+	aihubCRDPath := filepath.Join("..", "..", "config", "overlays", "aihub",
+		"components.platform.opendatahub.io_aihubs.yaml")
+	aihubCRDBytes, err := os.ReadFile(aihubCRDPath)
+	if err != nil {
+		t.Fatalf("reading AIHub CRD: %v", err)
+	}
+	crdTmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(crdTmpDir, "aihubs.yaml"), aihubCRDBytes, 0o644); err != nil {
+		t.Fatalf("writing AIHub CRD to temp dir: %v", err)
+	}
+
+	useExisting := false
+	testEnvLocal := &envtest.Environment{
+		Scheme: scheme,
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crd"),
+			crdTmpDir,
+		},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: binAssetsDir,
+		UseExistingCluster:    &useExisting,
+	}
+
+	cfg, err := testEnvLocal.Start()
+	if err != nil {
+		t.Fatalf("starting envtest: %v", err)
+	}
+	defer func() {
+		if err := testEnvLocal.Stop(); err != nil {
+			t.Logf("warning: stopping envtest: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx := context.Background()
+	appNs := "httproute-app-ns"
+	regNs := "httproute-reg-ns"
+
+	for _, ns := range []string{appNs, regNs} {
+		nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+		if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("creating namespace %s: %v", ns, err)
+		}
+	}
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			InstancesNamespace:   regNs,
+		},
+	}
+	if err := k8sClient.Create(ctx, aihub); err != nil {
+		t.Fatalf("creating AIHub: %v", err)
+	}
+
+	r := &AIHubReconciler{
+		Client:                k8sClient,
+		Scheme:                scheme,
+		ManifestsTemplatePath: tmpDir,
+		APIReader:             k8sClient,
+		Getenv: fakeGetenv(map[string]string{
+			config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+			config.RestImage:                  "fake-rest@sha256:bbb",
+		}),
+		Deployer: &webhookCleanupDeployer{
+			inner: deploy.NewDeployer(
+				deploy.WithFieldOwner("aihub"),
+				deploy.WithApplyOrder(),
+				deploy.WithCache(),
+				deploy.WithMergeStrategy(
+					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+					deploy.MergeDeployments,
+				),
+			),
+			client: k8sClient,
+		},
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("reconcile failed: %v", err)
+	}
+
+	// Assert HTTPROUTE_NAMESPACE on both child Deployments.
+	for _, depName := range []string{childDeploymentName, catalogDeploymentName} {
+		dep := &appsv1.Deployment{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: appNs, Name: depName}, dep); err != nil {
+			t.Fatalf("%s not found: %v", depName, err)
+		}
+		c := findContainer(t, dep, childManagerContainer)
+		assertEnv(t, c, config.HTTPRouteNamespaceEnv, appNs)
+	}
+}

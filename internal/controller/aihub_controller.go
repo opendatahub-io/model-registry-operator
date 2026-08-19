@@ -54,11 +54,12 @@ import (
 )
 
 const (
-	aihubFinalizer        = "aihub.opendatahub.io/finalizer"
-	catalogCRName         = "catalog"
-	childDeploymentName   = "model-registry-operator-controller-manager"
-	catalogDeploymentName = "catalog-controller-manager"
-	childManagerContainer = "manager"
+	aihubFinalizer          = "aihub.opendatahub.io/finalizer"
+	catalogCRName           = "catalog"
+	childDeploymentName     = "model-registry-operator-controller-manager"
+	catalogDeploymentName   = "catalog-controller-manager"
+	childManagerContainer   = "manager"
+	asyncUploadTemplateName = "jobs-async-upload-s3-to-oci-template"
 
 	// ConditionModelRegistryReady tracks whether the child model-registry
 	// operator Deployment is available.
@@ -172,6 +173,23 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	spec := aihub.Spec
 	log.Info("reconciling AIHub", "applicationNamespace", spec.ApplicationNamespace, "instancesNamespace", spec.InstancesNamespace)
 
+	// Ensure the instances namespace exists before provisioning registries into it.
+	// Skip when it collapses to the (platform-managed) applications namespace.
+	if spec.InstancesNamespace != "" && spec.InstancesNamespace != spec.ApplicationNamespace {
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: spec.InstancesNamespace}}
+		// AIHub is cluster-scoped, so it may own a cluster-scoped Namespace. Set the
+		// owner-ref only on the object we attempt to create; CreateIfNotExists never
+		// touches a pre-existing namespace, so a user-provided/shared namespace is
+		// never adopted or mutated.
+		if err := ctrl.SetControllerReference(aihub, ns, r.Scheme); err != nil {
+			return ctrl.Result{}, fmt.Errorf("setting instances namespace owner reference: %w", err)
+		}
+		rm := ResourceManager{Client: r.Client}
+		if _, err := rm.CreateIfNotExists(ctx, &corev1.Namespace{}, ns); err != nil {
+			return ctrl.Result{}, fmt.Errorf("ensuring instances namespace %q: %w", spec.InstancesNamespace, err)
+		}
+	}
+
 	var gatewayDomain string
 	if spec.Gateway != nil {
 		gatewayDomain = spec.Gateway.Domain
@@ -206,9 +224,17 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if kind == "Deployment" {
 			name := resources[i].GetName()
 			if name == childDeploymentName || name == catalogDeploymentName {
-				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace, gatewayDomain); err != nil {
+				if err := stampChildOperatorDeployment(&resources[i], images, spec.InstancesNamespace, spec.ApplicationNamespace, gatewayDomain); err != nil {
 					return ctrl.Result{}, fmt.Errorf("stamping child operator deployment %s: %w", name, err)
 				}
+			}
+		}
+
+		// Stamp the async-upload Template's JOB_IMAGE parameter with the
+		// platform-pinned image when available.
+		if kind == "Template" && resources[i].GetName() == asyncUploadTemplateName && images.AsyncUploadImage != "" {
+			if err := stampAsyncUploadTemplate(&resources[i], images.AsyncUploadImage); err != nil {
+				return ctrl.Result{}, fmt.Errorf("stamping async-upload template JOB_IMAGE: %w", err)
 			}
 		}
 	}
@@ -512,8 +538,9 @@ func isDeploymentAvailable(d *appsv1.Deployment) bool {
 
 // stampChildOperatorDeployment mutates the rendered child operator Deployment unstructured
 // to set the operator image, upsert operand env vars, set REGISTRIES_NAMESPACE,
-// and optionally stamp GATEWAY_DOMAIN when non-empty.
-func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs, gatewayDomain string) error {
+// stamp HTTPROUTE_NAMESPACE so the child creates HTTPRoutes in the applications
+// namespace, and optionally stamp GATEWAY_DOMAIN when non-empty.
+func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImages, registriesNs, httpRouteNamespace, gatewayDomain string) error {
 	// Convert to typed Deployment.
 	dep := &appsv1.Deployment{}
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, dep); err != nil {
@@ -541,6 +568,10 @@ func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImag
 
 		// Upsert REGISTRIES_NAMESPACE.
 		upsertEnv(c, corev1.EnvVar{Name: config.RegistriesNamespace, Value: registriesNs})
+
+		// Upsert HTTPROUTE_NAMESPACE so the child creates HTTPRoutes in the
+		// applications namespace instead of the RHOAI-specific built-in default.
+		upsertEnv(c, corev1.EnvVar{Name: config.HTTPRouteNamespaceEnv, Value: httpRouteNamespace})
 
 		// Upsert GATEWAY_DOMAIN only when the platform has provided a domain.
 		if gatewayDomain != "" {
@@ -571,4 +602,26 @@ func upsertEnv(c *corev1.Container, env corev1.EnvVar) {
 		}
 	}
 	c.Env = append(c.Env, env)
+}
+
+// stampAsyncUploadTemplate sets the JOB_IMAGE parameter on the async-upload
+// OpenShift Template so async-upload jobs run the platform-pinned image
+// instead of the floating template default. No-op when image is empty.
+func stampAsyncUploadTemplate(u *unstructured.Unstructured, image string) error {
+	params, found, err := unstructured.NestedSlice(u.Object, "parameters")
+	if err != nil || !found {
+		return err
+	}
+	for i := range params {
+		p, ok := params[i].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if p["name"] == "JOB_IMAGE" {
+			p["value"] = image
+			params[i] = p
+			return unstructured.SetNestedSlice(u.Object, params, "parameters")
+		}
+	}
+	return nil
 }
