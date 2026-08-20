@@ -55,6 +55,7 @@ import (
 
 const (
 	aihubFinalizer          = "aihub.opendatahub.io/finalizer"
+	aihubCRName             = "default-aihub"
 	catalogCRName           = "catalog"
 	childDeploymentName     = "model-registry-operator-controller-manager"
 	catalogDeploymentName   = "catalog-controller-manager"
@@ -139,7 +140,7 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// 2. Singleton guard.
-	if aihub.Name != "default" {
+	if aihub.Name != aihubCRName {
 		log.Info("ignoring non-singleton AIHub", "name", aihub.Name)
 		return ctrl.Result{}, nil
 	}
@@ -480,12 +481,12 @@ func (r *AIHubReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // platformConfigMapToAIHub maps a platform ConfigMap event to a reconcile
-// request for the singleton AIHub CR (name "default", cluster-scoped).
+// request for the singleton AIHub CR (name "default-aihub", cluster-scoped).
 func platformConfigMapToAIHub(_ context.Context, obj *corev1.ConfigMap) []reconcile.Request {
 	if obj.GetName() != platformVersionConfigMap {
 		return nil
 	}
-	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "default"}}}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: aihubCRName}}}
 }
 
 // isPlatformConfigMap is a predicate filter that accepts only the platform

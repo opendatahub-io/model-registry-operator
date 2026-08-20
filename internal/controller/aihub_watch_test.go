@@ -45,7 +45,7 @@ func TestPlatformConfigMapToAIHub(t *testing.T) {
 			name:     "matching ConfigMap name enqueues singleton",
 			objName:  "odh-modelregistry-config",
 			wantLen:  1,
-			wantName: "default",
+			wantName: "default-aihub",
 		},
 		{
 			name:    "non-matching ConfigMap name returns nil",
@@ -264,7 +264,7 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 
 	// --- Create the singleton AIHub ---
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -286,7 +286,7 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	// Wait for a reconcile that sees both children Available.
 	waitFor(t, 30*time.Second, 200*time.Millisecond, func() bool {
 		got := &aihubv1alpha1.AIHub{}
-		if err := directClient.Get(ctx, types.NamespacedName{Name: "default"}, got); err != nil {
+		if err := directClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, got); err != nil {
 			return false
 		}
 		for _, c := range got.Status.Conditions {
@@ -322,7 +322,7 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	// Verify platform release version in status.
 	waitFor(t, 10*time.Second, 200*time.Millisecond, func() bool {
 		got := &aihubv1alpha1.AIHub{}
-		if err := directClient.Get(ctx, types.NamespacedName{Name: "default"}, got); err != nil {
+		if err := directClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, got); err != nil {
 			return false
 		}
 		return got.GetReleaseStatus().GetPlatformRelease() == "2.20.0"
@@ -347,7 +347,7 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	// Verify updated platform release version in status.
 	waitFor(t, 10*time.Second, 200*time.Millisecond, func() bool {
 		got := &aihubv1alpha1.AIHub{}
-		if err := directClient.Get(ctx, types.NamespacedName{Name: "default"}, got); err != nil {
+		if err := directClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, got); err != nil {
 			return false
 		}
 		return got.GetReleaseStatus().GetPlatformRelease() == "2.21.0"
