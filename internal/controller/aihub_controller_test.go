@@ -328,7 +328,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 
 	aihub := &aihubv1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
+			Name: "default-aihub",
 		},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
@@ -362,7 +362,7 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 		APIReader:             fakeClient,
 	}
 
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 	ctx := context.Background()
 
 	// First reconcile — the mock deployer does not actually create resources,
@@ -381,8 +381,8 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	}
 
 	// Verify the Owner is the AIHub CR.
-	if mock.calls[0].Owner == nil || mock.calls[0].Owner.GetName() != "default" {
-		t.Errorf("expected Owner name %q, got %v", "default", mock.calls[0].Owner)
+	if mock.calls[0].Owner == nil || mock.calls[0].Owner.GetName() != "default-aihub" {
+		t.Errorf("expected Owner name %q, got %v", "default-aihub", mock.calls[0].Owner)
 	}
 
 	// Verify the resources contain the child Deployments with stamped values.
@@ -469,7 +469,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 	s := testScheme(t)
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: "app-ns",
 			InstancesNamespace:   "reg-ns",
@@ -494,7 +494,7 @@ func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	if _, err := reconciler.Reconcile(ctx, req); err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
@@ -517,7 +517,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 
 	aihub := &aihubv1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:       "default",
+			Name:       "default-aihub",
 			UID:        "test-aihub-uid",
 			Finalizers: []string{aihubFinalizer},
 		},
@@ -558,7 +558,7 @@ func TestAIHubReconciler_DeletionCleanup(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	// Delete the AIHub — fake client sets DeletionTimestamp and keeps the object
 	// because of the finalizer.
@@ -602,7 +602,7 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	regNs := "reg-ns"
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -655,7 +655,7 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
@@ -688,7 +688,7 @@ func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {
 	regNs := "reg-ns"
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -728,7 +728,7 @@ func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
@@ -759,7 +759,7 @@ func TestAIHubReconciler_StatusNotReady_ChildMissing(t *testing.T) {
 	regNs := "reg-ns"
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -785,7 +785,7 @@ func TestAIHubReconciler_StatusNotReady_ChildMissing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	result, err := reconciler.Reconcile(ctx, req)
 	if err != nil {
@@ -814,7 +814,7 @@ func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
 	regNs := "reg-ns"
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -876,7 +876,7 @@ func TestAIHubReconciler_PlatformVersionHandshake(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	if _, err := reconciler.Reconcile(ctx, req); err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
@@ -912,7 +912,7 @@ func TestAIHubReconciler_ReleasesWithoutPlatformCM(t *testing.T) {
 
 	s := testScheme(t)
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 	}
 
 	r := &AIHubReconciler{

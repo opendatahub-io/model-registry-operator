@@ -62,7 +62,7 @@ func TestAddToScheme(t *testing.T) {
 func TestAIHubFields(t *testing.T) {
 	ah := &v1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
+			Name: "default-aihub",
 		},
 		Spec: v1alpha1.AIHubSpec{
 			ApplicationNamespace: "rhoai-model-registries",

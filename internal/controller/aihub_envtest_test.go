@@ -145,7 +145,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 
 	t.Run("schema validation — required fields", func(t *testing.T) {
 		bad := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec:       aihubv1alpha1.AIHubSpec{},
 		}
 		err := k8sClient.Create(ctx, bad)
@@ -158,7 +158,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 
 	t.Run("schema validation — gateway domain label too long", func(t *testing.T) {
 		bad := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: appNs,
 				InstancesNamespace:   regNs,
@@ -181,7 +181,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 
 	// --- Create the real singleton AIHub ---
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -216,7 +216,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		},
 	}
 
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 	// --- Reconcile #1 ---
 	result, err := r.Reconcile(ctx, req)
@@ -389,7 +389,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	}
 	var hasAIHubOwner bool
 	for _, ref := range catalog.GetOwnerReferences() {
-		if ref.Kind == "AIHub" && ref.Name == "default" &&
+		if ref.Kind == "AIHub" && ref.Name == "default-aihub" &&
 			ref.Controller != nil && *ref.Controller {
 			hasAIHubOwner = true
 			break
@@ -586,7 +586,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		}
 
 		aihub := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: appNs,
 				InstancesNamespace:   regNs,
@@ -600,9 +600,9 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 			_ = k8sClient.Delete(ctx, aihub)
 			// Drain finalizer.
 			for i := 0; i < 10; i++ {
-				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -610,7 +610,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		}()
 
 		r := newReconciler(t, k8sClient, tmpDir)
-		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 		// Reconcile #1: children not Available yet.
 		if _, err := r.Reconcile(ctx, req); err != nil {
@@ -654,7 +654,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		}
 
 		aihub := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: appNs,
 				InstancesNamespace:   regNs,
@@ -666,9 +666,9 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
 			for i := 0; i < 10; i++ {
-				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -676,7 +676,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		}()
 
 		r := newReconciler(t, k8sClient, tmpDir)
-		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 		// Reconcile #1: children not Available yet.
 		if _, err := r.Reconcile(ctx, req); err != nil {
@@ -833,7 +833,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}
 
 		aihub := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: appNs,
 				InstancesNamespace:   regNs,
@@ -845,9 +845,9 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
 			for i := 0; i < 10; i++ {
-				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -855,7 +855,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}()
 
 		r := newReconciler(t, k8sClient, tmpDir)
-		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 		// Reconcile #1 — should create the instances namespace.
 		if _, err := r.Reconcile(ctx, req); err != nil {
@@ -902,7 +902,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}
 
 		aihub := &aihubv1alpha1.AIHub{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 			Spec: aihubv1alpha1.AIHubSpec{
 				ApplicationNamespace: sameNs,
 				InstancesNamespace:   sameNs,
@@ -914,9 +914,9 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
 			for i := 0; i < 10; i++ {
-				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}})
+				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default"}, check); apierrors.IsNotFound(err) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -924,7 +924,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}()
 
 		r := newReconciler(t, k8sClient, tmpDir)
-		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+		req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 
 		// Reconcile must not error.
 		if _, err := r.Reconcile(ctx, req); err != nil {
@@ -1001,7 +1001,7 @@ func TestAIHubHTTPRouteNamespace_Envtest(t *testing.T) {
 	}
 
 	aihub := &aihubv1alpha1.AIHub{
-		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
 		Spec: aihubv1alpha1.AIHubSpec{
 			ApplicationNamespace: appNs,
 			InstancesNamespace:   regNs,
@@ -1034,7 +1034,7 @@ func TestAIHubHTTPRouteNamespace_Envtest(t *testing.T) {
 		},
 	}
 
-	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default"}}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
 	if _, err := r.Reconcile(ctx, req); err != nil {
 		t.Fatalf("reconcile failed: %v", err)
 	}
