@@ -73,7 +73,7 @@ type AIHubStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="AppNamespace",type=string,JSONPath=`.spec.applicationNamespace`
 //+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-//+kubebuilder:validation:XValidation:rule="self.metadata.name == 'default'",message="Only the name 'default' is allowed"
+//+kubebuilder:validation:XValidation:rule="self.metadata.name == 'default-aihub'",message="Only the name 'default-aihub' is allowed"
 
 // AIHub is the module CR that the platform creates to manage the AI Hub.
 type AIHub struct {
