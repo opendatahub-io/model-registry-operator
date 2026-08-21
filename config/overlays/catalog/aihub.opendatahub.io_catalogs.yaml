@@ -62,6 +62,24 @@ spec:
                           rule: quantity(self).isGreaterThan(quantity('0'))
                     type: object
                 type: object
+              proxy:
+                description: Proxy configures outbound HTTP proxy settings for the
+                  catalog.
+                properties:
+                  httpProxy:
+                    description: HTTPProxy is the proxy URL for outbound HTTP requests
+                      (sets HTTP_PROXY).
+                    type: string
+                  httpsProxy:
+                    description: HTTPSProxy is the proxy URL for outbound HTTPS requests
+                      (sets HTTPS_PROXY).
+                    type: string
+                  noProxy:
+                    description: |-
+                      NoProxy is a comma-separated list of hosts/domains to exclude from proxying
+                      (sets NO_PROXY).
+                    type: string
+                type: object
               resources:
                 description: Resources defines resource requirements for the catalog
                   and PostgreSQL workloads.

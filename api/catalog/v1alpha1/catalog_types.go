@@ -48,6 +48,23 @@ type CatalogDatabase struct {
 	Volume CatalogDatabaseVolume `json:"volume,omitempty"`
 }
 
+// ProxyConfig defines outbound HTTP proxy settings for catalog components that
+// make external requests.
+type ProxyConfig struct {
+	// HTTPProxy is the proxy URL for outbound HTTP requests (sets HTTP_PROXY).
+	// +optional
+	HTTPProxy string `json:"httpProxy,omitempty"`
+
+	// HTTPSProxy is the proxy URL for outbound HTTPS requests (sets HTTPS_PROXY).
+	// +optional
+	HTTPSProxy string `json:"httpsProxy,omitempty"`
+
+	// NoProxy is a comma-separated list of hosts/domains to exclude from proxying
+	// (sets NO_PROXY).
+	// +optional
+	NoProxy string `json:"noProxy,omitempty"`
+}
+
 // CatalogSpec defines the desired state of Catalog.
 type CatalogSpec struct {
 	// Resources defines resource requirements for the catalog and PostgreSQL workloads.
@@ -57,6 +74,10 @@ type CatalogSpec struct {
 	// Database configures storage for the catalog database.
 	// +optional
 	Database CatalogDatabase `json:"database,omitempty"`
+
+	// Proxy configures outbound HTTP proxy settings for the catalog.
+	// +optional
+	Proxy *ProxyConfig `json:"proxy,omitempty"`
 }
 
 // CatalogStatus defines the observed state of Catalog.
