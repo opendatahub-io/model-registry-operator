@@ -593,6 +593,79 @@ var _ = Describe("Catalog controller", func() {
 			Expect(string(secret.Data["database-password"])).To(Equal("existingpassword"))
 		})
 
+		It("Should recreate postgres secret and refresh deployment hashes when secret is deleted", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Creating Catalog CR")
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Reconciling Catalog CR")
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Getting initial postgres Secret and verifying data and ownerReferences")
+			initialSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, initialSecret)).To(Succeed())
+			Expect(initialSecret.Data).To(HaveKey("database-password"))
+			Expect(initialSecret.Data).To(HaveKey("database-salt"))
+			Expect(initialSecret.OwnerReferences).To(HaveLen(1))
+			Expect(initialSecret.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			Expect(initialSecret.OwnerReferences[0].Name).To(Equal("catalog"))
+
+			By("Noting initial deployment secret hash annotations")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			initialCatHash := dep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(initialCatHash).To(Not(BeEmpty()))
+
+			pgDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, pgDep)).To(Succeed())
+			initialPgHash := pgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(initialPgHash).To(Equal(initialCatHash))
+
+			By("Deleting the model-catalog-postgres Secret")
+			Expect(k8sClient.Delete(ctx, initialSecret)).To(Succeed())
+
+			By("Reconciling the Catalog CR after Secret deletion")
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the model-catalog-postgres Secret is recreated, has valid data (password, salt), and has owner reference to the Catalog CR")
+			recreatedSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, recreatedSecret)).To(Succeed())
+			Expect(recreatedSecret.Data).To(HaveKey("database-password"))
+			Expect(recreatedSecret.Data["database-password"]).To(Not(BeEmpty()))
+			Expect(recreatedSecret.Data).To(HaveKey("database-salt"))
+			Expect(recreatedSecret.Data["database-salt"]).To(Not(BeEmpty()))
+			Expect(recreatedSecret.OwnerReferences).To(HaveLen(1))
+			Expect(recreatedSecret.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			Expect(recreatedSecret.OwnerReferences[0].Name).To(Equal("catalog"))
+
+			By("Verifying deployments are updated with new hash annotation reflecting new secret data")
+			updatedDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, updatedDep)).To(Succeed())
+			newCatHash := updatedDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(newCatHash).To(Not(BeEmpty()))
+			Expect(newCatHash).To(Not(Equal(initialCatHash)))
+
+			updatedPgDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, updatedPgDep)).To(Succeed())
+			newPgHash := updatedPgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(newPgHash).To(Equal(newCatHash))
+		})
+
 		It("Should recreate user-sources ConfigMaps with empty owner references if deleted", func() {
 			catalog := &catalogv1alpha1.Catalog{
 				ObjectMeta: metav1.ObjectMeta{

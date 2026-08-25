@@ -1339,10 +1339,6 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Client: r.Client,
 	}
 
-	// Secrets are deliberately not Owns()'d: the manager's cache DisableFor's
-	// Secrets (they are user-provided, e.g. DB credentials), so watching them here
-	// would force a cluster-wide Secret informer. Reconciliation still happens via
-	// requeue, as the ModelRegistry controller does.
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("catalog").
 		For(&catalogv1alpha1.Catalog{}).
@@ -1350,6 +1346,7 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
