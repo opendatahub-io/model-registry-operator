@@ -30,6 +30,10 @@ spec:
         component: {{.Name}}
         app.kubernetes.io/name: {{.Name}}-postgres
         sidecar.istio.io/inject: "false"
+      {{- if .PostgresSecretHash}}
+      annotations:
+        modelregistry.opendatahub.io/postgres-secret-hash: "{{.PostgresSecretHash}}"
+      {{- end}}
     spec:
       containers:
       - env:
