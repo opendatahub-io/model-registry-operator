@@ -1365,12 +1365,6 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	b = b.Watches(
-		&corev1.ConfigMap{},
-		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
-		builder.WithPredicates(catalogSourceLabels),
-	)
-
 	labelsPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -1383,6 +1377,13 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+
+	b = b.Watches(
+		&corev1.ConfigMap{},
+		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
+		builder.WithPredicates(predicate.Or(catalogSourceLabels, labelsPredicate)),
+	)
+
 	b = b.Watches(
 		&rbac.ClusterRoleBinding{},
 		handler.EnqueueRequestsFromMapFunc(r.GetCatalogForClusterRoleBinding),
