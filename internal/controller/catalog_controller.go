@@ -898,14 +898,14 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 		}
 
 		for key, defaultValue := range requiredKeys {
-			if _, exists := existingSecret.Data[key]; !exists {
+			if len(existingSecret.Data[key]) == 0 {
 				log.Info("Adding missing key to existing secret", "secret", secretName, "key", key)
 				existingSecret.Data[key] = []byte(defaultValue)
 				needsUpdate = true
 			}
 		}
 
-		if _, exists := existingSecret.Data["database-password"]; !exists {
+		if len(existingSecret.Data["database-password"]) == 0 {
 			log.Info("Generating missing password for existing secret", "secret", secretName)
 			password, err := utils.RandBytes(16)
 			if err != nil {
@@ -916,7 +916,7 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 			needsUpdate = true
 		}
 
-		if _, exists := existingSecret.Data["database-salt"]; !exists {
+		if len(existingSecret.Data["database-salt"]) == 0 {
 			log.Info("Generating missing salt for existing secret", "secret", secretName)
 			salt, err := utils.RandBytes(16)
 			if err != nil {
