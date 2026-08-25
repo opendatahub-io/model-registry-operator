@@ -916,6 +916,17 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 			needsUpdate = true
 		}
 
+		if _, exists := existingSecret.Data["database-salt"]; !exists {
+			log.Info("Generating missing salt for existing secret", "secret", secretName)
+			salt, err := utils.RandBytes(16)
+			if err != nil {
+				log.Error(err, "Failed to generate random salt for secret", "secret", secretName)
+				return result, nil, fmt.Errorf("failed to generate random salt: %w", err)
+			}
+			existingSecret.Data["database-salt"] = []byte(salt)
+			needsUpdate = true
+		}
+
 		originalLabels := make(map[string]string, len(existingSecret.Labels))
 		maps.Copy(originalLabels, existingSecret.Labels)
 		r.applyLabels(&existingSecret.ObjectMeta, params)
@@ -962,6 +973,12 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 		return result, nil, fmt.Errorf("failed to generate random password: %w", err)
 	}
 
+	salt, err := utils.RandBytes(16)
+	if err != nil {
+		log.Error(err, "Failed to generate random salt for new secret", "secret", secretName)
+		return result, nil, fmt.Errorf("failed to generate random salt: %w", err)
+	}
+
 	newSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
@@ -971,6 +988,7 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 			"database-name":     []byte(config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase)),
 			"database-user":     []byte(config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser)),
 			"database-password": []byte(password),
+			"database-salt":     []byte(salt),
 		},
 	}
 

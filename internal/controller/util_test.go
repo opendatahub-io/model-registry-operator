@@ -46,5 +46,44 @@ var _ = Describe("util functions", func() {
 			Expect(hash2).To(Not(BeEmpty()))
 			Expect(hash1).To(Not(Equal(hash2)))
 		})
+
+		It("should alter the HMAC hash for identical payload data when database-salt is specified or changed", func() {
+			payload1 := map[string][]byte{
+				"database-name":     []byte("mydb"),
+				"database-user":     []byte("myuser"),
+				"database-password": []byte("mypassword"),
+			}
+			payload2 := map[string][]byte{
+				"database-name":     []byte("mydb"),
+				"database-user":     []byte("myuser"),
+				"database-password": []byte("mypassword"),
+				"database-salt":     []byte("salt-value-1"),
+			}
+			payload3 := map[string][]byte{
+				"database-name":     []byte("mydb"),
+				"database-user":     []byte("myuser"),
+				"database-password": []byte("mypassword"),
+				"database-salt":     []byte("salt-value-2"),
+			}
+
+			hash1 := computeSecretDataHash(payload1)
+			hash2 := computeSecretDataHash(payload2)
+			hash3 := computeSecretDataHash(payload3)
+
+			Expect(hash1).To(Not(BeEmpty()))
+			Expect(hash2).To(Not(BeEmpty()))
+			Expect(hash3).To(Not(BeEmpty()))
+
+			Expect(hash1).To(Not(Equal(hash2)))
+			Expect(hash2).To(Not(Equal(hash3)))
+			Expect(hash1).To(Not(Equal(hash3)))
+		})
+
+		It("should return empty string when data contains only database-salt", func() {
+			data := map[string][]byte{
+				"database-salt": []byte("salt-value"),
+			}
+			Expect(computeSecretDataHash(data)).To(Equal(""))
+		})
 	})
 })

@@ -128,6 +128,7 @@ var _ = Describe("Catalog controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(secret.Data).To(HaveKey("database-password"))
+			Expect(secret.Data).To(HaveKey("database-salt"))
 			Expect(secret.OwnerReferences).To(HaveLen(1))
 			Expect(secret.OwnerReferences[0].Kind).To(Equal("Catalog"))
 
@@ -501,6 +502,46 @@ var _ = Describe("Catalog controller", func() {
 			updatedPgDep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, updatedPgDep)).To(Succeed())
 			Expect(updatedPgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]).To(Equal(newHash))
+		})
+
+		It("Should add missing database-salt to existing secret during reconciliation", func() {
+			By("Pre-creating a postgres secret missing database-salt")
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-catalog-postgres",
+					Namespace: namespaceName,
+				},
+				Data: map[string][]byte{
+					"database-name":     []byte("catalog"),
+					"database-user":     []byte("catalog"),
+					"database-password": []byte("existingpassword"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, existingSecret)).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying secret now contains database-salt")
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)).To(Succeed())
+			Expect(secret.Data).To(HaveKey("database-salt"))
+			Expect(secret.Data["database-salt"]).To(Not(BeEmpty()))
+			Expect(string(secret.Data["database-password"])).To(Equal("existingpassword"))
 		})
 	})
 })
