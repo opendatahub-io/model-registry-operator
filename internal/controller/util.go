@@ -14,7 +14,10 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -218,4 +221,24 @@ func (r *ResourceManager) CreateIfNotExists(ctx context.Context, currObj client.
 		return result, err
 	}
 	return result, nil
+}
+
+// computeSecretDataHash returns a deterministic hex-encoded SHA-256 hash of a secret's data map.
+// If data is empty or nil, it returns an empty string.
+func computeSecretDataHash(data map[string][]byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	hasher := sha256.New()
+	for _, k := range keys {
+		hasher.Write([]byte(k))
+		hasher.Write(data[k])
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
 }
