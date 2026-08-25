@@ -100,6 +100,7 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 			&corev1.PersistentVolumeClaim{}: objOptions,
 			&corev1.ServiceAccount{}:        objOptions,
 			&corev1.Service{}:               objOptions,
+			&corev1.Secret{}:                objOptions,
 			&networkingv1.NetworkPolicy{}:   objOptions,
 			&rbacv1.ClusterRoleBinding{}:    objOptions,
 			&rbacv1.RoleBinding{}:           objOptions,
