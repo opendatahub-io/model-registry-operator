@@ -27,6 +27,9 @@ spec:
         app.kubernetes.io/name: {{.Name}}
       annotations:
         openshift.io/required-scc: restricted-v2
+        {{- if .PostgresSecretHash}}
+        modelregistry.opendatahub.io/postgres-secret-hash: "{{.PostgresSecretHash}}"
+        {{- end}}
     spec:
       securityContext:
         seccompProfile:

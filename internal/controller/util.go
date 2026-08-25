@@ -14,7 +14,11 @@ package controller
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -218,4 +222,37 @@ func (r *ResourceManager) CreateIfNotExists(ctx context.Context, currObj client.
 		return result, err
 	}
 	return result, nil
+}
+
+// computeSecretDataHash returns a deterministic hex-encoded HMAC-SHA-256 hash of a secret's data map
+// using a domain-separated key or per-secret salt to mitigate CWE-200 offline dictionary attacks.
+// If data is empty or nil (or contains only database-salt), it returns an empty string.
+func computeSecretDataHash(data map[string][]byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	salt := data["database-salt"]
+	if len(salt) == 0 {
+		salt = []byte("modelregistry.opendatahub.io/postgres-secret-hash")
+	}
+
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		if k == "database-salt" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+
+	mac := hmac.New(sha256.New, salt)
+	for _, k := range keys {
+		mac.Write([]byte(k))
+		mac.Write(data[k])
+	}
+	return hex.EncodeToString(mac.Sum(nil))
 }

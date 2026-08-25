@@ -113,6 +113,8 @@ var _ = Describe("Catalog controller", func() {
 			Expect(dep.OwnerReferences).To(HaveLen(1))
 			Expect(dep.OwnerReferences[0].Kind).To(Equal("Catalog"))
 			Expect(dep.OwnerReferences[0].Name).To(Equal("catalog"))
+			catHash := dep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(catHash).To(Not(BeEmpty()))
 
 			By("Checking created catalog Service")
 			svc := &corev1.Service{}
@@ -126,6 +128,7 @@ var _ = Describe("Catalog controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(secret.Data).To(HaveKey("database-password"))
+			Expect(secret.Data).To(HaveKey("database-salt"))
 			Expect(secret.OwnerReferences).To(HaveLen(1))
 			Expect(secret.OwnerReferences[0].Kind).To(Equal("Catalog"))
 
@@ -135,6 +138,8 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(pgDep.OwnerReferences).To(HaveLen(1))
 			Expect(pgDep.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			pgHash := pgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(pgHash).To(Equal(catHash))
 
 			By("Checking created postgres Service")
 			pgSvc := &corev1.Service{}
@@ -156,6 +161,14 @@ var _ = Describe("Catalog controller", func() {
 			cm := &corev1.ConfigMap{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-kube-rbac-proxy-config", Namespace: namespaceName}, cm)
 			Expect(err).To(Not(HaveOccurred()))
+
+			By("Checking created user-sources ConfigMaps and verifying no owner references")
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				userCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, userCM)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userCM.OwnerReferences).To(BeEmpty())
+			}
 
 			crb := &rbac.ClusterRoleBinding{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-auth-delegator"}, crb)
@@ -420,6 +433,253 @@ var _ = Describe("Catalog controller", func() {
 			By("Verifying the admin RoleBinding was deleted")
 			err = k8sClient.Get(ctx, rbName, &rb)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("Should update secret hash annotation on deployments when secret is updated", func() {
+			By("Creating a labeled source ConfigMap")
+			labeledCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "custom-source",
+					Namespace: namespaceName,
+					Labels: map[string]string{
+						catalogSourceLabel: "true",
+					},
+				},
+				Data: map[string]string{
+					sourcesFileName: "catalogs: []",
+				},
+			}
+			Expect(k8sClient.Create(ctx, labeledCM)).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Creating Catalog CR")
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Getting initial deployments and checking secret hash annotation and labeled source volume")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			initialHash := dep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(initialHash).To(Not(BeEmpty()))
+
+			var labeledVol *corev1.Volume
+			for i, v := range dep.Spec.Template.Spec.Volumes {
+				if v.Name == "labeled-custom-source" {
+					labeledVol = &dep.Spec.Template.Spec.Volumes[i]
+					break
+				}
+			}
+			Expect(labeledVol).To(Not(BeNil()))
+			Expect(labeledVol.ConfigMap).To(Not(BeNil()))
+
+			pgDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, pgDep)).To(Succeed())
+			Expect(pgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]).To(Equal(initialHash))
+
+			By("Updating postgres Secret password")
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)).To(Succeed())
+			secret.Data["database-password"] = []byte("updated-secret-password-12345")
+			Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+
+			By("Reconciling after secret update")
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Checking updated deployments receive new secret hash annotation")
+			updatedDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, updatedDep)).To(Succeed())
+			newHash := updatedDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
+			Expect(newHash).To(Not(BeEmpty()))
+			Expect(newHash).To(Not(Equal(initialHash)))
+
+			updatedPgDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, updatedPgDep)).To(Succeed())
+			Expect(updatedPgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]).To(Equal(newHash))
+		})
+
+		It("Should add missing database-salt to existing secret during reconciliation", func() {
+			By("Pre-creating a postgres secret missing database-salt")
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-catalog-postgres",
+					Namespace: namespaceName,
+				},
+				Data: map[string][]byte{
+					"database-name":     []byte("catalog"),
+					"database-user":     []byte("catalog"),
+					"database-password": []byte("existingpassword"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, existingSecret)).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying secret now contains database-salt")
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)).To(Succeed())
+			Expect(secret.Data).To(HaveKey("database-salt"))
+			Expect(secret.Data["database-salt"]).To(Not(BeEmpty()))
+			Expect(string(secret.Data["database-password"])).To(Equal("existingpassword"))
+		})
+
+		It("Should populate database-salt when existing secret has empty database-salt during reconciliation", func() {
+			By("Pre-creating a postgres secret with empty database-salt")
+			existingSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-catalog-postgres",
+					Namespace: namespaceName,
+				},
+				Data: map[string][]byte{
+					"database-name":     []byte("catalog"),
+					"database-user":     []byte("catalog"),
+					"database-password": []byte("existingpassword"),
+					"database-salt":     []byte(""),
+				},
+			}
+			Expect(k8sClient.Create(ctx, existingSecret)).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying secret now contains populated database-salt")
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, secret)).To(Succeed())
+			Expect(secret.Data).To(HaveKey("database-salt"))
+			Expect(secret.Data["database-salt"]).To(Not(BeEmpty()))
+			Expect(string(secret.Data["database-password"])).To(Equal("existingpassword"))
+		})
+
+		It("Should recreate user-sources ConfigMaps with empty owner references if deleted", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Creating Catalog CR")
+			err := k8sClient.Create(ctx, catalog)
+			Expect(err).To(Not(HaveOccurred()))
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Deleting one of the user-sources ConfigMaps")
+			cmToDelete := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				},
+			}
+			err = k8sClient.Delete(ctx, cmToDelete)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Reconciling again")
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the ConfigMap was recreated with empty OwnerReferences")
+			recreatedCM := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-sources", Namespace: namespaceName}, recreatedCM)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(recreatedCM.OwnerReferences).To(BeEmpty())
+		})
+
+		It("Should retain pre-existing user-sources ConfigMaps data without adding owner references", func() {
+			By("Pre-creating user-sources ConfigMaps without owner references and with custom data")
+			customData := map[string]string{
+				"sources.yaml": "catalogs:\n  - name: custom-source\n    type: yaml\n",
+			}
+
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				preExistingCM := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cmName,
+						Namespace: namespaceName,
+					},
+					Data: customData,
+				}
+				err := k8sClient.Create(ctx, preExistingCM)
+				Expect(err).To(Not(HaveOccurred()))
+			}
+
+			By("Creating Catalog CR and reconciling")
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			err := k8sClient.Create(ctx, catalog)
+			Expect(err).To(Not(HaveOccurred()))
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying that pre-existing user-sources ConfigMaps retain custom data and do not get owner references added")
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				adoptedCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, adoptedCM)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(adoptedCM.OwnerReferences).To(BeEmpty())
+				Expect(adoptedCM.Data).To(Equal(customData))
+			}
 		})
 	})
 })

@@ -103,6 +103,7 @@ type CatalogParams struct {
 	GatewayName             string
 	GatewayNamespace        string
 	HTTPRouteNamespace      string
+	PostgresSecretHash      string
 }
 
 func (r *CatalogReconciler) createPostgresParams(catalog *catalogv1alpha1.Catalog) *CatalogParams {
@@ -242,17 +243,40 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	}
 
 	catalogParams := r.buildCatalogParams(catalog, adminGroups, labeledSources)
+	postgresParams := r.createPostgresParams(catalog)
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 
+	result := ResourceUnchanged
+
+	if !r.SkipCatalogDBCreation {
+		res, pgSecret, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if res != ResourceUnchanged {
+			result = res
+		}
+		if pgSecret != nil {
+			hash := computeSecretDataHash(pgSecret.Data)
+			catalogParams.PostgresSecretHash = hash
+			postgresParams.PostgresSecretHash = hash
+		}
+	} else {
+		log.Info("Skipping catalog DB creation as configured")
+	}
+
 	// Create or update ServiceAccount
-	result, err := r.createOrUpdateServiceAccount(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", crOwner)
+	result2, err := r.createOrUpdateServiceAccount(ctx, catalogParams, "catalog-serviceaccount.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
 
 	// Create or update the managed default sources ConfigMap
-	result2, err := r.createOrUpdateConfigmap(ctx, catalogParams, "catalog-default-configmap.yaml.tmpl", crOwner)
+	result2, err = r.createOrUpdateConfigmap(ctx, catalogParams, "catalog-default-configmap.yaml.tmpl", crOwner)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -349,8 +373,6 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		result = result2
 	}
 
-	postgresParams := r.createPostgresParams(catalog)
-
 	// Delete legacy postgres PVC if present
 	var oldPVC corev1.PersistentVolumeClaim
 	err = r.Get(ctx, types.NamespacedName{Name: catalogPostgresComponent, Namespace: catalog.Namespace}, &oldPVC)
@@ -364,15 +386,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 
 	// Create PostgreSQL resources only if not skipping DB creation
 	if !r.SkipCatalogDBCreation {
-		result2, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if result2 != ResourceUnchanged {
-			result = result2
-		}
-
-		result2, _, err = r.createOrUpdateDeployment(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", crOwner)
+		result2, _, err := r.createOrUpdateDeployment(ctx, postgresParams, "catalog-postgres-deployment.yaml.tmpl", crOwner)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -857,7 +871,7 @@ func (r *CatalogReconciler) createOrUpdateRoleBinding(ctx context.Context, param
 	return r.createOrUpdate(ctx, &rbac.RoleBinding{}, &rb)
 }
 
-func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *CatalogParams, owner *metav1.OwnerReference) (OperationResult, error) {
+func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, params *CatalogParams, owner *metav1.OwnerReference) (OperationResult, *corev1.Secret, error) {
 	log := klog.FromContext(ctx)
 	result := ResourceUnchanged
 
@@ -884,21 +898,32 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 		}
 
 		for key, defaultValue := range requiredKeys {
-			if _, exists := existingSecret.Data[key]; !exists {
+			if len(existingSecret.Data[key]) == 0 {
 				log.Info("Adding missing key to existing secret", "secret", secretName, "key", key)
 				existingSecret.Data[key] = []byte(defaultValue)
 				needsUpdate = true
 			}
 		}
 
-		if _, exists := existingSecret.Data["database-password"]; !exists {
+		if len(existingSecret.Data["database-password"]) == 0 {
 			log.Info("Generating missing password for existing secret", "secret", secretName)
 			password, err := utils.RandBytes(16)
 			if err != nil {
 				log.Error(err, "Failed to generate random password for secret", "secret", secretName)
-				return result, fmt.Errorf("failed to generate random password: %w", err)
+				return result, nil, fmt.Errorf("failed to generate random password: %w", err)
 			}
 			existingSecret.Data["database-password"] = []byte(password)
+			needsUpdate = true
+		}
+
+		if len(existingSecret.Data["database-salt"]) == 0 {
+			log.Info("Generating missing salt for existing secret", "secret", secretName)
+			salt, err := utils.RandBytes(16)
+			if err != nil {
+				log.Error(err, "Failed to generate random salt for secret", "secret", secretName)
+				return result, nil, fmt.Errorf("failed to generate random salt: %w", err)
+			}
+			existingSecret.Data["database-salt"] = []byte(salt)
 			needsUpdate = true
 		}
 
@@ -927,17 +952,17 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 		if needsUpdate {
 			if err := r.Update(ctx, existingSecret); err != nil {
 				log.Error(err, "Failed to update existing secret", "secret", secretName)
-				return result, err
+				return result, nil, err
 			}
 			log.Info("Successfully reconciled existing secret", "secret", secretName)
-			return ResourceUpdated, nil
+			return ResourceUpdated, existingSecret, nil
 		}
 
-		return ResourceUnchanged, nil
+		return ResourceUnchanged, existingSecret, nil
 	}
 
 	if !apierrors.IsNotFound(err) {
-		return result, err
+		return result, nil, err
 	}
 
 	log.Info("Creating postgres secret with random password", "secret", secretName)
@@ -945,7 +970,13 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 	password, err := utils.RandBytes(16)
 	if err != nil {
 		log.Error(err, "Failed to generate random password for new secret", "secret", secretName)
-		return result, fmt.Errorf("failed to generate random password: %w", err)
+		return result, nil, fmt.Errorf("failed to generate random password: %w", err)
+	}
+
+	salt, err := utils.RandBytes(16)
+	if err != nil {
+		log.Error(err, "Failed to generate random salt for new secret", "secret", secretName)
+		return result, nil, fmt.Errorf("failed to generate random salt: %w", err)
 	}
 
 	newSecret := &corev1.Secret{
@@ -953,17 +984,22 @@ func (r *CatalogReconciler) createOrUpdatePostgresSecret(ctx context.Context, pa
 			Name:      secretName,
 			Namespace: params.Namespace,
 		},
-		StringData: map[string]string{
-			"database-name":     config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
-			"database-user":     config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
-			"database-password": password,
+		Data: map[string][]byte{
+			"database-name":     []byte(config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase)),
+			"database-user":     []byte(config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser)),
+			"database-password": []byte(password),
+			"database-salt":     []byte(salt),
 		},
 	}
 
 	r.applyLabels(&newSecret.ObjectMeta, params)
 	r.applyOwnerReference(&newSecret.ObjectMeta, owner)
 
-	return r.createOrUpdate(ctx, &corev1.Secret{}, newSecret)
+	res, err := r.createOrUpdate(ctx, &corev1.Secret{}, newSecret)
+	if err != nil {
+		return res, nil, err
+	}
+	return res, newSecret, nil
 }
 
 // fetchAuthConfig retrieves admin groups from the cluster-scoped Auth CR.
@@ -1172,6 +1208,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName             string
 		GatewayNamespace        string
 		HTTPRouteNamespace      string
+		PostgresSecretHash      string
 	}{
 		Name:                    params.Name,
 		Namespace:               params.Namespace,
@@ -1189,6 +1226,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName:             params.GatewayName,
 		GatewayNamespace:        params.GatewayNamespace,
 		HTTPRouteNamespace:      params.HTTPRouteNamespace,
+		PostgresSecretHash:      params.PostgresSecretHash,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -1327,12 +1365,6 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 
-	b = b.Watches(
-		&corev1.ConfigMap{},
-		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
-		builder.WithPredicates(catalogSourceLabels),
-	)
-
 	labelsPredicate, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -1345,6 +1377,13 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
+
+	b = b.Watches(
+		&corev1.ConfigMap{},
+		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
+		builder.WithPredicates(predicate.Or(catalogSourceLabels, labelsPredicate)),
+	)
+
 	b = b.Watches(
 		&rbac.ClusterRoleBinding{},
 		handler.EnqueueRequestsFromMapFunc(r.GetCatalogForClusterRoleBinding),
