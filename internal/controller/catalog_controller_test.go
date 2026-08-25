@@ -162,6 +162,14 @@ var _ = Describe("Catalog controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-kube-rbac-proxy-config", Namespace: namespaceName}, cm)
 			Expect(err).To(Not(HaveOccurred()))
 
+			By("Checking created user-sources ConfigMaps and verifying no owner references")
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				userCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, userCM)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(userCM.OwnerReferences).To(BeEmpty())
+			}
+
 			crb := &rbac.ClusterRoleBinding{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-auth-delegator"}, crb)
 			Expect(err).To(Not(HaveOccurred()))
@@ -583,6 +591,95 @@ var _ = Describe("Catalog controller", func() {
 			Expect(secret.Data).To(HaveKey("database-salt"))
 			Expect(secret.Data["database-salt"]).To(Not(BeEmpty()))
 			Expect(string(secret.Data["database-password"])).To(Equal("existingpassword"))
+		})
+
+		It("Should recreate user-sources ConfigMaps with empty owner references if deleted", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Creating Catalog CR")
+			err := k8sClient.Create(ctx, catalog)
+			Expect(err).To(Not(HaveOccurred()))
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Deleting one of the user-sources ConfigMaps")
+			cmToDelete := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-catalog-sources",
+					Namespace: namespaceName,
+				},
+			}
+			err = k8sClient.Delete(ctx, cmToDelete)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Reconciling again")
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the ConfigMap was recreated with empty OwnerReferences")
+			recreatedCM := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-sources", Namespace: namespaceName}, recreatedCM)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(recreatedCM.OwnerReferences).To(BeEmpty())
+		})
+
+		It("Should retain pre-existing user-sources ConfigMaps data without adding owner references", func() {
+			By("Pre-creating user-sources ConfigMaps without owner references and with custom data")
+			customData := map[string]string{
+				"sources.yaml": "catalogs:\n  - name: custom-source\n    type: yaml\n",
+			}
+
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				preExistingCM := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      cmName,
+						Namespace: namespaceName,
+					},
+					Data: customData,
+				}
+				err := k8sClient.Create(ctx, preExistingCM)
+				Expect(err).To(Not(HaveOccurred()))
+			}
+
+			By("Creating Catalog CR and reconciling")
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			err := k8sClient.Create(ctx, catalog)
+			Expect(err).To(Not(HaveOccurred()))
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying that pre-existing user-sources ConfigMaps retain custom data and do not get owner references added")
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+				adoptedCM := &corev1.ConfigMap{}
+				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, adoptedCM)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(adoptedCM.OwnerReferences).To(BeEmpty())
+				Expect(adoptedCM.Data).To(Equal(customData))
+			}
 		})
 	})
 })
