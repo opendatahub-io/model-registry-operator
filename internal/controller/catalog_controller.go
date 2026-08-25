@@ -247,7 +247,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 
-	var result OperationResult = ResourceUnchanged
+	result := ResourceUnchanged
 
 	if !r.SkipCatalogDBCreation {
 		res, pgSecret, err := r.createOrUpdatePostgresSecret(ctx, postgresParams, crOwner)
