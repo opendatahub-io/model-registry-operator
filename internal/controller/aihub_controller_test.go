@@ -96,18 +96,18 @@ func TestStampChildOperatorDeployment_MissingContainer(t *testing.T) {
 // Envtest does not register template.openshift.io, so this is a focused unit test.
 func TestStampAsyncUploadTemplate(t *testing.T) {
 	t.Run("stamps JOB_IMAGE", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name": asyncUploadTemplateName,
 			},
-			"parameters": []interface{}{
-				map[string]interface{}{
+			"parameters": []any{
+				map[string]any{
 					"name":  "JOB_IMAGE",
 					"value": "quay.io/opendatahub/model-registry-job-async-upload:latest",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"name":  "OTHER_PARAM",
 					"value": "untouched",
 				},
@@ -120,7 +120,7 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 
 		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
 		for _, raw := range params {
-			p := raw.(map[string]interface{})
+			p := raw.(map[string]any)
 			if p["name"] == "JOB_IMAGE" {
 				if p["value"] != "pinned-image@sha256:abc" {
 					t.Errorf("JOB_IMAGE = %q, want %q", p["value"], "pinned-image@sha256:abc")
@@ -135,10 +135,10 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 	})
 
 	t.Run("no-op when no parameters", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
+			"metadata":   map[string]any{"name": asyncUploadTemplateName},
 		}}
 		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
 			t.Fatal(err)
@@ -146,19 +146,19 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 	})
 
 	t.Run("no-op when JOB_IMAGE absent", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
-			"parameters": []interface{}{
-				map[string]interface{}{"name": "SOMETHING_ELSE", "value": "v1"},
+			"metadata":   map[string]any{"name": asyncUploadTemplateName},
+			"parameters": []any{
+				map[string]any{"name": "SOMETHING_ELSE", "value": "v1"},
 			},
 		}}
 		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
 			t.Fatal(err)
 		}
 		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
-		p := params[0].(map[string]interface{})
+		p := params[0].(map[string]any)
 		if p["value"] != "v1" {
 			t.Errorf("SOMETHING_ELSE value = %q, want %q", p["value"], "v1")
 		}
