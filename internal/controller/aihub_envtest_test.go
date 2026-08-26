@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
@@ -448,8 +449,35 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	assertConditionReason(t, got2, string(common.ConditionTypeDegraded), "GatewayDomainUnavailable")
 
 	// --- Deletion / finalizer teardown ---
-	// --- Deletion / finalizer teardown ---
 	t.Run("deletion/finalizer", func(t *testing.T) {
+		// Simulate the real-world deadlock this test guards against: the
+		// catalog operator added its finalizer to the Catalog CR at some
+		// point, then its Deployment was removed (e.g. GC'd) before the
+		// Catalog finished deleting. Nothing is left running to clear that
+		// finalizer, so AIHub must take over Catalog finalization itself
+		// rather than wait on it forever.
+		catalogFresh := &catalogv1alpha1.Catalog{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: regNs, Name: catalogCRName,
+		}, catalogFresh); err != nil {
+			t.Fatalf("re-fetching Catalog: %v", err)
+		}
+		if controllerutil.AddFinalizer(catalogFresh, catalogFinalizer) {
+			if err := k8sClient.Update(ctx, catalogFresh); err != nil {
+				t.Fatalf("adding catalogFinalizer to Catalog: %v", err)
+			}
+		}
+
+		catalogOperatorDep := &appsv1.Deployment{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: appNs, Name: catalogDeploymentName,
+		}, catalogOperatorDep); err != nil {
+			t.Fatalf("re-fetching catalog operator Deployment: %v", err)
+		}
+		if err := k8sClient.Delete(ctx, catalogOperatorDep); err != nil {
+			t.Fatalf("deleting catalog operator Deployment: %v", err)
+		}
+
 		// Re-fetch to get latest resourceVersion.
 		fresh := &aihubv1alpha1.AIHub{}
 		if err := k8sClient.Get(ctx, req.NamespacedName, fresh); err != nil {
@@ -459,7 +487,10 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			t.Fatalf("deleting AIHub: %v", err)
 		}
 
-		// Bounded reconcile loop to drain ordered teardown.
+		// Bounded reconcile loop to drain ordered teardown. With the catalog
+		// operator gone and the Catalog CR's finalizer stuck, this only
+		// completes if AIHub takes over Catalog finalization (see
+		// cleanupOnDelete/takeOverCatalogFinalization).
 		const maxIter = 10
 		for i := range maxIter {
 			_, err := r.Reconcile(ctx, req)
@@ -474,7 +505,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		t.Fatalf("AIHub not removed after %d reconcile iterations", maxIter)
+		t.Fatalf("AIHub not removed after %d reconcile iterations (catalog operator gone + stuck finalizer must not deadlock teardown)", maxIter)
 	})
 }
 

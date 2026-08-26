@@ -29,6 +29,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/fields"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
@@ -75,6 +77,15 @@ const (
 	// application namespace).
 	platformVersionConfigMap    = "odh-modelregistry-config"
 	platformVersionConfigMapKey = "platformVersion"
+
+	// Fixed names of the catalog resources that are NOT owner-referenced to
+	// the Catalog CR (so they are not garbage-collected with it) and must be
+	// deleted explicitly when AIHub takes over Catalog finalization. Mirrors
+	// CatalogReconciler.finalizeCatalog / cleanupKubeRBACProxyConfig, which
+	// derive these from catalogResourceName ("model-catalog") via templates.
+	catalogHTTPRouteName          = catalogResourceName
+	catalogAuthDelegatorCRBName   = catalogResourceName + "-auth-delegator"
+	catalogKubeRBACProxyConfigMap = catalogResourceName + "-kube-rbac-proxy-config"
 )
 
 // clusterScopedKinds lists the kinds whose metadata.namespace must be cleared
@@ -456,9 +467,14 @@ func (r *AIHubReconciler) reconcileIncompatibleSelectors(ctx context.Context, re
 // cleanupOnDelete performs ordered teardown before the AIHub finalizer is
 // released. It deletes the singleton Catalog CR first and waits for it to be
 // fully removed, so the catalog operator (when present) can finalize its
-// operands before its own Deployment is GC'd by owner-reference cleanup.
-// When no catalog operator exists the Catalog has no finalizer and disappears
-// immediately. Returns (true, nil) when cleanup is complete.
+// operands before its own Deployment is GC'd by owner-reference cleanup. When
+// no catalog operator ever existed the Catalog has no finalizer and
+// disappears immediately. If the catalog operator existed, added its
+// finalizer, and was then removed (e.g. GC'd) before the Catalog finished
+// deleting, nothing is left to clear that finalizer — so this also detects
+// that stuck case and has AIHub take over Catalog finalization itself
+// (takeOverCatalogFinalization) rather than wait forever. Returns (true, nil)
+// when cleanup is complete.
 func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alpha1.AIHub) (bool, error) {
 	log := klog.FromContext(ctx)
 
@@ -485,9 +501,127 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 		if err := r.Delete(ctx, cat); err != nil && !apierrors.IsNotFound(err) {
 			return false, fmt.Errorf("deleting Catalog: %w", err)
 		}
+		// Re-fetch so the finalizer check below observes the server-set
+		// DeletionTimestamp/finalizers rather than the pre-delete copy. If the
+		// Catalog is already gone (no finalizer was ever added), there is
+		// nothing to take over; fall through and report not-done anyway — the
+		// next reconcile's Get at the top of this function will observe
+		// NotFound and report done. This preserves a stable two-pass contract
+		// for the deletion path regardless of how quickly the Catalog clears.
+		if err := r.Get(ctx, key, cat); err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting Catalog after delete: %w", err)
+		}
 	}
+
+	// The Catalog is deleting but still present. If it is blocked only on the
+	// catalog operator's own finalizer and that operator is no longer running
+	// to remove it, take over finalization here to avoid a permanent teardown
+	// deadlock.
+	if controllerutil.ContainsFinalizer(cat, catalogFinalizer) {
+		canFinalize, err := r.catalogOperatorCanFinalize(ctx, aihub.Spec.ApplicationNamespace)
+		if err != nil {
+			return false, err
+		}
+		if !canFinalize {
+			if err := r.takeOverCatalogFinalization(ctx, aihub, cat); err != nil {
+				return false, err
+			}
+		}
+	}
+
 	// Still present (deletion in progress / finalizer pending) → not done.
 	return false, nil
+}
+
+// catalogOperatorCanFinalize reports whether the catalog-controller-manager
+// Deployment is present and Available, i.e. whether the CatalogReconciler is
+// running and can be trusted to remove its own finalizer from the Catalog CR.
+// Used only from the AIHub delete branch to decide whether AIHub must take
+// over Catalog finalization itself.
+func (r *AIHubReconciler) catalogOperatorCanFinalize(ctx context.Context, applicationNamespace string) (bool, error) {
+	dep := &appsv1.Deployment{}
+	key := types.NamespacedName{Namespace: applicationNamespace, Name: catalogDeploymentName}
+	if err := r.Get(ctx, key, dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil // Operator gone; it cannot finalize.
+		}
+		return false, fmt.Errorf("getting catalog operator deployment %s: %w", key, err)
+	}
+	return isDeploymentAvailable(dep), nil
+}
+
+// takeOverCatalogFinalization performs the cleanup normally done by
+// CatalogReconciler.finalizeCatalog and then removes the stuck catalog
+// finalizer, so the Catalog CR (and the operands still owner-referenced to
+// it) can finish being garbage-collected. Only called once the catalog
+// operator has been confirmed absent/unavailable, so this never races a
+// live operator; every action here is idempotent with finalizeCatalog
+// (NotFound/NoMatch-tolerant deletes, no-op RemoveFinalizer), so re-running
+// it on a later requeue is safe.
+func (r *AIHubReconciler) takeOverCatalogFinalization(ctx context.Context, aihub *aihubv1alpha1.AIHub, cat *catalogv1alpha1.Catalog) error {
+	log := klog.FromContext(ctx)
+	log.Info("catalog operator unavailable, taking over Catalog finalization",
+		"namespace", cat.Namespace, "name", cat.Name)
+
+	instancesNs := cat.Namespace
+	appNs := aihub.Spec.ApplicationNamespace
+
+	// The gateway HTTPRoute and the kube-rbac-proxy auth-delegator
+	// ClusterRoleBinding are not owner-referenced to the Catalog CR (see
+	// CatalogReconciler.finalizeCatalog/cleanupKubeRBACProxyConfig), so they
+	// must be deleted explicitly. The shared "allow-gateway-httproutes"
+	// ReferenceGrant is intentionally left alone, matching finalizeCatalog.
+	httpRoute := &gatewayapiv1.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{Name: catalogHTTPRouteName, Namespace: appNs},
+	}
+	if err := r.deleteIgnoringMissing(ctx, httpRoute); err != nil {
+		return fmt.Errorf("deleting catalog HTTPRoute: %w", err)
+	}
+
+	crb := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{Name: catalogAuthDelegatorCRBName},
+	}
+	if err := r.deleteIgnoringMissing(ctx, crb); err != nil {
+		return fmt.Errorf("deleting catalog auth-delegator ClusterRoleBinding: %w", err)
+	}
+
+	// The kube-rbac-proxy config ConfigMap is owner-referenced to the Catalog
+	// (so it is also GC'd once the finalizer clears below), but it is deleted
+	// explicitly here too for parity with finalizeCatalog.
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: catalogKubeRBACProxyConfigMap, Namespace: instancesNs},
+	}
+	if err := r.deleteIgnoringMissing(ctx, cm); err != nil {
+		return fmt.Errorf("deleting catalog kube-rbac-proxy ConfigMap: %w", err)
+	}
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &catalogv1alpha1.Catalog{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: cat.Namespace, Name: cat.Name}, latest); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if !controllerutil.RemoveFinalizer(latest, catalogFinalizer) {
+			return nil // Already removed.
+		}
+		log.Info("removing stuck catalog finalizer", "namespace", latest.Namespace, "name", latest.Name)
+		return r.Update(ctx, latest)
+	})
+}
+
+// deleteIgnoringMissing deletes obj, tolerating NotFound and NoMatch (e.g. the
+// gateway-api CRD not installed in a given cluster/test environment). Mirrors
+// CatalogReconciler.deleteFromTemplate's error handling.
+func (r *AIHubReconciler) deleteIgnoringMissing(ctx context.Context, obj client.Object) error {
+	if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+		return err
+	}
+	return nil
 }
 
 // updateStatus sets release info, sorts conditions, derives phase from
