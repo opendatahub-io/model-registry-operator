@@ -96,18 +96,18 @@ func TestStampChildOperatorDeployment_MissingContainer(t *testing.T) {
 // Envtest does not register template.openshift.io, so this is a focused unit test.
 func TestStampAsyncUploadTemplate(t *testing.T) {
 	t.Run("stamps JOB_IMAGE", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata": map[string]interface{}{
+			"metadata": map[string]any{
 				"name": asyncUploadTemplateName,
 			},
-			"parameters": []interface{}{
-				map[string]interface{}{
+			"parameters": []any{
+				map[string]any{
 					"name":  "JOB_IMAGE",
 					"value": "quay.io/opendatahub/model-registry-job-async-upload:latest",
 				},
-				map[string]interface{}{
+				map[string]any{
 					"name":  "OTHER_PARAM",
 					"value": "untouched",
 				},
@@ -120,7 +120,7 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 
 		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
 		for _, raw := range params {
-			p := raw.(map[string]interface{})
+			p := raw.(map[string]any)
 			if p["name"] == "JOB_IMAGE" {
 				if p["value"] != "pinned-image@sha256:abc" {
 					t.Errorf("JOB_IMAGE = %q, want %q", p["value"], "pinned-image@sha256:abc")
@@ -135,10 +135,10 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 	})
 
 	t.Run("no-op when no parameters", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
+			"metadata":   map[string]any{"name": asyncUploadTemplateName},
 		}}
 		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
 			t.Fatal(err)
@@ -146,19 +146,19 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 	})
 
 	t.Run("no-op when JOB_IMAGE absent", func(t *testing.T) {
-		u := &unstructured.Unstructured{Object: map[string]interface{}{
+		u := &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": "template.openshift.io/v1",
 			"kind":       "Template",
-			"metadata":   map[string]interface{}{"name": asyncUploadTemplateName},
-			"parameters": []interface{}{
-				map[string]interface{}{"name": "SOMETHING_ELSE", "value": "v1"},
+			"metadata":   map[string]any{"name": asyncUploadTemplateName},
+			"parameters": []any{
+				map[string]any{"name": "SOMETHING_ELSE", "value": "v1"},
 			},
 		}}
 		if err := stampAsyncUploadTemplate(u, "some-image"); err != nil {
 			t.Fatal(err)
 		}
 		params, _, _ := unstructured.NestedSlice(u.Object, "parameters")
-		p := params[0].(map[string]interface{})
+		p := params[0].(map[string]any)
 		if p["value"] != "v1" {
 			t.Errorf("SOMETHING_ELSE value = %q, want %q", p["value"], "v1")
 		}
@@ -459,6 +459,70 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	}
 	if result2.RequeueAfter == 0 {
 		t.Error("expected RequeueAfter > 0 on second reconcile (child Deployment still not created)")
+	}
+}
+
+// --- Selector migration guard tests ---
+
+// TestReconcileIncompatibleSelectors_NoDesiredMatchLabels verifies that a
+// rendered Deployment lacking spec.selector.matchLabels (absent, or expressed
+// only via matchExpressions) is never treated as a selector mismatch. Without
+// this guard, the empty desired selector compares unequal to any populated
+// live selector via maps.Equal, and the live Deployment is deleted on every
+// reconcile even though there is nothing to migrate.
+func TestReconcileIncompatibleSelectors_NoDesiredMatchLabels(t *testing.T) {
+	s := testScheme(t)
+	ns := "no-match-labels-ns"
+
+	live := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-deployment", Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "some-deployment"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "some-deployment"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "img"}}},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(live).Build()
+	reconciler := &AIHubReconciler{Client: fakeClient, Scheme: s, APIReader: fakeClient}
+
+	// The rendered/desired resource expresses its selector via
+	// matchExpressions only, so matchLabels is absent.
+	desired := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      "some-deployment",
+				"namespace": ns,
+			},
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchExpressions": []any{
+						map[string]any{
+							"key":      "app",
+							"operator": "Exists",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	pending, err := reconciler.reconcileIncompatibleSelectors(ctx, []unstructured.Unstructured{desired})
+	if err != nil {
+		t.Fatalf("reconcileIncompatibleSelectors returned error: %v", err)
+	}
+	if pending {
+		t.Error("expected pending=false: an empty desired selector must never trigger a delete")
+	}
+
+	got := &appsv1.Deployment{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "some-deployment"}, got); err != nil {
+		t.Fatalf("live Deployment was deleted even though the desired selector was empty: %v", err)
 	}
 }
 

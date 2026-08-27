@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -242,6 +243,30 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
+	// 5.5. Delete any child Deployment whose live spec.selector is incompatible with
+	// the rendered manifest. spec.selector is immutable, so upgrading from the legacy
+	// single-operator install (which stamped extra platform labels into the selector)
+	// requires recreating the Deployment rather than patching it.
+	if pending, err := r.reconcileIncompatibleSelectors(ctx, resources); err != nil {
+		condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),
+			conditions.WithReason("SelectorMigrationFailed"),
+			conditions.WithMessage("%s", err.Error()))
+		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityError),
+			conditions.WithReason("ProvisioningFailed"),
+			conditions.WithMessage("%s", err.Error()))
+		_ = r.updateStatus(ctx, aihub, condMgr)
+		return ctrl.Result{}, fmt.Errorf("recreating child deployment with incompatible selector: %w", err)
+	} else if pending {
+		condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),
+			conditions.WithReason("RecreatingDeployment"),
+			conditions.WithMessage("recreating child Deployment to migrate an immutable selector"))
+		if sErr := r.updateStatus(ctx, aihub, condMgr); sErr != nil {
+			return ctrl.Result{}, sErr
+		}
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
 	// 6. Apply all rendered resources via the Deployer (SSA, CRD-first ordering).
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
@@ -331,6 +356,101 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	log.Info("AIHub reconciliation complete")
 	return ctrl.Result{}, nil
+}
+
+// reconcileIncompatibleSelectors deletes any live child Deployment whose immutable
+// spec.selector.matchLabels differs from the rendered manifest's selector. This
+// covers upgrading from the legacy single-operator install, which stamped extra
+// platform labels (app.kubernetes.io/part-of, app.opendatahub.io/model-registry-operator)
+// into the selector that the current manifests no longer include. Since
+// spec.selector is immutable, the only way to converge on the canonical selector
+// is to delete the Deployment and let the Deployer recreate it on a later
+// reconcile.
+//
+// Post-migration Deployments carry the manager's part-of label and are served
+// from the cache, so the common case (steady state, nothing to migrate) costs
+// no apiserver round trip. Legacy Deployments live outside that label-scoped
+// cache, so a cached Get reports NotFound for them; on that miss we fall back
+// to the uncached APIReader to find them, since skipping the check would leave
+// the Deployer's apply to fail server-side.
+//
+// Returns pending=true when a delete was just issued or one is still propagating,
+// signaling the caller to requeue rather than call the Deployer this round.
+func (r *AIHubReconciler) reconcileIncompatibleSelectors(ctx context.Context, resources []unstructured.Unstructured) (pending bool, err error) {
+	fallbackReader := r.APIReader
+	if fallbackReader == nil {
+		fallbackReader = r.Client
+	}
+	log := klog.FromContext(ctx)
+
+	for i := range resources {
+		if resources[i].GetKind() != "Deployment" {
+			continue
+		}
+
+		desiredSelector, found, err := unstructured.NestedStringMap(resources[i].Object, "spec", "selector", "matchLabels")
+		if err != nil {
+			return false, fmt.Errorf("reading desired selector for %s: %w", resources[i].GetName(), err)
+		}
+		// No rendered matchLabels (absent, or expressed via matchExpressions):
+		// nothing to compare, so never treat it as a mismatch.
+		if !found || len(desiredSelector) == 0 {
+			continue
+		}
+
+		key := types.NamespacedName{Namespace: resources[i].GetNamespace(), Name: resources[i].GetName()}
+		live := &appsv1.Deployment{}
+		if err := r.Get(ctx, key, live); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return false, fmt.Errorf("getting live deployment %s: %w", key, err)
+			}
+			// Not in the cache (e.g. a legacy Deployment missing the part-of
+			// label). Fall back to the uncached reader before concluding it
+			// doesn't exist.
+			if err := fallbackReader.Get(ctx, key, live); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return false, fmt.Errorf("getting live deployment %s: %w", key, err)
+			}
+		}
+
+		if live.DeletionTimestamp != nil {
+			// Deletion already in progress from a prior reconcile; wait for it.
+			pending = true
+			continue
+		}
+
+		// A real Deployment always has spec.selector populated: it is required
+		// and immutable at creation. A nil selector here means the object isn't
+		// a genuine live Deployment (e.g. a test fixture) rather than a real
+		// mismatch, so leave it alone.
+		if live.Spec.Selector == nil {
+			continue
+		}
+
+		if maps.Equal(live.Spec.Selector.MatchLabels, desiredSelector) {
+			continue
+		}
+
+		log.Info("recreating child Deployment with incompatible immutable selector",
+			"deployment", key, "liveSelector", live.Spec.Selector.MatchLabels, "desiredSelector", desiredSelector)
+		// Bind the delete to the exact object observed above via a UID
+		// precondition. Without this, a stale cache read (the manager cache can
+		// lag the apiserver) could delete a Deployment the Deployer already
+		// recreated. A precondition conflict means the observed object is
+		// already gone; treat it as a no-op and let the next reconcile
+		// re-evaluate.
+		if err := r.Delete(ctx, live,
+			client.PropagationPolicy(metav1.DeletePropagationBackground),
+			client.Preconditions{UID: &live.UID},
+		); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
+			return false, fmt.Errorf("deleting deployment %s to migrate selector: %w", key, err)
+		}
+		pending = true
+	}
+
+	return pending, nil
 }
 
 // cleanupOnDelete performs ordered teardown before the AIHub finalizer is
@@ -616,7 +736,7 @@ func stampAsyncUploadTemplate(u *unstructured.Unstructured, image string) error 
 		return err
 	}
 	for i := range params {
-		p, ok := params[i].(map[string]interface{})
+		p, ok := params[i].(map[string]any)
 		if !ok {
 			continue
 		}
