@@ -105,6 +105,7 @@ Operator configuration (see `internal/controller/config/defaults.go`):
 - `DEFAULT_DOMAIN` - Route domain override
 - `ENABLE_MODEL_CATALOG` - Toggle catalog controller
 - Image overrides: `RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE`, `RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE`, `RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE`, `RELATED_IMAGE_POSTGRESQL_16_IMAGE`, `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`, `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, `RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE`
+- The `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE` and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE` defaults also drive the trusted base repo for the Catalog CR's `catalogDataImage`/`benchmarkDataImage` override fields, which accept a sha256 digest or an image tag pinned onto the trusted base repo derived from the default images.
 
 ### Kustomize Layout (`config/`)
 - `config/crd/` — Generated CRD manifests (bases) and patches (webhook CA injection, conversion)
