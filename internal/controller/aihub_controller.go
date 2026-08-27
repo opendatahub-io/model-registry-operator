@@ -388,9 +388,14 @@ func (r *AIHubReconciler) reconcileIncompatibleSelectors(ctx context.Context, re
 			continue
 		}
 
-		desiredSelector, _, err := unstructured.NestedStringMap(resources[i].Object, "spec", "selector", "matchLabels")
+		desiredSelector, found, err := unstructured.NestedStringMap(resources[i].Object, "spec", "selector", "matchLabels")
 		if err != nil {
 			return false, fmt.Errorf("reading desired selector for %s: %w", resources[i].GetName(), err)
+		}
+		// No rendered matchLabels (absent, or expressed via matchExpressions):
+		// nothing to compare, so never treat it as a mismatch.
+		if !found || len(desiredSelector) == 0 {
+			continue
 		}
 
 		key := types.NamespacedName{Namespace: resources[i].GetNamespace(), Name: resources[i].GetName()}
@@ -430,7 +435,16 @@ func (r *AIHubReconciler) reconcileIncompatibleSelectors(ctx context.Context, re
 
 		log.Info("recreating child Deployment with incompatible immutable selector",
 			"deployment", key, "liveSelector", live.Spec.Selector.MatchLabels, "desiredSelector", desiredSelector)
-		if err := r.Delete(ctx, live, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil && !apierrors.IsNotFound(err) {
+		// Bind the delete to the exact object observed above via a UID
+		// precondition. Without this, a stale cache read (the manager cache can
+		// lag the apiserver) could delete a Deployment the Deployer already
+		// recreated. A precondition conflict means the observed object is
+		// already gone; treat it as a no-op and let the next reconcile
+		// re-evaluate.
+		if err := r.Delete(ctx, live,
+			client.PropagationPolicy(metav1.DeletePropagationBackground),
+			client.Preconditions{UID: &live.UID},
+		); err != nil && !apierrors.IsNotFound(err) && !apierrors.IsConflict(err) {
 			return false, fmt.Errorf("deleting deployment %s to migrate selector: %w", key, err)
 		}
 		pending = true

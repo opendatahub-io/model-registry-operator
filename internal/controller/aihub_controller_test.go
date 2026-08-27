@@ -462,6 +462,70 @@ func TestAIHubReconciler_Reconcile(t *testing.T) {
 	}
 }
 
+// --- Selector migration guard tests ---
+
+// TestReconcileIncompatibleSelectors_NoDesiredMatchLabels verifies that a
+// rendered Deployment lacking spec.selector.matchLabels (absent, or expressed
+// only via matchExpressions) is never treated as a selector mismatch. Without
+// this guard, the empty desired selector compares unequal to any populated
+// live selector via maps.Equal, and the live Deployment is deleted on every
+// reconcile even though there is nothing to migrate.
+func TestReconcileIncompatibleSelectors_NoDesiredMatchLabels(t *testing.T) {
+	s := testScheme(t)
+	ns := "no-match-labels-ns"
+
+	live := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "some-deployment", Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "some-deployment"}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "some-deployment"}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "img"}}},
+			},
+		},
+	}
+
+	fakeClient := fake.NewClientBuilder().WithScheme(s).WithObjects(live).Build()
+	reconciler := &AIHubReconciler{Client: fakeClient, Scheme: s, APIReader: fakeClient}
+
+	// The rendered/desired resource expresses its selector via
+	// matchExpressions only, so matchLabels is absent.
+	desired := unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      "some-deployment",
+				"namespace": ns,
+			},
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchExpressions": []any{
+						map[string]any{
+							"key":      "app",
+							"operator": "Exists",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctx := context.Background()
+	pending, err := reconciler.reconcileIncompatibleSelectors(ctx, []unstructured.Unstructured{desired})
+	if err != nil {
+		t.Fatalf("reconcileIncompatibleSelectors returned error: %v", err)
+	}
+	if pending {
+		t.Error("expected pending=false: an empty desired selector must never trigger a delete")
+	}
+
+	got := &appsv1.Deployment{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: ns, Name: "some-deployment"}, got); err != nil {
+		t.Fatalf("live Deployment was deleted even though the desired selector was empty: %v", err)
+	}
+}
+
 // --- Finalizer tests ---
 
 func TestAIHubReconciler_FinalizerAdded(t *testing.T) {
