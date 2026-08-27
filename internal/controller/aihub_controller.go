@@ -537,10 +537,10 @@ func (r *AIHubReconciler) cleanupOnDelete(ctx context.Context, aihub *aihubv1alp
 }
 
 // catalogOperatorCanFinalize reports whether the catalog-controller-manager
-// Deployment is present and Available, i.e. whether the CatalogReconciler is
-// running and can be trusted to remove its own finalizer from the Catalog CR.
-// Used only from the AIHub delete branch to decide whether AIHub must take
-// over Catalog finalization itself.
+// Deployment is present, Available, and actually running, i.e. whether the
+// CatalogReconciler is running and can be trusted to remove its own
+// finalizer from the Catalog CR. Used only from the AIHub delete branch to
+// decide whether AIHub must take over Catalog finalization itself.
 func (r *AIHubReconciler) catalogOperatorCanFinalize(ctx context.Context, applicationNamespace string) (bool, error) {
 	dep := &appsv1.Deployment{}
 	key := types.NamespacedName{Namespace: applicationNamespace, Name: catalogDeploymentName}
@@ -550,7 +550,12 @@ func (r *AIHubReconciler) catalogOperatorCanFinalize(ctx context.Context, applic
 		}
 		return false, fmt.Errorf("getting catalog operator deployment %s: %w", key, err)
 	}
-	return isDeploymentAvailable(dep), nil
+	// A live, rolled-out operator has at least one available replica. A
+	// Deployment scaled to zero (e.g. during an upgrade) still reports
+	// Available=True, since 0 available replicas satisfies 0 desired — so the
+	// condition alone is not enough to conclude the operator is running and
+	// can clear its finalizer.
+	return isDeploymentAvailable(dep) && dep.Status.AvailableReplicas > 0, nil
 }
 
 // takeOverCatalogFinalization performs the cleanup normally done by

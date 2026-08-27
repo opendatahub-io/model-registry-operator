@@ -789,8 +789,9 @@ func TestAIHubReconciler_DeletionCleanup_CatalogOperatorGone(t *testing.T) {
 func TestAIHubReconciler_DeletionCleanup_OperatorAvailable_NoTakeover(t *testing.T) {
 	s := testScheme(t)
 
-	// Seed a live, Available catalog operator: AIHub must defer to it and
-	// must NOT strip its finalizer out from under it.
+	// Seed a live, Available catalog operator with an available replica:
+	// AIHub must defer to it and must NOT strip its finalizer out from
+	// under it.
 	catalogOperator := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      catalogDeploymentName,
@@ -798,6 +799,7 @@ func TestAIHubReconciler_DeletionCleanup_OperatorAvailable_NoTakeover(t *testing
 			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
 		},
 		Status: appsv1.DeploymentStatus{
+			AvailableReplicas: 1,
 			Conditions: []appsv1.DeploymentCondition{
 				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
 			},
@@ -837,6 +839,92 @@ func TestAIHubReconciler_DeletionCleanup_OperatorAvailable_NoTakeover(t *testing
 	}
 	if !controllerutil.ContainsFinalizer(catCheck, catalogFinalizer) {
 		t.Errorf("expected AIHub to leave catalogFinalizer in place while the catalog operator is Available, finalizers=%v", catCheck.Finalizers)
+	}
+}
+
+// TestAIHubReconciler_DeletionCleanup_OperatorScaledToZero guards against the
+// real-world reproduction of RHOAIENG-88184: the catalog operator Deployment
+// is scaled to zero replicas (e.g. during an upgrade) rather than deleted.
+// A scaled-to-zero Deployment still reports Available=True (0 available
+// satisfies 0 desired), so AIHub must additionally check AvailableReplicas to
+// notice the operator cannot actually clear its finalizer, and take over.
+func TestAIHubReconciler_DeletionCleanup_OperatorScaledToZero(t *testing.T) {
+	s := testScheme(t)
+
+	zero := int32(0)
+	catalogOperator := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      catalogDeploymentName,
+			Namespace: "app-ns",
+			Labels:    map[string]string{"app.kubernetes.io/part-of": "aihub"},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &zero,
+		},
+		Status: appsv1.DeploymentStatus{
+			AvailableReplicas: 0,
+			Conditions: []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+
+	builder, aihub, appNs, regNs := deletionCleanupTakeoverFixture(t, s, catalogOperator)
+	fakeClient := builder.Build()
+
+	if err := fakeClient.Delete(context.Background(), aihub); err != nil {
+		t.Fatalf("marking AIHub for deletion: %v", err)
+	}
+
+	reconciler := &AIHubReconciler{
+		Client:                fakeClient,
+		Scheme:                s,
+		ManifestsTemplatePath: "",
+		Getenv:                fakeGetenv(map[string]string{}),
+		Deployer:              &mockDeployer{},
+		APIReader:             fakeClient,
+	}
+
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
+
+	result, err := reconciler.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("first reconcile after delete failed: %v", err)
+	}
+	if result.RequeueAfter != 5*time.Second {
+		t.Fatalf("first reconcile RequeueAfter = %v, want 5s", result.RequeueAfter)
+	}
+
+	// The catalog operator is scaled to zero, so AIHub must have taken over
+	// finalization just as it would if the Deployment were gone entirely.
+	catCheck := &catalogv1alpha1.Catalog{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: catalogCRName}, catCheck); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected Catalog to be gone after takeover, got err=%v finalizers=%v", err, catCheck.Finalizers)
+	}
+
+	httpRouteCheck := &gatewayapiv1.HTTPRoute{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: appNs, Name: catalogHTTPRouteName}, httpRouteCheck); !apierrors.IsNotFound(err) {
+		t.Errorf("expected catalog HTTPRoute to be deleted, got err=%v", err)
+	}
+
+	crbCheck := &rbacv1.ClusterRoleBinding{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Name: catalogAuthDelegatorCRBName}, crbCheck); !apierrors.IsNotFound(err) {
+		t.Errorf("expected catalog auth-delegator ClusterRoleBinding to be deleted, got err=%v", err)
+	}
+
+	cmCheck := &corev1.ConfigMap{}
+	if err := fakeClient.Get(ctx, types.NamespacedName{Namespace: regNs, Name: catalogKubeRBACProxyConfigMap}, cmCheck); !apierrors.IsNotFound(err) {
+		t.Errorf("expected catalog kube-rbac-proxy ConfigMap to be deleted, got err=%v", err)
+	}
+
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("second reconcile after delete failed: %v", err)
+	}
+
+	got := &aihubv1alpha1.AIHub{}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); !apierrors.IsNotFound(err) {
+		t.Fatalf("expected AIHub to be removed once takeover cleared the Catalog, got err=%v finalizers=%v", err, got.Finalizers)
 	}
 }
 
