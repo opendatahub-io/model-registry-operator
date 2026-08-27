@@ -17,12 +17,16 @@ limitations under the License.
 package v1alpha1_test
 
 import (
+	"os"
 	"testing"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/yaml"
 
 	"github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
 func TestGroupVersion(t *testing.T) {
@@ -58,20 +62,24 @@ func TestAddToScheme(t *testing.T) {
 func TestAIHubFields(t *testing.T) {
 	ah := &v1alpha1.AIHub{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "default",
+			Name: "default-aihub",
 		},
 		Spec: v1alpha1.AIHubSpec{
 			ApplicationNamespace: "rhoai-model-registries",
 		},
 		Status: v1alpha1.AIHubStatus{
-			Phase:              v1alpha1.PhaseReady,
-			ObservedGeneration: 1,
-			Conditions: []metav1.Condition{
-				{Type: "Ready", Status: "True"},
+			Status: common.Status{
+				Phase:              common.PhaseReady,
+				ObservedGeneration: 1,
+				Conditions: []common.Condition{
+					{Type: "Ready", Status: metav1.ConditionTrue},
+				},
 			},
-			Releases: []v1alpha1.ComponentRelease{
-				{Name: "platform", Version: "2.20.0"},
-				{Name: "model-registry-operator", RepoURL: "https://github.com/opendatahub-io/model-registry-operator", Version: "1.0.0"},
+			ComponentReleaseStatus: common.ComponentReleaseStatus{
+				Releases: []common.ComponentRelease{
+					{Name: "platform", Version: "2.20.0"},
+					{Name: "model-registry-operator", RepoURL: "https://github.com/opendatahub-io/model-registry-operator", Version: "1.0.0"},
+				},
 			},
 		},
 	}
@@ -79,7 +87,7 @@ func TestAIHubFields(t *testing.T) {
 	if ah.Spec.ApplicationNamespace != "rhoai-model-registries" {
 		t.Errorf("unexpected spec.applicationNamespace: %s", ah.Spec.ApplicationNamespace)
 	}
-	if ah.Status.Phase != v1alpha1.PhaseReady {
+	if ah.Status.Phase != common.PhaseReady {
 		t.Errorf("unexpected phase: %s", ah.Status.Phase)
 	}
 	if ah.Status.ObservedGeneration != 1 {
@@ -94,6 +102,17 @@ func TestAIHubFields(t *testing.T) {
 	if ah.Status.Releases[0].Name != "platform" || ah.Status.Releases[0].Version != "2.20.0" {
 		t.Errorf("unexpected platform release: %+v", ah.Status.Releases[0])
 	}
+
+	// Verify PlatformObject accessor methods.
+	if ah.GetStatus().Phase != common.PhaseReady {
+		t.Error("GetStatus().Phase mismatch")
+	}
+	if len(ah.GetConditions()) != 1 {
+		t.Error("GetConditions() length mismatch")
+	}
+	if ah.GetReleaseStatus().GetPlatformRelease() != "2.20.0" {
+		t.Error("GetReleaseStatus().GetPlatformRelease() mismatch")
+	}
 }
 
 func TestAIHubDeepCopy(t *testing.T) {
@@ -102,28 +121,63 @@ func TestAIHubDeepCopy(t *testing.T) {
 			ApplicationNamespace: "original-ns",
 		},
 		Status: v1alpha1.AIHubStatus{
-			Phase:      v1alpha1.PhaseReady,
-			Conditions: []metav1.Condition{{Type: "Ready", Status: "True"}},
-			Releases:   []v1alpha1.ComponentRelease{{Name: "platform", Version: "1.0.0"}},
+			Status: common.Status{
+				Phase:      common.PhaseReady,
+				Conditions: []common.Condition{{Type: "Ready", Status: metav1.ConditionTrue}},
+			},
+			ComponentReleaseStatus: common.ComponentReleaseStatus{
+				Releases: []common.ComponentRelease{{Name: "platform", Version: "1.0.0"}},
+			},
 		},
 	}
 
 	cp := orig.DeepCopy()
 	cp.Spec.ApplicationNamespace = "mutated-ns"
-	cp.Status.Conditions[0].Status = "False"
+	cp.Status.Conditions[0].Status = metav1.ConditionFalse
 	cp.Status.Releases[0].Version = "2.0.0"
-	cp.Status.Phase = v1alpha1.PhaseNotReady
+	cp.Status.Phase = common.PhaseNotReady
 
 	if orig.Spec.ApplicationNamespace != "original-ns" {
 		t.Error("DeepCopy did not produce independent spec")
 	}
-	if orig.Status.Conditions[0].Status != "True" {
+	if orig.Status.Conditions[0].Status != metav1.ConditionTrue {
 		t.Error("DeepCopy did not produce independent status conditions")
 	}
 	if orig.Status.Releases[0].Version != "1.0.0" {
 		t.Error("DeepCopy did not produce independent releases")
 	}
-	if orig.Status.Phase != v1alpha1.PhaseReady {
+	if orig.Status.Phase != common.PhaseReady {
 		t.Error("DeepCopy did not produce independent phase")
+	}
+}
+
+func TestAIHubCRDRequiresSpec(t *testing.T) {
+	data, err := os.ReadFile("../../../config/overlays/aihub/components.platform.opendatahub.io_aihubs.yaml")
+	if err != nil {
+		t.Fatalf("reading generated CRD: %v", err)
+	}
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(data, crd); err != nil {
+		t.Fatalf("unmarshaling CRD: %v", err)
+	}
+	var schema *apiextensionsv1.JSONSchemaProps
+	for i := range crd.Spec.Versions {
+		if crd.Spec.Versions[i].Name == "v1alpha1" {
+			schema = crd.Spec.Versions[i].Schema.OpenAPIV3Schema
+			break
+		}
+	}
+	if schema == nil {
+		t.Fatal("v1alpha1 version schema not found in CRD")
+	}
+	found := false
+	for _, r := range schema.Required {
+		if r == "spec" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected top-level CRD schema to require \"spec\", got required=%v", schema.Required)
 	}
 }

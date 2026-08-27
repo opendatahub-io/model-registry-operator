@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"testing"
 
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	v1beta1 "github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 
 	networkingscheme "k8s.io/api/networking/v1"
@@ -112,6 +113,9 @@ var _ = BeforeSuite(func() {
 	err = v1beta1.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = catalogv1alpha1.AddToScheme(schm)
+	Expect(err).NotTo(HaveOccurred())
+
 	err = networkingscheme.AddToScheme(schm)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -141,6 +145,7 @@ var _ = BeforeSuite(func() {
 		Scheme: schm,
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("..", "..", "config", "overlays", "catalog", "aihub.opendatahub.io_catalogs.yaml"),
 			filepath.Join("testdata", "crd"),
 		},
 		ErrorIfCRDPathMissing: true,

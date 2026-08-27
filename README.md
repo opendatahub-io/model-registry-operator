@@ -54,6 +54,27 @@ make deploy
 * [Secure PostgreSQL](config/samples/secure-db/postgres) plain Kubernetes model registry services with a sample TLS secured PostgreSQL database
 * [Async Upload Jobs](config/jobs-async-upload) OpenShift Templates for running async model upload jobs (S3, URI, or Hugging Face to OCI)
 
+### Deploying the Catalog operator
+
+The Catalog operator manages a shared model catalog and is deployed from its own
+self-contained overlay (CRD, RBAC, and webhook included), separate from the
+model registry operator above. It requires an OpenShift cluster, since its webhook
+relies on the OpenShift service-serving-certificate annotation.
+
+```sh
+# Deploy the Catalog operator using the published image
+make deploy OVERLAY=overlays/catalog
+
+# Or deploy your own image, built and pushed as described below
+make deploy OVERLAY=overlays/catalog IMG=<some-registry>/model-registry-operator:tag
+```
+
+To remove it:
+
+```sh
+make undeploy OVERLAY=overlays/catalog
+```
+
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
 

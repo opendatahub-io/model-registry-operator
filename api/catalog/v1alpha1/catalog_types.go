@@ -33,24 +33,17 @@ type CatalogResources struct {
 	Postgres *corev1.ResourceRequirements `json:"postgres,omitempty"`
 }
 
-// CatalogDatabaseVolume defines the PVC configuration for the catalog database.
+// CatalogDatabaseVolume defines the storage configuration for the catalog database.
 type CatalogDatabaseVolume struct {
-	// SizeLimit is the storage size requested for the database PVC.
+	// SizeLimit is the storage size limit for the database's emptyDir volume.
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="quantity(self).isGreaterThan(quantity('0'))",message="sizeLimit must be greater than zero"
 	SizeLimit *resource.Quantity `json:"sizeLimit,omitempty"`
-
-	// StorageClassName is the name of the StorageClass to use for the database PVC.
-	// If not set, the cluster default StorageClass is used.
-	// +optional
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	StorageClassName *string `json:"storageClassName,omitempty"`
 }
 
 // CatalogDatabase defines storage configuration for the catalog database.
 type CatalogDatabase struct {
-	// Volume configures the PVC for the database.
+	// Volume configures the emptyDir volume for the database.
 	// +optional
 	Volume CatalogDatabaseVolume `json:"volume,omitempty"`
 }

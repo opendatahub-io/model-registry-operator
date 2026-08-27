@@ -18,7 +18,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=REST_IMAGE].value
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -38,7 +38,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=KUBE_RBAC_PROXY_IMAGE].value
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -48,7 +48,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=POSTGRES_IMAGE].value
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_POSTGRESQL_16_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -58,7 +58,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=CATALOG_DATA_IMAGE].value
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -68,7 +68,7 @@
         kind: Deployment
         name: controller-manager
       fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=BENCHMARK_DATA_IMAGE].value
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -89,16 +89,6 @@
         name: controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].env.[name=REGISTRIES_NAMESPACE].value
-- source:
-    kind: ConfigMap
-    name: model-registry-operator-parameters
-    fieldPath: data.ENABLE_MODEL_CATALOG
-  targets:
-    - select:
-        kind: Deployment
-        name: controller-manager
-      fieldPaths:
-        - spec.template.spec.containers.[name=manager].env.[name=ENABLE_MODEL_CATALOG].value
 - source:
     kind: ConfigMap
     name: model-registry-operator-parameters
@@ -157,7 +147,7 @@
   targets:
     - select:
         kind: ServiceMonitor
-        name: controller-manager-metrics-monitor
+        name: model-registry-operator-controller-manager-metrics-monitor
       fieldPaths:
         - spec.endpoints.0.tlsConfig.serverName
       options:
@@ -170,7 +160,7 @@
   targets:
     - select:
         kind: ServiceMonitor
-        name: controller-manager-metrics-monitor
+        name: model-registry-operator-controller-manager-metrics-monitor
       fieldPaths:
         - spec.endpoints.0.tlsConfig.serverName
       options:

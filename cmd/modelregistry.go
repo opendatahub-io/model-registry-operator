@@ -254,28 +254,6 @@ func runModelRegistry(_ *cobra.Command, _ []string) error {
 		os.Exit(1)
 	}
 
-	enableModelCatalog := os.Getenv(config.EnableModelCatalog) != "false"
-	skipCatalogDBCreation := config.GetBoolConfigWithDefault(config.SkipModelCatalogDBCreation, false)
-	setupLog.Info("model catalog config", "enabled", enableModelCatalog, "db_enabled", !skipCatalogDBCreation)
-
-	if err = (&controller.ModelCatalogReconciler{
-		Client:                client,
-		Scheme:                mgr.GetScheme(),
-		Recorder:              mgr.GetEventRecorder("modelcatalog-controller"),
-		Log:                   ctrl.Log.WithName("modelcatalog-controller"),
-		Template:              template,
-		Capabilities:          capabilities,
-		TargetNamespace:       config.GetRegistriesNamespace(),
-		Enabled:               enableModelCatalog,
-		SkipCatalogDBCreation: skipCatalogDBCreation,
-		GatewayDomain:         gatewayDomain,
-		GatewayName:           gatewayName,
-		GatewayNamespace:      gatewayNamespace,
-		HTTPRouteNamespace:    httpRouteNamespace,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ModelCatalog")
-		os.Exit(1)
-	}
 	if enableWebhooks {
 		if err = webhook.SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "ModelRegistry")

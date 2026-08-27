@@ -61,7 +61,6 @@ func TestCatalogFields(t *testing.T) {
 	cpu := resource.MustParse("100m")
 	mem := resource.MustParse("256Mi")
 	size := resource.MustParse("10Gi")
-	sc := "standard"
 	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
@@ -87,8 +86,7 @@ func TestCatalogFields(t *testing.T) {
 			},
 			Database: v1alpha1.CatalogDatabase{
 				Volume: v1alpha1.CatalogDatabaseVolume{
-					SizeLimit:        &size,
-					StorageClassName: &sc,
+					SizeLimit: &size,
 				},
 			},
 			CatalogDataImage:   &catalogDigest,
@@ -107,9 +105,6 @@ func TestCatalogFields(t *testing.T) {
 	} else if cat.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Errorf("unexpected sizeLimit: %v", cat.Spec.Database.Volume.SizeLimit)
 	}
-	if cat.Spec.Database.Volume.StorageClassName == nil || *cat.Spec.Database.Volume.StorageClassName != "standard" {
-		t.Errorf("unexpected storageClassName: %v", cat.Spec.Database.Volume.StorageClassName)
-	}
 	if cat.Spec.CatalogDataImage == nil || *cat.Spec.CatalogDataImage != catalogDigest {
 		t.Errorf("unexpected catalogDataImage: %v", cat.Spec.CatalogDataImage)
 	}
@@ -120,15 +115,13 @@ func TestCatalogFields(t *testing.T) {
 
 func TestCatalogDeepCopy(t *testing.T) {
 	size := resource.MustParse("10Gi")
-	sc := "standard"
 	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	orig := &v1alpha1.Catalog{
 		Spec: v1alpha1.CatalogSpec{
 			Database: v1alpha1.CatalogDatabase{
 				Volume: v1alpha1.CatalogDatabaseVolume{
-					SizeLimit:        &size,
-					StorageClassName: &sc,
+					SizeLimit: &size,
 				},
 			},
 			CatalogDataImage:   &catalogDigest,
@@ -139,8 +132,6 @@ func TestCatalogDeepCopy(t *testing.T) {
 	cp := orig.DeepCopy()
 	newSize := resource.MustParse("20Gi")
 	cp.Spec.Database.Volume.SizeLimit = &newSize
-	newSC := "fast"
-	cp.Spec.Database.Volume.StorageClassName = &newSC
 	newCatalogDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	cp.Spec.CatalogDataImage = &newCatalogDigest
 	newBenchmarkDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -148,9 +139,6 @@ func TestCatalogDeepCopy(t *testing.T) {
 
 	if orig.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Error("DeepCopy did not produce independent SizeLimit")
-	}
-	if *orig.Spec.Database.Volume.StorageClassName != "standard" {
-		t.Error("DeepCopy did not produce independent StorageClassName")
 	}
 	if *orig.Spec.CatalogDataImage != catalogDigest {
 		t.Error("DeepCopy did not produce independent CatalogDataImage")
