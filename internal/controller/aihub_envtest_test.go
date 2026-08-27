@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +15,11 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,6 +31,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
 
 // webhookCleanupDeployer wraps a ResourceDeployer and deletes the catalog
@@ -211,6 +216,13 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
 					deploy.MergeDeployments,
 				),
+				deploy.WithLegacyOwners(
+					schema.GroupVersionKind{
+						Group:   "components.platform.opendatahub.io",
+						Version: "v1alpha1",
+						Kind:    "ModelRegistry",
+					},
+				),
 			),
 			client: k8sClient,
 		},
@@ -276,13 +288,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	if err := k8sClient.Get(ctx, req.NamespacedName, got); err != nil {
 		t.Fatal(err)
 	}
-	hasFinalizer := false
-	for _, f := range got.Finalizers {
-		if f == aihubFinalizer {
-			hasFinalizer = true
-			break
-		}
-	}
+	hasFinalizer := slices.Contains(got.Finalizers, aihubFinalizer)
 	if !hasFinalizer {
 		t.Errorf("AIHub missing finalizer %q after reconcile #1", aihubFinalizer)
 	}
@@ -455,7 +461,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 
 		// Bounded reconcile loop to drain ordered teardown.
 		const maxIter = 10
-		for i := 0; i < maxIter; i++ {
+		for i := range maxIter {
 			_, err := r.Reconcile(ctx, req)
 			if err != nil {
 				t.Fatalf("reconcile during deletion (iter %d): %v", i, err)
@@ -552,6 +558,13 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 						schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
 						deploy.MergeDeployments,
 					),
+					deploy.WithLegacyOwners(
+						schema.GroupVersionKind{
+							Group:   "components.platform.opendatahub.io",
+							Version: "v1alpha1",
+							Kind:    "ModelRegistry",
+						},
+					),
 				),
 				client: k,
 			},
@@ -599,7 +612,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
 			// Drain finalizer.
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
@@ -665,7 +678,7 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		}
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
@@ -798,6 +811,13 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 						schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
 						deploy.MergeDeployments,
 					),
+					deploy.WithLegacyOwners(
+						schema.GroupVersionKind{
+							Group:   "components.platform.opendatahub.io",
+							Version: "v1alpha1",
+							Kind:    "ModelRegistry",
+						},
+					),
 				),
 				client: k,
 			},
@@ -844,7 +864,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
@@ -913,7 +933,7 @@ func TestAIHubNamespaceEnsure_Envtest(t *testing.T) {
 		}
 		defer func() {
 			_ = k8sClient.Delete(ctx, aihub)
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				_, _ = newReconciler(t, k8sClient, tmpDir).Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}})
 				check := &aihubv1alpha1.AIHub{}
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "default-aihub"}, check); apierrors.IsNotFound(err) {
@@ -1029,6 +1049,13 @@ func TestAIHubHTTPRouteNamespace_Envtest(t *testing.T) {
 					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
 					deploy.MergeDeployments,
 				),
+				deploy.WithLegacyOwners(
+					schema.GroupVersionKind{
+						Group:   "components.platform.opendatahub.io",
+						Version: "v1alpha1",
+						Kind:    "ModelRegistry",
+					},
+				),
 			),
 			client: k8sClient,
 		},
@@ -1047,5 +1074,460 @@ func TestAIHubHTTPRouteNamespace_Envtest(t *testing.T) {
 		}
 		c := findContainer(t, dep, childManagerContainer)
 		assertEnv(t, c, config.HTTPRouteNamespaceEnv, appNs)
+	}
+}
+
+// TestAIHubLegacyOwnerAdoption_Envtest reproduces an upgrade from the old
+// single model-registry-operator install, where the opendatahub-operator's
+// ModelRegistry *component* deployed and owns the core operator's
+// ServiceAccount and ClusterRole. When the AIHub operator later renders and
+// applies the same resources with itself as owner, the stale ModelRegistry
+// controller owner-ref must be stripped (via deploy.WithLegacyOwners) instead
+// of colliding with AIHub's own controller ref ("Only one reference can have
+// Controller set to true").
+func TestAIHubLegacyOwnerAdoption_Envtest(t *testing.T) {
+	// --- Skip guard: envtest binaries ---
+	binAssetsDir := filepath.Join("..", "..", "bin", "k8s",
+		fmt.Sprintf("1.35.0-%s-%s", goruntime.GOOS, goruntime.GOARCH))
+	if v := os.Getenv("KUBEBUILDER_ASSETS"); v != "" {
+		binAssetsDir = v
+	}
+	if _, err := os.Stat(filepath.Join(binAssetsDir, "kube-apiserver")); err != nil {
+		t.Skipf("envtest binaries not available at %s: %v", binAssetsDir, err)
+	}
+
+	tmpDir := assembleManifests(t)
+	scheme := testScheme(t)
+
+	aihubCRDPath := filepath.Join("..", "..", "config", "overlays", "aihub",
+		"components.platform.opendatahub.io_aihubs.yaml")
+	aihubCRDBytes, err := os.ReadFile(aihubCRDPath)
+	if err != nil {
+		t.Fatalf("reading AIHub CRD: %v", err)
+	}
+	crdTmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(crdTmpDir, "aihubs.yaml"), aihubCRDBytes, 0o644); err != nil {
+		t.Fatalf("writing AIHub CRD to temp dir: %v", err)
+	}
+
+	useExisting := false
+	testEnvLocal := &envtest.Environment{
+		Scheme: scheme,
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crd"),
+			crdTmpDir,
+		},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: binAssetsDir,
+		UseExistingCluster:    &useExisting,
+	}
+
+	cfg, err := testEnvLocal.Start()
+	if err != nil {
+		t.Fatalf("starting envtest: %v", err)
+	}
+	defer func() {
+		if err := testEnvLocal.Stop(); err != nil {
+			t.Logf("warning: stopping envtest: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx := context.Background()
+	appNs := "legacy-owner-app-ns"
+	regNs := "legacy-owner-reg-ns"
+
+	for _, ns := range []string{appNs, regNs} {
+		nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+		if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("creating namespace %s: %v", ns, err)
+		}
+	}
+
+	// Legacy owner-ref stamped by the pre-upgrade opendatahub-operator
+	// ModelRegistry component, as controller.
+	legacyOwnerRefs := []metav1.OwnerReference{
+		{
+			APIVersion:         "components.platform.opendatahub.io/v1alpha1",
+			Kind:               "ModelRegistry",
+			Name:               "default-modelregistry",
+			UID:                "12345678-1234-1234-1234-1234567890ab",
+			Controller:         new(true),
+			BlockOwnerDeletion: new(true),
+		},
+	}
+
+	// Pre-create the namespaced SA the core operator deploy targets, already
+	// owned (as controller) by the legacy ModelRegistry component.
+	legacySA := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            childDeploymentName,
+			Namespace:       appNs,
+			OwnerReferences: legacyOwnerRefs,
+		},
+	}
+	if err := k8sClient.Create(ctx, legacySA); err != nil {
+		t.Fatalf("pre-creating legacy-owned ServiceAccount: %v", err)
+	}
+
+	// Pre-create the cluster-scoped ClusterRole the core operator deploy
+	// targets, likewise owned by the legacy ModelRegistry component.
+	legacyClusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "model-registry-operator-manager-role",
+			OwnerReferences: legacyOwnerRefs,
+		},
+	}
+	if err := k8sClient.Create(ctx, legacyClusterRole); err != nil {
+		t.Fatalf("pre-creating legacy-owned ClusterRole: %v", err)
+	}
+
+	// Pre-create the cluster-scoped webhook configurations the core operator
+	// deploy targets, likewise owned by the legacy ModelRegistry component.
+	// These are the resources that actually collided in production: unlike
+	// the SA/ClusterRole above, a legacy webhook config also lacks the
+	// AIHub Deployer's part-of=aihub label, so a label-scoped cache Get
+	// would miss it entirely (see TestAIHubLegacyOwnerAdoption_CacheMiss_Envtest).
+	legacyMWC := &admissionregistrationv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "model-registry-operator-mutating-webhook-configuration",
+			OwnerReferences: legacyOwnerRefs,
+		},
+		Webhooks: []admissionregistrationv1.MutatingWebhook{
+			{
+				Name: "mmodelregistry.opendatahub.io",
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					Service: &admissionregistrationv1.ServiceReference{
+						Name:      "webhook-service",
+						Namespace: appNs,
+						Path:      new("/mutate-modelregistry-opendatahub-io-modelregistry"),
+					},
+				},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, legacyMWC); err != nil {
+		t.Fatalf("pre-creating legacy-owned MutatingWebhookConfiguration: %v", err)
+	}
+
+	legacyVWC := &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "model-registry-operator-validating-webhook-configuration",
+			OwnerReferences: legacyOwnerRefs,
+		},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{
+			{
+				Name: "vmodelregistry.opendatahub.io",
+				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					Service: &admissionregistrationv1.ServiceReference{
+						Name:      "webhook-service",
+						Namespace: appNs,
+						Path:      new("/validate-modelregistry-opendatahub-io-modelregistry"),
+					},
+				},
+				SideEffects:             new(admissionregistrationv1.SideEffectClassNone),
+				AdmissionReviewVersions: []string{"v1"},
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, legacyVWC); err != nil {
+		t.Fatalf("pre-creating legacy-owned ValidatingWebhookConfiguration: %v", err)
+	}
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			InstancesNamespace:   regNs,
+		},
+	}
+	if err := k8sClient.Create(ctx, aihub); err != nil {
+		t.Fatalf("creating AIHub: %v", err)
+	}
+
+	r := &AIHubReconciler{
+		Client:                k8sClient,
+		Scheme:                scheme,
+		ManifestsTemplatePath: tmpDir,
+		APIReader:             k8sClient,
+		Getenv: fakeGetenv(map[string]string{
+			config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+			config.RestImage:                  "fake-rest@sha256:bbb",
+		}),
+		Deployer: &webhookCleanupDeployer{
+			inner: deploy.NewDeployer(
+				deploy.WithFieldOwner("aihub"),
+				deploy.WithApplyOrder(),
+				deploy.WithCache(),
+				deploy.WithMergeStrategy(
+					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+					deploy.MergeDeployments,
+				),
+				deploy.WithLegacyOwners(
+					schema.GroupVersionKind{
+						Group:   "components.platform.opendatahub.io",
+						Version: "v1alpha1",
+						Kind:    "ModelRegistry",
+					},
+				),
+			),
+			client: k8sClient,
+		},
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("reconcile failed (legacy owner-ref should have been adopted, not collided with): %v", err)
+	}
+
+	assertSoleAIHubOwner := func(t *testing.T, refs []metav1.OwnerReference) {
+		t.Helper()
+		if len(refs) != 1 {
+			t.Fatalf("expected exactly one owner reference, got %d: %+v", len(refs), refs)
+		}
+		ref := refs[0]
+		if ref.Kind != "AIHub" || ref.Name != "default-aihub" {
+			t.Fatalf("expected sole owner AIHub/default-aihub, got %s/%s", ref.Kind, ref.Name)
+		}
+		if ref.Controller == nil || !*ref.Controller {
+			t.Fatalf("expected AIHub owner reference to be controller, got %+v", ref)
+		}
+	}
+
+	sa := &corev1.ServiceAccount{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: appNs, Name: childDeploymentName}, sa); err != nil {
+		t.Fatalf("getting adopted ServiceAccount: %v", err)
+	}
+	assertSoleAIHubOwner(t, sa.OwnerReferences)
+
+	cr := &rbacv1.ClusterRole{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: "model-registry-operator-manager-role"}, cr); err != nil {
+		t.Fatalf("getting adopted ClusterRole: %v", err)
+	}
+	assertSoleAIHubOwner(t, cr.OwnerReferences)
+
+	mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: "model-registry-operator-mutating-webhook-configuration"}, mwc); err != nil {
+		t.Fatalf("getting adopted MutatingWebhookConfiguration: %v", err)
+	}
+	assertSoleAIHubOwner(t, mwc.OwnerReferences)
+
+	vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: "model-registry-operator-validating-webhook-configuration"}, vwc); err != nil {
+		t.Fatalf("getting adopted ValidatingWebhookConfiguration: %v", err)
+	}
+	assertSoleAIHubOwner(t, vwc.OwnerReferences)
+}
+
+// TestAIHubSelectorMigration_Envtest verifies that a child Deployment left
+// behind by the legacy single-operator install — whose immutable
+// spec.selector carries extra platform labels the current manifests no
+// longer render — is deleted and recreated with the canonical selector,
+// and that a Deployment already on the canonical selector is left alone.
+func TestAIHubSelectorMigration_Envtest(t *testing.T) {
+	// --- Skip guard: envtest binaries ---
+	binAssetsDir := filepath.Join("..", "..", "bin", "k8s",
+		fmt.Sprintf("1.35.0-%s-%s", goruntime.GOOS, goruntime.GOARCH))
+	if v := os.Getenv("KUBEBUILDER_ASSETS"); v != "" {
+		binAssetsDir = v
+	}
+	if _, err := os.Stat(filepath.Join(binAssetsDir, "kube-apiserver")); err != nil {
+		t.Skipf("envtest binaries not available at %s: %v", binAssetsDir, err)
+	}
+
+	tmpDir := assembleManifests(t)
+	scheme := testScheme(t)
+
+	aihubCRDPath := filepath.Join("..", "..", "config", "overlays", "aihub",
+		"components.platform.opendatahub.io_aihubs.yaml")
+	aihubCRDBytes, err := os.ReadFile(aihubCRDPath)
+	if err != nil {
+		t.Fatalf("reading AIHub CRD: %v", err)
+	}
+	crdTmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(crdTmpDir, "aihubs.yaml"), aihubCRDBytes, 0o644); err != nil {
+		t.Fatalf("writing AIHub CRD to temp dir: %v", err)
+	}
+
+	useExisting := false
+	testEnvLocal := &envtest.Environment{
+		Scheme: scheme,
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "config", "crd", "bases"),
+			filepath.Join("testdata", "crd"),
+			crdTmpDir,
+		},
+		ErrorIfCRDPathMissing: true,
+		BinaryAssetsDirectory: binAssetsDir,
+		UseExistingCluster:    &useExisting,
+	}
+
+	cfg, err := testEnvLocal.Start()
+	if err != nil {
+		t.Fatalf("starting envtest: %v", err)
+	}
+	defer func() {
+		if err := testEnvLocal.Stop(); err != nil {
+			t.Logf("warning: stopping envtest: %v", err)
+		}
+	}()
+
+	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		t.Fatalf("creating client: %v", err)
+	}
+
+	ctx := context.Background()
+	appNs := "selector-migration-app-ns"
+	regNs := "selector-migration-reg-ns"
+
+	for _, ns := range []string{appNs, regNs} {
+		nsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}
+		if err := k8sClient.Create(ctx, nsObj); err != nil && !apierrors.IsAlreadyExists(err) {
+			t.Fatalf("creating namespace %s: %v", ns, err)
+		}
+	}
+
+	// Derive the canonical selector from the same rendered manifests the
+	// reconciler applies, so this test tracks config/overlays/odh instead of
+	// duplicating a hardcoded label set that could drift.
+	renderPath := filepath.Join(tmpDir, "modelregistry", "overlays", "odh")
+	rendered, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(appNs))
+	if err != nil {
+		t.Fatalf("rendering model-registry manifests: %v", err)
+	}
+	var canonicalSelector map[string]string
+	for i := range rendered {
+		if rendered[i].GetKind() == "Deployment" && rendered[i].GetName() == childDeploymentName {
+			canonicalSelector, _, err = unstructured.NestedStringMap(rendered[i].Object, "spec", "selector", "matchLabels")
+			if err != nil {
+				t.Fatalf("reading canonical selector: %v", err)
+			}
+		}
+	}
+	if len(canonicalSelector) == 0 {
+		t.Fatal("could not derive canonical selector from rendered manifests")
+	}
+
+	// Legacy selector: the canonical labels plus the two platform labels the
+	// pre-upgrade single-operator install stamped into the selector.
+	legacySelector := map[string]string{
+		"app.kubernetes.io/part-of":                  "model-registry-operator",
+		"app.opendatahub.io/model-registry-operator": "true",
+	}
+	maps.Copy(legacySelector, canonicalSelector)
+
+	legacyDep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      childDeploymentName,
+			Namespace: appNs,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: legacySelector},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: legacySelector},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: childManagerContainer, Image: "legacy-image:v1"},
+					},
+				},
+			},
+		},
+	}
+	if err := k8sClient.Create(ctx, legacyDep); err != nil {
+		t.Fatalf("pre-creating legacy Deployment: %v", err)
+	}
+	legacyUID := legacyDep.UID
+
+	aihub := &aihubv1alpha1.AIHub{
+		ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
+		Spec: aihubv1alpha1.AIHubSpec{
+			ApplicationNamespace: appNs,
+			InstancesNamespace:   regNs,
+		},
+	}
+	if err := k8sClient.Create(ctx, aihub); err != nil {
+		t.Fatalf("creating AIHub: %v", err)
+	}
+
+	r := &AIHubReconciler{
+		Client:                k8sClient,
+		Scheme:                scheme,
+		ManifestsTemplatePath: tmpDir,
+		APIReader:             k8sClient,
+		Getenv: fakeGetenv(map[string]string{
+			config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+			config.RestImage:                  "fake-rest@sha256:bbb",
+		}),
+		Deployer: &webhookCleanupDeployer{
+			inner: deploy.NewDeployer(
+				deploy.WithFieldOwner("aihub"),
+				deploy.WithApplyOrder(),
+				deploy.WithCache(),
+				deploy.WithMergeStrategy(
+					schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+					deploy.MergeDeployments,
+				),
+				deploy.WithLegacyOwners(
+					schema.GroupVersionKind{
+						Group:   "components.platform.opendatahub.io",
+						Version: "v1alpha1",
+						Kind:    "ModelRegistry",
+					},
+				),
+			),
+			client: k8sClient,
+		},
+	}
+
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
+
+	// --- Reconcile #1: detects the incompatible selector, deletes the
+	// legacy Deployment, and requeues without erroring or calling Deploy. ---
+	result, err := r.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatalf("reconcile #1 failed (immutable selector should be migrated, not surfaced as an apply error): %v", err)
+	}
+	if result.RequeueAfter <= 0 {
+		t.Errorf("reconcile #1: expected a short RequeueAfter while the Deployment is being recreated, got %v", result.RequeueAfter)
+	}
+
+	// --- Reconcile #2: the legacy Deployment is gone, so the Deployer
+	// creates it fresh with the canonical selector. ---
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("reconcile #2 failed: %v", err)
+	}
+
+	migratedDep := &appsv1.Deployment{}
+	depKey := types.NamespacedName{Namespace: appNs, Name: childDeploymentName}
+	if err := k8sClient.Get(ctx, depKey, migratedDep); err != nil {
+		t.Fatalf("getting migrated child Deployment: %v", err)
+	}
+	if migratedDep.UID == legacyUID {
+		t.Fatal("expected the Deployment to be recreated (new UID), but UID is unchanged")
+	}
+	if migratedDep.Spec.Selector == nil || !maps.Equal(migratedDep.Spec.Selector.MatchLabels, canonicalSelector) {
+		t.Fatalf("migrated selector = %v, want canonical selector %v", migratedDep.Spec.Selector, canonicalSelector)
+	}
+	migratedUID := migratedDep.UID
+
+	// --- Reconcile #3: selector is already canonical, so the Deployment
+	// must NOT be deleted/recreated again (delete only when necessary). ---
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("reconcile #3 failed: %v", err)
+	}
+	stableDep := &appsv1.Deployment{}
+	if err := k8sClient.Get(ctx, depKey, stableDep); err != nil {
+		t.Fatalf("getting Deployment after reconcile #3: %v", err)
+	}
+	if stableDep.UID != migratedUID {
+		t.Fatalf("Deployment was recreated on an idempotent reconcile: UID changed from %s to %s", migratedUID, stableDep.UID)
 	}
 }

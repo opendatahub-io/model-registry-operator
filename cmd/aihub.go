@@ -143,6 +143,18 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 				schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
 				deploy.MergeDeployments,
 			),
+			// Adopt resources previously deployed and owned by the legacy
+			// opendatahub-operator ModelRegistry *component* (pre component→module
+			// migration). ownerReferences is a merge-by-uid list, so SSA alone cannot
+			// drop the stale ModelRegistry controller owner-ref written by a different
+			// field manager; WithLegacyOwners removes it before AIHub takes ownership.
+			deploy.WithLegacyOwners(
+				schema.GroupVersionKind{
+					Group:   "components.platform.opendatahub.io",
+					Version: "v1alpha1",
+					Kind:    "ModelRegistry",
+				},
+			),
 		),
 	}).SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("unable to create aihub controller: %w", err)
