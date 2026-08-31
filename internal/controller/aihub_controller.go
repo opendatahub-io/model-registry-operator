@@ -86,6 +86,18 @@ const (
 	catalogHTTPRouteName          = catalogResourceName
 	catalogAuthDelegatorCRBName   = catalogResourceName + "-auth-delegator"
 	catalogKubeRBACProxyConfigMap = catalogResourceName + "-kube-rbac-proxy-config"
+
+	// Names/labels for the AIHub operator's own metrics ServiceMonitor. This
+	// used to be a static resource in the config/overlays/aihub bundle
+	// (config/overlays/aihub/monitor.yaml), but a module bundle applied by the
+	// platform operator must not embed optional monitoring CRs that may not be
+	// installed on every cluster (RHOAIENG-88196); the AIHub operator now
+	// creates it itself, gated on HasServiceMonitorCRD.
+	aihubMetricsServiceName    = "aihub-controller-manager-metrics-service"
+	aihubMetricsMonitorName    = "aihub-controller-manager-metrics-monitor"
+	aihubControlPlaneLabel     = "aihub-controller-manager"
+	aihubMetricsCAConfigMap    = "openshift-service-ca.crt"
+	aihubMetricsCAConfigMapKey = "service-ca.crt"
 )
 
 // clusterScopedKinds lists the kinds whose metadata.namespace must be cleared
@@ -115,6 +127,11 @@ type AIHubReconciler struct {
 	// outside the label-scoped manager cache (e.g. the platform version
 	// ConfigMap created by the orchestrator).
 	APIReader client.Reader
+	// HasServiceMonitorCRD reports whether the monitoring.coreos.com API is
+	// available on the cluster. When true, the reconciler creates and owns a
+	// ServiceMonitor for its own metrics; when false, it is skipped entirely
+	// rather than failing to apply an unsupported resource.
+	HasServiceMonitorCRD bool
 
 	// onReconcile is a test-only hook invoked at the start of each Reconcile
 	// call. It is nil in production and only set in manager-based tests to
@@ -276,6 +293,15 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			return ctrl.Result{}, sErr
 		}
 		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
+	// 5.6. Append the operator's own metrics ServiceMonitor, when the
+	// monitoring.coreos.com API is available on this cluster. It is created
+	// and owned by AIHub at runtime rather than shipped in the module bundle
+	// (RHOAIENG-88196), so clusters without the Prometheus operator installed
+	// are unaffected.
+	if r.HasServiceMonitorCRD {
+		resources = append(resources, buildAIHubMetricsServiceMonitor(spec.ApplicationNamespace))
 	}
 
 	// 6. Apply all rendered resources via the Deployer (SSA, CRD-first ordering).
@@ -886,4 +912,57 @@ func stampAsyncUploadTemplate(u *unstructured.Unstructured, image string) error 
 		}
 	}
 	return nil
+}
+
+// buildAIHubMetricsServiceMonitor constructs the ServiceMonitor that scrapes the
+// AIHub operator's own /metrics endpoint. It reproduces the resource formerly
+// shipped statically as config/overlays/aihub/monitor.yaml, including the
+// serverName that kustomize replacements used to stitch together from the
+// metrics Service's name and namespace (see aihub_controller.go's
+// aihubMetricsServiceName / config/overlays/aihub/metrics_service.yaml).
+func buildAIHubMetricsServiceMonitor(namespace string) unstructured.Unstructured {
+	serverName := fmt.Sprintf("%s.%s.svc", aihubMetricsServiceName, namespace)
+
+	sm := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "monitoring.coreos.com/v1",
+			"kind":       "ServiceMonitor",
+			"metadata": map[string]any{
+				"name":      aihubMetricsMonitorName,
+				"namespace": namespace,
+				"labels": map[string]any{
+					"control-plane":                aihubControlPlaneLabel,
+					"app.kubernetes.io/name":       aihubMetricsMonitorName,
+					"app.kubernetes.io/component":  "metrics",
+					"app.kubernetes.io/created-by": "model-registry-operator",
+					"app.kubernetes.io/part-of":    "model-registry-operator",
+				},
+			},
+			"spec": map[string]any{
+				"endpoints": []any{
+					map[string]any{
+						"path":            "/metrics",
+						"port":            "https",
+						"scheme":          "https",
+						"bearerTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+						"tlsConfig": map[string]any{
+							"ca": map[string]any{
+								"configMap": map[string]any{
+									"name": aihubMetricsCAConfigMap,
+									"key":  aihubMetricsCAConfigMapKey,
+								},
+							},
+							"serverName": serverName,
+						},
+					},
+				},
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
+						"control-plane": aihubControlPlaneLabel,
+					},
+				},
+			},
+		},
+	}
+	return *sm
 }
