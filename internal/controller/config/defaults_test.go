@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -16,9 +17,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	configv1 "github.com/openshift/api/config/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbac "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestGetStringConfigWithDefault(t *testing.T) {
@@ -815,6 +819,77 @@ var _ = Describe("Defaults integration tests", func() {
 			config.SetDefaultDomain("", k8sClient, true)
 
 			Expect(config.GetDefaultDomain()).To(Equal("domain3"))
+		})
+	})
+
+	Describe("TestGetClusterProxy", func() {
+		AfterEach(func() {
+			proxy := &configv1.Proxy{}
+			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "cluster"}, proxy); err == nil {
+				Expect(k8sClient.Delete(context.Background(), proxy)).To(Succeed())
+			}
+		})
+
+		It("Should return nil when not on OpenShift", func() {
+			config.SetDefaultDomain("", k8sClient, false)
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should return nil when the cluster Proxy object doesn't exist", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should return nil when the cluster Proxy has no proxy settings", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should prefer status values over spec values", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.ProxySpec{
+					HTTPProxy:  "http://spec-proxy:3128",
+					HTTPSProxy: "https://spec-proxy:3128",
+					NoProxy:    "spec-noproxy",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+			proxy.Status = configv1.ProxyStatus{
+				HTTPProxy:  "http://status-proxy:3128",
+				HTTPSProxy: "https://status-proxy:3128",
+				NoProxy:    "status-noproxy",
+			}
+			Expect(k8sClient.Status().Update(context.Background(), proxy)).To(Succeed())
+
+			result := config.GetClusterProxy()
+			Expect(result).NotTo(BeNil())
+			Expect(result.HTTPProxy).To(Equal("http://status-proxy:3128"))
+			Expect(result.HTTPSProxy).To(Equal("https://status-proxy:3128"))
+			Expect(result.NoProxy).To(Equal("status-noproxy"))
+		})
+
+		It("Should fall back to spec values when status is empty", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.ProxySpec{
+					HTTPProxy: "http://spec-only-proxy:3128",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+
+			result := config.GetClusterProxy()
+			Expect(result).NotTo(BeNil())
+			Expect(result.HTTPProxy).To(Equal("http://spec-only-proxy:3128"))
+			Expect(result.HTTPSProxy).To(Equal(""))
+			Expect(result.NoProxy).To(Equal(""))
 		})
 	})
 })

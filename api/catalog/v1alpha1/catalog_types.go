@@ -93,7 +93,11 @@ type CatalogSpec struct {
 	// +kubebuilder:validation:MaxLength=128
 	BenchmarkDataImage *string `json:"benchmarkDataImage,omitempty"`
 
-	// Proxy configures outbound HTTP proxy settings for the catalog.
+	// Proxy configures outbound HTTP proxy settings for the catalog. If unset,
+	// the operator defaults to the cluster-wide proxy settings from the
+	// OpenShift Proxy config (config.openshift.io/v1 Proxy "cluster"), if any.
+	// Setting Proxy to any value, including an empty object, disables this
+	// cluster-wide default entirely; only the fields set here are applied.
 	// +optional
 	Proxy *ProxyConfig `json:"proxy,omitempty"`
 }

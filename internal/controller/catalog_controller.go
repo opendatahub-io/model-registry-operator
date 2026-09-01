@@ -132,7 +132,27 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		GatewayName:             r.GatewayName,
 		GatewayNamespace:        r.GatewayNamespace,
 		HTTPRouteNamespace:      r.HTTPRouteNamespace,
-		Proxy:                   catalog.Spec.Proxy,
+		Proxy:                   catalogProxyOrDefault(catalog.Spec.Proxy),
+	}
+}
+
+// catalogProxyOrDefault returns the Catalog CR's proxy settings unmodified if
+// set (including an explicit empty ProxyConfig, which opts out of any
+// cluster-wide default). If unset, it falls back to the OpenShift cluster
+// Proxy object so the catalog operand inherits the cluster-wide proxy
+// automatically.
+func catalogProxyOrDefault(proxy *catalogv1alpha1.ProxyConfig) *catalogv1alpha1.ProxyConfig {
+	if proxy != nil {
+		return proxy
+	}
+	clusterProxy := config.GetClusterProxy()
+	if clusterProxy == nil {
+		return nil
+	}
+	return &catalogv1alpha1.ProxyConfig{
+		HTTPProxy:  clusterProxy.HTTPProxy,
+		HTTPSProxy: clusterProxy.HTTPSProxy,
+		NoProxy:    clusterProxy.NoProxy,
 	}
 }
 
