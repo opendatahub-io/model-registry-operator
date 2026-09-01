@@ -174,7 +174,11 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 // that kustomize replacements used to stitch together from the metrics
 // Service's name and namespace.
 func TestBuildAIHubMetricsServiceMonitor(t *testing.T) {
-	sm := buildAIHubMetricsServiceMonitor("app-ns")
+	r := &AIHubReconciler{}
+	sm, err := r.buildAIHubMetricsServiceMonitor("app-ns")
+	if err != nil {
+		t.Fatalf("buildAIHubMetricsServiceMonitor: %v", err)
+	}
 
 	if got, want := sm.GetAPIVersion(), "monitoring.coreos.com/v1"; got != want {
 		t.Errorf("apiVersion = %q, want %q", got, want)

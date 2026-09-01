@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	platformlabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
@@ -60,6 +61,11 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("manifests template path is not accessible %q: %w", manifestsTemplatePath, err)
 	} else if !fi.IsDir() {
 		return fmt.Errorf("manifests template path is not a directory: %s", manifestsTemplatePath)
+	}
+
+	resourceTemplate, err := config.ParseTemplates()
+	if err != nil {
+		return fmt.Errorf("error parsing resource templates: %w", err)
 	}
 
 	capabilities, err := setup.GetCapabilities()
@@ -151,6 +157,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		Getenv:                os.Getenv,
 		APIReader:             mgr.GetAPIReader(),
 		HasServiceMonitorCRD:  capabilities.HasServiceMonitor,
+		Template:              resourceTemplate,
 		Deployer: deploy.NewDeployer(
 			deploy.WithFieldOwner("aihub"),
 			deploy.WithApplyOrder(),

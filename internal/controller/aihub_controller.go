@@ -22,6 +22,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"text/template"
 	"time"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
@@ -123,6 +124,11 @@ type AIHubReconciler struct {
 	ManifestsTemplatePath string
 	Getenv                func(string) string
 	Deployer              ResourceDeployer
+	// Template is the parsed set of embedded resource templates
+	// (config.ParseTemplates), used to render the operator's own metrics
+	// ServiceMonitor. Falls back to parsing on demand if nil (e.g. in tests
+	// that don't set it).
+	Template *template.Template
 	// APIReader is an uncached client.Reader for reading objects that live
 	// outside the label-scoped manager cache (e.g. the platform version
 	// ConfigMap created by the orchestrator).
@@ -301,7 +307,19 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// (RHOAIENG-88196), so clusters without the Prometheus operator installed
 	// are unaffected.
 	if r.HasServiceMonitorCRD {
-		resources = append(resources, buildAIHubMetricsServiceMonitor(spec.ApplicationNamespace))
+		sm, err := r.buildAIHubMetricsServiceMonitor(spec.ApplicationNamespace)
+		if err != nil {
+			condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),
+				conditions.WithReason("RenderFailed"),
+				conditions.WithMessage("%s", err.Error()))
+			condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+				conditions.WithSeverity(common.ConditionSeverityError),
+				conditions.WithReason("ProvisioningFailed"),
+				conditions.WithMessage("%s", err.Error()))
+			_ = r.updateStatus(ctx, aihub, condMgr)
+			return ctrl.Result{}, fmt.Errorf("rendering metrics ServiceMonitor: %w", err)
+		}
+		resources = append(resources, sm)
 	}
 
 	// 6. Apply all rendered resources via the Deployer (SSA, CRD-first ordering).
@@ -914,55 +932,41 @@ func stampAsyncUploadTemplate(u *unstructured.Unstructured, image string) error 
 	return nil
 }
 
-// buildAIHubMetricsServiceMonitor constructs the ServiceMonitor that scrapes the
-// AIHub operator's own /metrics endpoint. It reproduces the resource formerly
-// shipped statically as config/overlays/aihub/monitor.yaml, including the
-// serverName that kustomize replacements used to stitch together from the
-// metrics Service's name and namespace (see aihub_controller.go's
-// aihubMetricsServiceName / config/overlays/aihub/metrics_service.yaml).
-func buildAIHubMetricsServiceMonitor(namespace string) unstructured.Unstructured {
-	serverName := fmt.Sprintf("%s.%s.svc", aihubMetricsServiceName, namespace)
-
-	sm := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "monitoring.coreos.com/v1",
-			"kind":       "ServiceMonitor",
-			"metadata": map[string]any{
-				"name":      aihubMetricsMonitorName,
-				"namespace": namespace,
-				"labels": map[string]any{
-					"control-plane":                aihubControlPlaneLabel,
-					"app.kubernetes.io/name":       aihubMetricsMonitorName,
-					"app.kubernetes.io/component":  "metrics",
-					"app.kubernetes.io/created-by": "model-registry-operator",
-					"app.kubernetes.io/part-of":    "model-registry-operator",
-				},
-			},
-			"spec": map[string]any{
-				"endpoints": []any{
-					map[string]any{
-						"path":            "/metrics",
-						"port":            "https",
-						"scheme":          "https",
-						"bearerTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
-						"tlsConfig": map[string]any{
-							"ca": map[string]any{
-								"configMap": map[string]any{
-									"name": aihubMetricsCAConfigMap,
-									"key":  aihubMetricsCAConfigMapKey,
-								},
-							},
-							"serverName": serverName,
-						},
-					},
-				},
-				"selector": map[string]any{
-					"matchLabels": map[string]any{
-						"control-plane": aihubControlPlaneLabel,
-					},
-				},
-			},
-		},
+// buildAIHubMetricsServiceMonitor renders the ServiceMonitor that scrapes the
+// AIHub operator's own /metrics endpoint from
+// config/templates/aihub-metrics-servicemonitor.yaml.tmpl. It reproduces the
+// resource formerly shipped statically as config/overlays/aihub/monitor.yaml,
+// including the serverName that kustomize replacements used to stitch
+// together from the metrics Service's name and namespace.
+func (r *AIHubReconciler) buildAIHubMetricsServiceMonitor(namespace string) (unstructured.Unstructured, error) {
+	tmpl := r.Template
+	if tmpl == nil {
+		var err error
+		if tmpl, err = config.ParseTemplates(); err != nil {
+			return unstructured.Unstructured{}, fmt.Errorf("parsing templates: %w", err)
+		}
 	}
-	return *sm
+
+	params := struct {
+		Name           string
+		Namespace      string
+		ServiceName    string
+		ControlPlane   string
+		CAConfigMap    string
+		CAConfigMapKey string
+	}{
+		Name:           aihubMetricsMonitorName,
+		Namespace:      namespace,
+		ServiceName:    aihubMetricsServiceName,
+		ControlPlane:   aihubControlPlaneLabel,
+		CAConfigMap:    aihubMetricsCAConfigMap,
+		CAConfigMapKey: aihubMetricsCAConfigMapKey,
+	}
+
+	applier := &TemplateApplier{Template: tmpl}
+	var sm unstructured.Unstructured
+	if err := applier.Apply(params, "aihub-metrics-servicemonitor.yaml.tmpl", &sm); err != nil {
+		return unstructured.Unstructured{}, err
+	}
+	return sm, nil
 }

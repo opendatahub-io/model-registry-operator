@@ -1,0 +1,26 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{.Name}}
+  namespace: {{.Namespace}}
+  labels:
+    control-plane: {{.ControlPlane}}
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry-operator
+spec:
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        ca:
+          configMap:
+            name: {{.CAConfigMap}}
+            key: {{.CAConfigMapKey}}
+        serverName: {{.ServiceName}}.{{.Namespace}}.svc
+  selector:
+    matchLabels:
+      control-plane: {{.ControlPlane}}
