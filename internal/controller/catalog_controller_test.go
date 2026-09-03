@@ -251,6 +251,78 @@ var _ = Describe("Catalog controller", func() {
 			Expect(emptyDirVol.EmptyDir.SizeLimit.String()).To(Equal("10Gi"))
 		})
 
+		It("Should propagate spec.proxy to the catalog deployment and update it on change", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+
+			By("Creating Catalog CR without proxy settings")
+			err := k8sClient.Create(ctx, catalog)
+			Expect(err).To(Not(HaveOccurred()))
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "catalog",
+					Namespace: namespaceName,
+				},
+			}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			envNames := func(dep *appsv1.Deployment) []string {
+				var names []string
+				for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+					names = append(names, e.Name)
+				}
+				return names
+			}
+
+			By("Verifying no proxy env vars are set when spec.proxy is unset")
+			dep := &appsv1.Deployment{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(envNames(dep)).ToNot(ContainElements("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"))
+
+			By("Setting spec.proxy on the Catalog CR")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "catalog", Namespace: namespaceName}, catalog)).To(Succeed())
+			catalog.Spec.Proxy = &catalogv1alpha1.ProxyConfig{
+				HTTPProxy:  "http://proxy.example.com:3128",
+				HTTPSProxy: "https://proxy.example.com:3128",
+				NoProxy:    ".svc,.cluster.local",
+			}
+			Expect(k8sClient.Update(ctx, catalog)).To(Succeed())
+
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying proxy env vars are set on the catalog container")
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)
+			Expect(err).To(Not(HaveOccurred()))
+			catalogContainer := dep.Spec.Template.Spec.Containers[0]
+			Expect(catalogContainer.Env).To(ContainElements(
+				corev1.EnvVar{Name: "HTTP_PROXY", Value: "http://proxy.example.com:3128"},
+				corev1.EnvVar{Name: "HTTPS_PROXY", Value: "https://proxy.example.com:3128"},
+				corev1.EnvVar{Name: "NO_PROXY", Value: ".svc,.cluster.local"},
+			))
+
+			By("Updating spec.proxy and verifying the deployment is updated on the next reconcile")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "catalog", Namespace: namespaceName}, catalog)).To(Succeed())
+			catalog.Spec.Proxy.HTTPProxy = "http://new-proxy.example.com:3128"
+			Expect(k8sClient.Update(ctx, catalog)).To(Succeed())
+
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(dep.Spec.Template.Spec.Containers[0].Env).To(ContainElement(
+				corev1.EnvVar{Name: "HTTP_PROXY", Value: "http://new-proxy.example.com:3128"},
+			))
+		})
+
 		It("Should adopt pre-existing legacy-named resources by re-parenting owner references", func() {
 			// Resources created by the old ModelCatalogReconciler are named
 			// "model-catalog"/"model-catalog-postgres", not after the Catalog CR

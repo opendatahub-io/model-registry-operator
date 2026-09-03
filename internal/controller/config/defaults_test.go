@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/go-logr/logr"
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -15,9 +17,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	configv1 "github.com/openshift/api/config/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbac "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestGetStringConfigWithDefault(t *testing.T) {
@@ -547,6 +552,147 @@ func TestCatalogDeployment(t *testing.T) {
 	})
 }
 
+func TestCatalogDeploymentProxy(t *testing.T) {
+	// Clear any env vars from previous tests
+	os.Unsetenv(config.RestImage)
+
+	// parse all templates
+	templates, err := config.ParseTemplates()
+	if err != nil {
+		t.Errorf("ParseTemplates() error = %v", err)
+		t.FailNow()
+	}
+
+	config.SetDefaultDomain("example.com", nil, false)
+
+	catalogReconciler := controller.CatalogReconciler{
+		Log:      logr.Logger{},
+		Template: templates,
+		Capabilities: controller.ClusterCapabilities{
+			IsOpenShift: true,
+			HasUserAPI:  true,
+		},
+	}
+
+	findCatalogContainer := func(deployment *appsv1.Deployment) *corev1.Container {
+		for i, container := range deployment.Spec.Template.Spec.Containers {
+			if container.Name == "catalog" {
+				return &deployment.Spec.Template.Spec.Containers[i]
+			}
+		}
+		return nil
+	}
+
+	t.Run("proxy configured sets proxy env vars", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+			Proxy: &catalogv1alpha1.ProxyConfig{
+				HTTPProxy:  "http://proxy.example.com:3128",
+				HTTPSProxy: "https://proxy.example.com:3128",
+				NoProxy:    ".svc,.cluster.local,localhost",
+			},
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		want := map[string]string{
+			"HTTP_PROXY":  "http://proxy.example.com:3128",
+			"HTTPS_PROXY": "https://proxy.example.com:3128",
+			"NO_PROXY":    ".svc,.cluster.local,localhost",
+		}
+		for name, value := range want {
+			found := false
+			for _, e := range catalogContainer.Env {
+				if e.Name == name {
+					found = true
+					if e.Value != value {
+						t.Errorf("env %s = %v, want %v", name, e.Value, value)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected env var %s to be set on catalog container", name)
+			}
+		}
+	})
+
+	t.Run("proxy unset omits proxy env vars", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		for _, e := range catalogContainer.Env {
+			if e.Name == "HTTP_PROXY" || e.Name == "HTTPS_PROXY" || e.Name == "NO_PROXY" {
+				t.Errorf("did not expect env var %s to be set when Proxy is unset", e.Name)
+			}
+		}
+	})
+
+	t.Run("proxy with wildcard NoProxy is rendered safely", func(t *testing.T) {
+		params := controller.CatalogParams{
+			Name:      "model-catalog",
+			Namespace: "test-namespace",
+			Component: "model-catalog",
+			Proxy: &catalogv1alpha1.ProxyConfig{
+				NoProxy: "*.example.com",
+			},
+		}
+
+		var result appsv1.Deployment
+		if err := catalogReconciler.Apply(&params, "catalog-deployment.yaml.tmpl", &result); err != nil {
+			t.Errorf("Apply() error = %v", err)
+			return
+		}
+
+		catalogContainer := findCatalogContainer(&result)
+		if catalogContainer == nil {
+			t.Errorf("catalog container should be present in deployment")
+			return
+		}
+
+		found := false
+		for _, e := range catalogContainer.Env {
+			if e.Name == "NO_PROXY" {
+				found = true
+				if e.Value != "*.example.com" {
+					t.Errorf("env NO_PROXY = %v, want %v", e.Value, "*.example.com")
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected env var NO_PROXY to be set on catalog container")
+		}
+	})
+}
+
 func TestCatalogPostgresSecret(t *testing.T) {
 	// Clear any env vars from previous tests
 	os.Unsetenv(config.CatalogPostgresUser)
@@ -673,6 +819,77 @@ var _ = Describe("Defaults integration tests", func() {
 			config.SetDefaultDomain("", k8sClient, true)
 
 			Expect(config.GetDefaultDomain()).To(Equal("domain3"))
+		})
+	})
+
+	Describe("TestGetClusterProxy", func() {
+		AfterEach(func() {
+			proxy := &configv1.Proxy{}
+			if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: "cluster"}, proxy); err == nil {
+				Expect(k8sClient.Delete(context.Background(), proxy)).To(Succeed())
+			}
+		})
+
+		It("Should return nil when not on OpenShift", func() {
+			config.SetDefaultDomain("", k8sClient, false)
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should return nil when the cluster Proxy object doesn't exist", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should return nil when the cluster Proxy has no proxy settings", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+
+			Expect(config.GetClusterProxy()).To(BeNil())
+		})
+
+		It("Should prefer status values over spec values", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.ProxySpec{
+					HTTPProxy:  "http://spec-proxy:3128",
+					HTTPSProxy: "https://spec-proxy:3128",
+					NoProxy:    "spec-noproxy",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+			proxy.Status = configv1.ProxyStatus{
+				HTTPProxy:  "http://status-proxy:3128",
+				HTTPSProxy: "https://status-proxy:3128",
+				NoProxy:    "status-noproxy",
+			}
+			Expect(k8sClient.Status().Update(context.Background(), proxy)).To(Succeed())
+
+			result := config.GetClusterProxy()
+			Expect(result).NotTo(BeNil())
+			Expect(result.HTTPProxy).To(Equal("http://status-proxy:3128"))
+			Expect(result.HTTPSProxy).To(Equal("https://status-proxy:3128"))
+			Expect(result.NoProxy).To(Equal("status-noproxy"))
+		})
+
+		It("Should fall back to spec values when status is empty", func() {
+			config.SetDefaultDomain("", k8sClient, true)
+			proxy := &configv1.Proxy{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.ProxySpec{
+					HTTPProxy: "http://spec-only-proxy:3128",
+				},
+			}
+			Expect(k8sClient.Create(context.Background(), proxy)).To(Succeed())
+
+			result := config.GetClusterProxy()
+			Expect(result).NotTo(BeNil())
+			Expect(result.HTTPProxy).To(Equal("http://spec-only-proxy:3128"))
+			Expect(result.HTTPSProxy).To(Equal(""))
+			Expect(result.NoProxy).To(Equal(""))
 		})
 	})
 })

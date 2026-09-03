@@ -184,6 +184,20 @@ spec:
                 secretKeyRef:
                   name: {{.Name}}-postgres
                   key: database-password
+            {{- with .Proxy }}
+            {{- if .HTTPProxy }}
+            - name: HTTP_PROXY
+              value: {{ printf "%q" .HTTPProxy }}
+            {{- end }}
+            {{- if .HTTPSProxy }}
+            - name: HTTPS_PROXY
+              value: {{ printf "%q" .HTTPSProxy }}
+            {{- end }}
+            {{- if .NoProxy }}
+            - name: NO_PROXY
+              value: {{ printf "%q" .NoProxy }}
+            {{- end }}
+            {{- end }}
         {{ if .Spec.KubeRBACProxy }}
         - name: kube-rbac-proxy
           args:
