@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
+	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	platformlabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
@@ -30,6 +31,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,6 +61,11 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("manifests template path is not accessible %q: %w", manifestsTemplatePath, err)
 	} else if !fi.IsDir() {
 		return fmt.Errorf("manifests template path is not a directory: %s", manifestsTemplatePath)
+	}
+
+	resourceTemplate, err := config.ParseTemplates()
+	if err != nil {
+		return fmt.Errorf("error parsing resource templates: %w", err)
 	}
 
 	capabilities, err := setup.GetCapabilities()
@@ -102,6 +109,19 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 	})
 	deployerCacheObj := cache.ByObject{Label: deployerSelector}
 
+	// The AIHub operator's own metrics ServiceMonitor is created at runtime by
+	// the reconciler (RHOAIENG-88196) rather than shipped in the module
+	// bundle, and applied through the Deployer like every other type above.
+	// Registered as unstructured (not the typed prometheus-operator type) to
+	// avoid adding that dependency + scheme registration just for this cache
+	// scoping key.
+	serviceMonitor := &unstructured.Unstructured{}
+	serviceMonitor.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "monitoring.coreos.com",
+		Version: "v1",
+		Kind:    "ServiceMonitor",
+	})
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
@@ -116,6 +136,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 				&rbacv1.ClusterRoleBinding{}: deployerCacheObj,
 				&admissionregistrationv1.ValidatingWebhookConfiguration{}: deployerCacheObj,
 				&admissionregistrationv1.MutatingWebhookConfiguration{}:   deployerCacheObj,
+				serviceMonitor: deployerCacheObj,
 			},
 		},
 		Metrics:                 metricsServerOptions,
@@ -135,6 +156,8 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		ManifestsTemplatePath: manifestsTemplatePath,
 		Getenv:                os.Getenv,
 		APIReader:             mgr.GetAPIReader(),
+		HasServiceMonitorCRD:  capabilities.HasServiceMonitor,
+		Template:              resourceTemplate,
 		Deployer: deploy.NewDeployer(
 			deploy.WithFieldOwner("aihub"),
 			deploy.WithApplyOrder(),

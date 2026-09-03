@@ -168,6 +168,67 @@ func TestStampAsyncUploadTemplate(t *testing.T) {
 	})
 }
 
+// TestBuildAIHubMetricsServiceMonitor verifies the runtime-constructed
+// ServiceMonitor (RHOAIENG-88196) matches the resource formerly shipped
+// statically in config/overlays/aihub/monitor.yaml, including the serverName
+// that kustomize replacements used to stitch together from the metrics
+// Service's name and namespace.
+func TestBuildAIHubMetricsServiceMonitor(t *testing.T) {
+	r := &AIHubReconciler{}
+	sm, err := r.buildAIHubMetricsServiceMonitor("app-ns")
+	if err != nil {
+		t.Fatalf("buildAIHubMetricsServiceMonitor: %v", err)
+	}
+
+	if got, want := sm.GetAPIVersion(), "monitoring.coreos.com/v1"; got != want {
+		t.Errorf("apiVersion = %q, want %q", got, want)
+	}
+	if got, want := sm.GetKind(), "ServiceMonitor"; got != want {
+		t.Errorf("kind = %q, want %q", got, want)
+	}
+	if got, want := sm.GetName(), "aihub-controller-manager-metrics-monitor"; got != want {
+		t.Errorf("name = %q, want %q", got, want)
+	}
+	if got, want := sm.GetNamespace(), "app-ns"; got != want {
+		t.Errorf("namespace = %q, want %q", got, want)
+	}
+
+	labels := sm.GetLabels()
+	if got, want := labels["control-plane"], "aihub-controller-manager"; got != want {
+		t.Errorf("control-plane label = %q, want %q", got, want)
+	}
+	if got, want := labels["app.kubernetes.io/component"], "metrics"; got != want {
+		t.Errorf("component label = %q, want %q", got, want)
+	}
+
+	// unstructured.NestedString does not support numeric slice indices in its
+	// field path, so navigate the endpoints slice directly.
+	endpoints, found, err := unstructured.NestedSlice(sm.Object, "spec", "endpoints")
+	if err != nil || !found || len(endpoints) != 1 {
+		t.Fatalf("spec.endpoints: found=%v err=%v endpoints=%v", found, err, endpoints)
+	}
+	endpoint, ok := endpoints[0].(map[string]any)
+	if !ok {
+		t.Fatalf("endpoint 0 is not a map: %T", endpoints[0])
+	}
+	tlsConfig, ok := endpoint["tlsConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("tlsConfig is not a map: %T", endpoint["tlsConfig"])
+	}
+	serverName, _ := tlsConfig["serverName"].(string)
+	if want := "aihub-controller-manager-metrics-service.app-ns.svc"; serverName != want {
+		t.Errorf("serverName = %q, want %q", serverName, want)
+	}
+
+	selector, found, err := unstructured.NestedStringMap(sm.Object, "spec", "selector", "matchLabels")
+	if err != nil || !found {
+		t.Fatalf("spec.selector.matchLabels: found=%v err=%v", found, err)
+	}
+	if got, want := selector["control-plane"], "aihub-controller-manager"; got != want {
+		t.Errorf("selector control-plane = %q, want %q", got, want)
+	}
+}
+
 // TestResolveChildImages_AsyncUpload verifies that AsyncUploadImage is
 // populated from the RELATED_IMAGE env var (Gap 2 unit test).
 func TestResolveChildImages_AsyncUpload(t *testing.T) {

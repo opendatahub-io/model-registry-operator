@@ -203,6 +203,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		Scheme:                scheme,
 		ManifestsTemplatePath: tmpDir,
 		APIReader:             k8sClient,
+		HasServiceMonitorCRD:  true,
 		Getenv: fakeGetenv(map[string]string{
 			config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
 			config.RestImage:                  "fake-rest@sha256:bbb",
@@ -266,6 +267,29 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		t.Errorf("catalog manager image = %q, want %q", catalogManagerC.Image, "fake-op@sha256:aaa")
 	}
 	assertEnv(t, catalogManagerC, config.RegistriesNamespace, regNs)
+
+	// Assert the AIHub operator created and owns its own metrics ServiceMonitor
+	// (RHOAIENG-88196: no longer shipped statically in the module bundle).
+	sm := &unstructured.Unstructured{}
+	sm.SetGroupVersionKind(schema.GroupVersionKind{Group: "monitoring.coreos.com", Version: "v1", Kind: "ServiceMonitor"})
+	if err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: appNs, Name: aihubMetricsMonitorName,
+	}, sm); err != nil {
+		t.Fatalf("AIHub metrics ServiceMonitor %s not found: %v", aihubMetricsMonitorName, err)
+	}
+	if !metav1.IsControlledBy(sm, aihub) {
+		t.Errorf("ServiceMonitor %s is not owned by the AIHub CR", aihubMetricsMonitorName)
+	}
+	wantServerName := aihubMetricsServiceName + "." + appNs + ".svc"
+	endpoints, _, err := unstructured.NestedSlice(sm.Object, "spec", "endpoints")
+	if err != nil || len(endpoints) != 1 {
+		t.Fatalf("ServiceMonitor spec.endpoints: err=%v endpoints=%v", err, endpoints)
+	}
+	endpoint, _ := endpoints[0].(map[string]any)
+	tlsConfig, _ := endpoint["tlsConfig"].(map[string]any)
+	if serverName, _ := tlsConfig["serverName"].(string); serverName != wantServerName {
+		t.Errorf("ServiceMonitor serverName = %q, want %q", serverName, wantServerName)
+	}
 
 	// Assert modelregistries CRD exists (CRDs applied).
 	mrCRD := &apiextensionsv1.CustomResourceDefinition{}
