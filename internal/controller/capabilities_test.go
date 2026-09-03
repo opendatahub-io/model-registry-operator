@@ -37,6 +37,7 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 							{Name: "user.openshift.io"},
 							{Name: "config.openshift.io"},
 							{Name: "services.platform.opendatahub.io"},
+							{Name: "monitoring.coreos.com"},
 						},
 					},
 					err: nil,
@@ -49,6 +50,27 @@ var _ = Describe("ClusterCapabilities Detection", func() {
 				Expect(caps.HasUserAPI).To(BeTrue())
 				Expect(caps.HasConfigAPI).To(BeTrue())
 				Expect(caps.HasAuthAPI).To(BeTrue())
+				Expect(caps.HasServiceMonitor).To(BeTrue())
+			})
+		})
+
+		Context("Cluster without the Prometheus operator installed", func() {
+			It("should not detect the ServiceMonitor API", func() {
+				mockDiscovery := &mockDiscoveryClient{
+					groups: &metav1.APIGroupList{
+						Groups: []metav1.APIGroup{
+							{Name: "route.openshift.io"},
+							{Name: "user.openshift.io"},
+							{Name: "config.openshift.io"},
+						},
+					},
+					err: nil,
+				}
+
+				caps, err := DetectClusterCapabilities(mockDiscovery)
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(caps.HasServiceMonitor).To(BeFalse())
 			})
 		})
 

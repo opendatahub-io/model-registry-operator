@@ -117,6 +117,9 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 	# not config/crd/bases — the Catalog CRD ships only with the Catalog operator deployment.
 	$(CONTROLLER_GEN) crd paths="./api/catalog/..." output:crd:artifacts:config=config/overlays/catalog
 	rm -f config/crd/bases/aihub.opendatahub.io_catalogs.yaml
+	# The AIHub operator also ships the Catalog CRD; keep its copy in sync with the
+	# generated one rather than hand-editing it.
+	cp config/overlays/catalog/aihub.opendatahub.io_catalogs.yaml config/overlays/aihub/aihub.opendatahub.io_catalogs.yaml
 	# Generate the standalone Catalog operator's ClusterRole from markers in
 	# api/catalog/v1alpha1/rbac.go, scoped the same way as its CRD above.
 	$(CONTROLLER_GEN) rbac:roleName=catalog-manager-role paths="./api/catalog/..." output:rbac:artifacts:config=config/overlays/catalog/rbac

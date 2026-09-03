@@ -230,8 +230,7 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	}
 
 	// --- Start manager in background ---
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go func() {
 		if err := mgr.Start(ctx); err != nil {

@@ -31,6 +31,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -253,4 +254,52 @@ func GetDefaultDomain() string {
 		}
 	}
 	return defaultDomain
+}
+
+// ClusterProxy holds the effective cluster-wide proxy settings read from the
+// OpenShift cluster Proxy object.
+type ClusterProxy struct {
+	HTTPProxy  string
+	HTTPSProxy string
+	NoProxy    string
+}
+
+// GetClusterProxy reads the OpenShift cluster Proxy object named "cluster" and
+// returns its effective proxy settings (status, falling back to spec for any
+// field left blank in status). It returns nil when not running on OpenShift,
+// when the Proxy object doesn't exist, or when no proxy value is configured.
+// Unlike GetDefaultDomain, the result is not cached: it is read fresh on every
+// call, so it reflects the latest cluster Proxy state as of the next Catalog
+// reconcile. There is no watch on the cluster Proxy object, so a change to it
+// does not itself trigger a reconcile; it takes effect whenever the next
+// reconcile happens to run for some other reason.
+func GetClusterProxy() *ClusterProxy {
+	if !defaultIsOpenShift {
+		return nil
+	}
+	proxy := configv1.Proxy{}
+	namespacedName := types.NamespacedName{Name: "cluster"}
+	err := defaultClient.Get(context.Background(), namespacedName, &proxy)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			klog.Log.Error(err, "error getting OpenShift cluster proxy", "name", namespacedName)
+		}
+		return nil
+	}
+	cp := ClusterProxy{
+		HTTPProxy:  firstNonEmpty(proxy.Status.HTTPProxy, proxy.Spec.HTTPProxy),
+		HTTPSProxy: firstNonEmpty(proxy.Status.HTTPSProxy, proxy.Spec.HTTPSProxy),
+		NoProxy:    firstNonEmpty(proxy.Status.NoProxy, proxy.Spec.NoProxy),
+	}
+	if cp.HTTPProxy == "" && cp.HTTPSProxy == "" && cp.NoProxy == "" {
+		return nil
+	}
+	return &cp
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
