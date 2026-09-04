@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -256,6 +257,28 @@ func computeSecretDataHash(data map[string][]byte) string {
 	for _, k := range keys {
 		mac.Write([]byte(k))
 		mac.Write(data[k])
+	}
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// hfSecretsHash returns a deterministic hex-encoded HMAC-SHA-256 hash over the
+// given HF sources and their API key bytes, used as a pod-template annotation so
+// the catalog Deployment rolls when a mounted HF secret's value changes.
+// Returns "" when there are no sources.
+func hfSecretsHash(sources []HFSource, apiKeys map[string][]byte) string {
+	if len(sources) == 0 {
+		return ""
+	}
+	sorted := slices.Clone(sources)
+	slices.SortFunc(sorted, func(a, b HFSource) int {
+		return strings.Compare(a.EnvVarName, b.EnvVarName)
+	})
+	mac := hmac.New(sha256.New, []byte("modelregistry.opendatahub.io/hf-secrets-hash"))
+	for _, s := range sorted {
+		mac.Write([]byte(s.EnvVarName))
+		mac.Write([]byte{0})
+		mac.Write(apiKeys[s.EnvVarName])
+		mac.Write([]byte{0})
 	}
 	return hex.EncodeToString(mac.Sum(nil))
 }

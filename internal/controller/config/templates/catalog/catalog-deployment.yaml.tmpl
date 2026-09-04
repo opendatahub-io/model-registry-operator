@@ -30,6 +30,9 @@ spec:
         {{- if .PostgresSecretHash}}
         modelregistry.opendatahub.io/postgres-secret-hash: "{{.PostgresSecretHash}}"
         {{- end}}
+        {{- if .HFSecretsHash}}
+        modelregistry.opendatahub.io/hf-secrets-hash: "{{.HFSecretsHash}}"
+        {{- end}}
     spec:
       securityContext:
         seccompProfile:
@@ -198,6 +201,13 @@ spec:
               value: {{ printf "%q" .NoProxy }}
             {{- end }}
             {{- end }}
+            {{- range .HFSources}}
+            - name: {{.EnvVarName}}
+              valueFrom:
+                secretKeyRef:
+                  name: {{.SecretName}}
+                  key: apiKey
+            {{- end}}
         {{ if .Spec.KubeRBACProxy }}
         - name: kube-rbac-proxy
           args:

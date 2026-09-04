@@ -27,18 +27,22 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	klog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 	"sigs.k8s.io/yaml"
@@ -65,9 +69,41 @@ var dnsLabelRegex = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 // Kubernetes volume names are DNS labels limited to 63 characters.
 const maxLabeledSourceNameLen = 63 - len("labeled-")
 
+// hfSourceLabel marks a secret as holding a HuggingFace API key for a specific
+// catalog source. Its value is the env var suffix the catalog server reads the
+// key from (HF_API_KEY_<value>); the value is set by the UI/BFF and matches the
+// normalization in kubeflow/model-registry (hfSourceLabelValue / envVarSuffix).
+const hfSourceLabel = "hub.kubeflow.org/hf-source"
+
+// hfAPIKeySecretKey is the data key in an HF secret holding the API key.
+const hfAPIKeySecretKey = "apiKey"
+
+// hfAPIKeyEnvVarPrefix is prepended to the hf-source label value to form the
+// env var name the catalog server resolves the key from.
+const hfAPIKeyEnvVarPrefix = "HF_API_KEY_"
+
+// hfSecretsHashAnnotation is set on the catalog Deployment pod template so a
+// change to any mounted HF secret's value triggers a rollout (env vars sourced
+// via secretKeyRef are only read at container start).
+const hfSecretsHashAnnotation = "modelregistry.opendatahub.io/hf-secrets-hash"
+
+// hfSourceLabelValueRegex bounds an hf-source label value to characters valid
+// in an env var name suffix. Anything else is skipped defensively (the label is
+// normally set by the UI, but a hand-labeled secret could be malformed).
+var hfSourceLabelValueRegex = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+
 // LabeledSource represents a user-defined ConfigMap discovered via the catalogSourceLabel label.
 type LabeledSource struct {
 	Name string
+}
+
+// HFSource represents a HuggingFace API key secret discovered via the
+// hfSourceLabel label. EnvVarName is the env var the catalog server reads the
+// key from (HF_API_KEY_<label value>); SecretName is the secret to source it
+// from via secretKeyRef.
+type HFSource struct {
+	EnvVarName string
+	SecretName string
 }
 
 // CatalogReconciler reconciles Catalog custom resources.
@@ -105,6 +141,8 @@ type CatalogParams struct {
 	HTTPRouteNamespace      string
 	PostgresSecretHash      string
 	Proxy                   *catalogv1alpha1.ProxyConfig
+	HFSources               []HFSource
+	HFSecretsHash           string
 }
 
 func (r *CatalogReconciler) createPostgresParams(catalog *catalogv1alpha1.Catalog) *CatalogParams {
@@ -118,7 +156,7 @@ func (r *CatalogReconciler) createPostgresParams(catalog *catalogv1alpha1.Catalo
 	}
 }
 
-func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog, adminGroups []string, labeledSources []LabeledSource) *CatalogParams {
+func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog, adminGroups []string, labeledSources []LabeledSource, hfSources []HFSource, hfSecretsHash string) *CatalogParams {
 	return &CatalogParams{
 		Name:                    catalogResourceName,
 		Namespace:               catalog.Namespace,
@@ -128,6 +166,8 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		CatalogResources:        catalog.Spec.Resources.Catalog,
 		AdminGroups:             adminGroups,
 		LabeledSources:          labeledSources,
+		HFSources:               hfSources,
+		HFSecretsHash:           hfSecretsHash,
 		GatewayDomain:           r.GatewayDomain,
 		GatewayName:             r.GatewayName,
 		GatewayNamespace:        r.GatewayNamespace,
@@ -216,7 +256,7 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *CatalogReconciler) finalizeCatalog(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
-	catalogParams := r.buildCatalogParams(catalog, nil, nil)
+	catalogParams := r.buildCatalogParams(catalog, nil, nil, nil, "")
 
 	_, err := r.cleanupKubeRBACProxyConfig(ctx, catalogParams)
 	if err != nil {
@@ -264,7 +304,12 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		return ctrl.Result{}, fmt.Errorf("failed to discover labeled catalog sources: %w", err)
 	}
 
-	catalogParams := r.buildCatalogParams(catalog, adminGroups, labeledSources)
+	hfSources, hfSecretsHash, err := r.discoverHFSecrets(ctx, catalog.Namespace)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to discover HF secrets: %w", err)
+	}
+
+	catalogParams := r.buildCatalogParams(catalog, adminGroups, labeledSources, hfSources, hfSecretsHash)
 	postgresParams := r.createPostgresParams(catalog)
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
@@ -1232,6 +1277,8 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		HTTPRouteNamespace      string
 		PostgresSecretHash      string
 		Proxy                   *catalogv1alpha1.ProxyConfig
+		HFSources               []HFSource
+		HFSecretsHash           string
 	}{
 		Name:                    params.Name,
 		Namespace:               params.Namespace,
@@ -1251,6 +1298,8 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		HTTPRouteNamespace:      params.HTTPRouteNamespace,
 		PostgresSecretHash:      params.PostgresSecretHash,
 		Proxy:                   params.Proxy,
+		HFSources:               params.HFSources,
+		HFSecretsHash:           params.HFSecretsHash,
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -1353,6 +1402,61 @@ func (r *CatalogReconciler) discoverLabeledSources(ctx context.Context, namespac
 	return sources, nil
 }
 
+// discoverHFSecrets lists HuggingFace API key secrets in the namespace (those
+// carrying the hfSourceLabel), returning the env-var/secret pairs to inject into
+// the catalog Deployment plus a hash of their values for rollout detection.
+// Malformed secrets (invalid label value, missing apiKey data key, or a
+// duplicate env var name) are skipped with a log entry. Sources are sorted by
+// env var name for deterministic rendering and hashing.
+func (r *CatalogReconciler) discoverHFSecrets(ctx context.Context, namespace string) ([]HFSource, string, error) {
+	log := klog.FromContext(ctx)
+
+	labelReq, err := labels.NewRequirement(hfSourceLabel, selection.Exists, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	var secretList corev1.SecretList
+	if err := r.List(ctx, &secretList,
+		client.InNamespace(namespace),
+		client.MatchingLabelsSelector{Selector: labels.NewSelector().Add(*labelReq)},
+	); err != nil {
+		return nil, "", fmt.Errorf("failed to list secrets with label %s: %w", hfSourceLabel, err)
+	}
+
+	var sources []HFSource
+	apiKeys := make(map[string][]byte)
+	seen := make(map[string]string) // env var name -> first secret name that claimed it
+	for _, secret := range secretList.Items {
+		value := secret.Labels[hfSourceLabel]
+		if !hfSourceLabelValueRegex.MatchString(value) {
+			log.Error(nil, "Skipping HF secret with invalid hf-source label value (must match [A-Za-z0-9_]+)",
+				"name", secret.Name, "value", value)
+			continue
+		}
+		key, ok := secret.Data[hfAPIKeySecretKey]
+		if !ok {
+			log.V(5).Info("Skipping HF secret missing apiKey data key", "name", secret.Name)
+			continue
+		}
+
+		envVarName := hfAPIKeyEnvVarPrefix + strings.ToUpper(value)
+		if existing, dup := seen[envVarName]; dup {
+			log.Error(nil, "Skipping HF secret with duplicate env var name",
+				"name", secret.Name, "envVar", envVarName, "keeping", existing)
+			continue
+		}
+		seen[envVarName] = secret.Name
+		apiKeys[envVarName] = key
+		sources = append(sources, HFSource{EnvVarName: envVarName, SecretName: secret.Name})
+	}
+
+	slices.SortFunc(sources, func(a, b HFSource) int {
+		return strings.Compare(a.EnvVarName, b.EnvVarName)
+	})
+
+	return sources, hfSecretsHash(sources, apiKeys), nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.templateApplier = &TemplateApplier{
@@ -1425,7 +1529,47 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		)
 	}
 
+	hfLabelReq, hfErr := labels.NewRequirement(hfSourceLabel, selection.Exists, nil)
+	if hfErr != nil {
+		return hfErr
+	}
+	hfSecretCache, err := cache.New(mgr.GetConfig(), cache.Options{
+		Scheme: mgr.GetScheme(),
+		DefaultNamespaces: map[string]cache.Config{
+			config.GetRegistriesNamespace(): {},
+		},
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Secret{}: {Label: labels.NewSelector().Add(*hfLabelReq)},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("creating HF secret cache: %w", err)
+	}
+	if err := mgr.Add(hfSecretCache); err != nil {
+		return fmt.Errorf("adding HF secret cache to manager: %w", err)
+	}
+
+	b = b.WatchesRawSource(source.Kind(hfSecretCache, &corev1.Secret{},
+		handler.TypedEnqueueRequestsFromMapFunc(r.hfSecretToCatalogRequests),
+	))
+
 	return b.Complete(r)
+}
+
+// hfSecretToCatalogRequests enqueues every Catalog CR in the secret's namespace
+// when a watched HF secret changes.
+func (r *CatalogReconciler) hfSecretToCatalogRequests(ctx context.Context, secret *corev1.Secret) []reconcile.Request {
+	var list catalogv1alpha1.CatalogList
+	if err := r.List(ctx, &list, client.InNamespace(secret.GetNamespace())); err != nil {
+		return nil
+	}
+	reqs := make([]reconcile.Request, len(list.Items))
+	for i, item := range list.Items {
+		reqs[i] = reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: item.Name, Namespace: item.Namespace},
+		}
+	}
+	return reqs
 }
 
 func (r *CatalogReconciler) getCatalogsForConfigMap(ctx context.Context, object client.Object) []reconcile.Request {
