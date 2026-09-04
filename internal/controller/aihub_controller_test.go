@@ -1433,3 +1433,87 @@ func assertConditionReason(t *testing.T, aihub *aihubv1alpha1.AIHub, condType, e
 }
 
 // fakeGetenv is defined in aihub_images_test.go (same package).
+
+// TestAIHubReconciler_ServiceMonitorGate verifies the RHOAIENG-88196 gate: the
+// reconciler appends its own metrics ServiceMonitor to the deploy set only when
+// the monitoring.coreos.com API is available (HasServiceMonitorCRD). When it is
+// absent, no ServiceMonitor is deployed and reconcile still succeeds — the exact
+// scenario the fix protects (clusters without the Prometheus operator installed).
+func TestAIHubReconciler_ServiceMonitorGate(t *testing.T) {
+	tmpDir := assembleManifests(t)
+	s := testScheme(t)
+
+	for _, tc := range []struct {
+		name        string
+		hasSM       bool
+		wantSMCount int
+	}{
+		{name: "monitoring API present -> ServiceMonitor deployed", hasSM: true, wantSMCount: 1},
+		{name: "monitoring API absent -> ServiceMonitor skipped", hasSM: false, wantSMCount: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			appNs := "app-ns"
+			regNs := "reg-ns"
+
+			aihub := &aihubv1alpha1.AIHub{
+				ObjectMeta: metav1.ObjectMeta{Name: "default-aihub"},
+				Spec: aihubv1alpha1.AIHubSpec{
+					ApplicationNamespace: appNs,
+					InstancesNamespace:   regNs,
+				},
+			}
+			appNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: appNs}}
+			regNsObj := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: regNs}}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(s).
+				WithObjects(aihub, appNsObj, regNsObj).
+				WithStatusSubresource(&aihubv1alpha1.AIHub{}).
+				Build()
+
+			mock := &mockDeployer{}
+			reconciler := &AIHubReconciler{
+				Client:                fakeClient,
+				Scheme:                s,
+				ManifestsTemplatePath: tmpDir,
+				Getenv: fakeGetenv(map[string]string{
+					config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
+					config.RestImage:                  "fake-rest@sha256:bbb",
+					config.PostgresImage:              "fake-pg@sha256:ccc",
+				}),
+				Deployer:             mock,
+				APIReader:            fakeClient,
+				HasServiceMonitorCRD: tc.hasSM,
+			}
+
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "default-aihub"}}
+			if _, err := reconciler.Reconcile(context.Background(), req); err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if len(mock.calls) != 1 {
+				t.Fatalf("expected 1 deployer call, got %d", len(mock.calls))
+			}
+
+			// The child bundle (hack/get_aihub_manifests.sh) also ships a
+			// static ServiceMonitor for the embedded child model-registry-operator
+			// itself (unrelated to RHOAIENG-88196), so filter by name to isolate
+			// the AIHub-owned one this gate controls.
+			var smCount int
+			for _, res := range mock.calls[0].Resources {
+				if res.GetKind() != "ServiceMonitor" || res.GetAPIVersion() != "monitoring.coreos.com/v1" {
+					continue
+				}
+				if res.GetName() != aihubMetricsMonitorName {
+					continue
+				}
+				smCount++
+				if got, want := res.GetNamespace(), appNs; got != want {
+					t.Errorf("ServiceMonitor namespace = %q, want %q", got, want)
+				}
+			}
+			if smCount != tc.wantSMCount {
+				t.Errorf("ServiceMonitor count in deploy set = %d, want %d", smCount, tc.wantSMCount)
+			}
+		})
+	}
+}
