@@ -86,4 +86,45 @@ var _ = Describe("util functions", func() {
 			Expect(computeSecretDataHash(data)).To(Equal(""))
 		})
 	})
+
+	Context("hfSecretsHash", func() {
+		It("returns empty string when there are no sources", func() {
+			Expect(hfSecretsHash(nil, nil)).To(Equal(""))
+			Expect(hfSecretsHash([]HFSource{}, map[string][]byte{})).To(Equal(""))
+		})
+
+		It("is deterministic and independent of source slice order", func() {
+			keys := map[string][]byte{
+				"HF_API_KEY_A": []byte("aaa"),
+				"HF_API_KEY_B": []byte("bbb"),
+			}
+			h1 := hfSecretsHash([]HFSource{
+				{EnvVarName: "HF_API_KEY_A", SecretName: "s1"},
+				{EnvVarName: "HF_API_KEY_B", SecretName: "s2"},
+			}, keys)
+			h2 := hfSecretsHash([]HFSource{
+				{EnvVarName: "HF_API_KEY_B", SecretName: "s2"},
+				{EnvVarName: "HF_API_KEY_A", SecretName: "s1"},
+			}, keys)
+			Expect(h1).To(Equal(h2))
+			Expect(h1).To(Not(BeEmpty()))
+		})
+
+		It("changes when an API key value changes", func() {
+			src := []HFSource{{EnvVarName: "HF_API_KEY_A", SecretName: "s1"}}
+			h1 := hfSecretsHash(src, map[string][]byte{"HF_API_KEY_A": []byte("aaa")})
+			h2 := hfSecretsHash(src, map[string][]byte{"HF_API_KEY_A": []byte("bbb")})
+			Expect(h1).To(Not(Equal(h2)))
+		})
+
+		It("changes when a source is added or removed", func() {
+			keys := map[string][]byte{"HF_API_KEY_A": []byte("aaa"), "HF_API_KEY_B": []byte("bbb")}
+			h1 := hfSecretsHash([]HFSource{{EnvVarName: "HF_API_KEY_A", SecretName: "s1"}}, keys)
+			h2 := hfSecretsHash([]HFSource{
+				{EnvVarName: "HF_API_KEY_A", SecretName: "s1"},
+				{EnvVarName: "HF_API_KEY_B", SecretName: "s2"},
+			}, keys)
+			Expect(h1).To(Not(Equal(h2)))
+		})
+	})
 })

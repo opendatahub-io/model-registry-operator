@@ -487,7 +487,7 @@ var _ = Describe("Catalog controller", func() {
 			}
 
 			By("Creating the admin Role and RoleBinding as if an admin group were configured")
-			paramsWithGroups := catalogReconciler.buildCatalogParams(catalog, []string{"admin-group"}, nil)
+			paramsWithGroups := catalogReconciler.buildCatalogParams(catalog, []string{"admin-group"}, nil, nil, "")
 			_, err = catalogReconciler.createOrUpdateAdminRole(ctx, paramsWithGroups, owner)
 			Expect(err).To(Not(HaveOccurred()))
 			_, err = catalogReconciler.createOrUpdateAdminRoleBinding(ctx, paramsWithGroups, owner)
@@ -498,7 +498,7 @@ var _ = Describe("Catalog controller", func() {
 			Expect(k8sClient.Get(ctx, rbName, &rb)).To(Succeed())
 
 			By("Removing the admin group and reconciling the admin RoleBinding")
-			paramsWithoutGroups := catalogReconciler.buildCatalogParams(catalog, nil, nil)
+			paramsWithoutGroups := catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, "")
 			_, err = catalogReconciler.createOrUpdateAdminRoleBinding(ctx, paramsWithoutGroups, owner)
 			Expect(err).To(Not(HaveOccurred()))
 
@@ -736,6 +736,145 @@ var _ = Describe("Catalog controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, updatedPgDep)).To(Succeed())
 			newPgHash := updatedPgDep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
 			Expect(newPgHash).To(Equal(newCatHash))
+		})
+
+		It("Should discover HF secrets, skipping malformed and duplicate ones", func() {
+			By("Creating a valid HF secret")
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog-my-source-apikey",
+					Namespace: namespaceName,
+					Labels:    map[string]string{hfSourceLabel: "MY_SOURCE"},
+				},
+				Data: map[string][]byte{hfAPIKeySecretKey: []byte("token-1")},
+			})).To(Succeed())
+
+			By("Creating an HF secret missing the apiKey data key (should be skipped)")
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog-no-key-apikey",
+					Namespace: namespaceName,
+					Labels:    map[string]string{hfSourceLabel: "NO_KEY"},
+				},
+				Data: map[string][]byte{"wrong": []byte("x")},
+			})).To(Succeed())
+
+			By("Creating an HF secret with an invalid label value (should be skipped)")
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog-bad-apikey",
+					Namespace: namespaceName,
+					Labels:    map[string]string{hfSourceLabel: "bad-value"}, // hyphen not allowed
+				},
+				Data: map[string][]byte{hfAPIKeySecretKey: []byte("token-2")},
+			})).To(Succeed())
+
+			By("Creating an unrelated secret without the hf-source label (should be ignored)")
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: namespaceName},
+				Data:       map[string][]byte{hfAPIKeySecretKey: []byte("nope")},
+			})).To(Succeed())
+
+			sources, hash, err := catalogReconciler.discoverHFSecrets(ctx, namespaceName)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(sources).To(Equal([]HFSource{
+				{EnvVarName: "HF_API_KEY_MY_SOURCE", SecretName: "catalog-my-source-apikey"},
+			}))
+			Expect(hash).To(Not(BeEmpty()))
+		})
+
+		It("Should inject HF API key env vars and set the hf-secrets hash annotation", func() {
+			By("Creating an HF secret")
+			Expect(k8sClient.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog-my-source-apikey",
+					Namespace: namespaceName,
+					Labels:    map[string]string{hfSourceLabel: "MY_SOURCE"},
+				},
+				Data: map[string][]byte{hfAPIKeySecretKey: []byte("token-1")},
+			})).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "catalog", Namespace: namespaceName}}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the catalog container has the HF env var sourced from the secret")
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			Expect(dep.Spec.Template.Spec.Containers[0].Env).To(ContainElement(corev1.EnvVar{
+				Name: "HF_API_KEY_MY_SOURCE",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "catalog-my-source-apikey"},
+						Key:                  "apiKey",
+					},
+				},
+			}))
+			initialHash := dep.Spec.Template.Annotations[hfSecretsHashAnnotation]
+			Expect(initialHash).To(Not(BeEmpty()))
+
+			By("Verifying the postgres deployment has no HF env var or HF hash annotation")
+			pgDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres", Namespace: namespaceName}, pgDep)).To(Succeed())
+			Expect(pgDep.Spec.Template.Annotations).To(Not(HaveKey(hfSecretsHashAnnotation)))
+		})
+
+		It("Should update the hf-secrets hash on value change and drop env vars on secret deletion", func() {
+			hfSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "catalog-my-source-apikey",
+					Namespace: namespaceName,
+					Labels:    map[string]string{hfSourceLabel: "MY_SOURCE"},
+				},
+				Data: map[string][]byte{hfAPIKeySecretKey: []byte("token-1")},
+			}
+			Expect(k8sClient.Create(ctx, hfSecret)).To(Succeed())
+
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "catalog", Namespace: namespaceName}}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			initialHash := dep.Spec.Template.Annotations[hfSecretsHashAnnotation]
+			Expect(initialHash).To(Not(BeEmpty()))
+
+			By("Changing the secret value and reconciling")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "catalog-my-source-apikey", Namespace: namespaceName}, hfSecret)).To(Succeed())
+			hfSecret.Data[hfAPIKeySecretKey] = []byte("token-2")
+			Expect(k8sClient.Update(ctx, hfSecret)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the hash annotation changed (forces a rollout) while the env var stays")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			Expect(dep.Spec.Template.Annotations[hfSecretsHashAnnotation]).To(Not(Equal(initialHash)))
+			envNames := func(d *appsv1.Deployment) []string {
+				var names []string
+				for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+					names = append(names, e.Name)
+				}
+				return names
+			}
+			Expect(envNames(dep)).To(ContainElement("HF_API_KEY_MY_SOURCE"))
+
+			By("Deleting the secret and reconciling")
+			Expect(k8sClient.Delete(ctx, hfSecret)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+
+			By("Verifying the env var and hash annotation are gone")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, dep)).To(Succeed())
+			Expect(envNames(dep)).To(Not(ContainElement("HF_API_KEY_MY_SOURCE")))
+			Expect(dep.Spec.Template.Annotations).To(Not(HaveKey(hfSecretsHashAnnotation)))
 		})
 
 		It("Should recreate user-sources ConfigMaps with empty owner references if deleted", func() {
