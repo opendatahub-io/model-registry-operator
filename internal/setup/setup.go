@@ -132,17 +132,11 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		}
 		result.Opts = append(result.Opts, tlsConfigFn)
 
-		var adherenceErr error
-		result.AdherencePolicy, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
-		if adherenceErr != nil {
-			failClosed, reason := classifyAdherenceFetchError(adherenceErr)
-			if failClosed {
-				return TLSConfig{}, fmt.Errorf("%s: %w", reason, adherenceErr)
-			}
-			log.Info(reason, "error", adherenceErr)
-			result.AdherencePolicy = oapiconfig.TLSAdherencePolicyNoOpinion
+		policy, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
+		result.AdherencePolicy, result.AdherenceFetched, err = resolveAdherencePolicy(policy, adherenceErr, log)
+		if err != nil {
+			return TLSConfig{}, err
 		}
-		result.AdherenceFetched = true
 	}
 
 	result.Opts = append(result.Opts, func(c *tls.Config) {
@@ -150,6 +144,25 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 	})
 
 	return result, nil
+}
+
+// resolveAdherencePolicy decides the effective TLS adherence policy given the
+// result of fetching it from the APIServer. On fail-closed errors it returns a
+// wrapped error and fetched=false; on success or graceful/transient errors it
+// returns fetched=true (logging graceful/transient errors and falling back to
+// NoOpinion) so the watcher can be seeded and self-heal.
+func resolveAdherencePolicy(policy oapiconfig.TLSAdherencePolicy, err error, log logr.Logger) (oapiconfig.TLSAdherencePolicy, bool, error) {
+	if err == nil {
+		return policy, true, nil
+	}
+
+	failClosed, reason := classifyAdherenceFetchError(err)
+	if failClosed {
+		return oapiconfig.TLSAdherencePolicyNoOpinion, false, fmt.Errorf("%s: %w", reason, err)
+	}
+
+	log.Info(reason, "error", err)
+	return oapiconfig.TLSAdherencePolicyNoOpinion, true, nil
 }
 
 // classifyAdherenceFetchError decides how ConfigureTLS should react to an error
