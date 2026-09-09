@@ -19,6 +19,7 @@ package setup
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -115,10 +117,7 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		profile, err := tlspkg.FetchAPIServerTLSProfile(ctx, bootstrapClient)
 		if err != nil {
 			switch {
-			case apierrors.IsServiceUnavailable(err),
-				apierrors.IsTimeout(err),
-				apierrors.IsServerTimeout(err),
-				apierrors.IsTooManyRequests(err):
+			case isTransientAPIError(err):
 				log.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
 			default:
 				log.Error(err, "unable to fetch TLS profile, using defaults")
@@ -133,12 +132,11 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		}
 		result.Opts = append(result.Opts, tlsConfigFn)
 
-		var adherenceErr error
-		result.AdherencePolicy, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
-		if adherenceErr != nil {
-			log.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
+		policy, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
+		result.AdherencePolicy, result.AdherenceFetched, err = resolveAdherencePolicy(policy, adherenceErr, log)
+		if err != nil {
+			return TLSConfig{}, err
 		}
-		result.AdherenceFetched = true
 	}
 
 	result.Opts = append(result.Opts, func(c *tls.Config) {
@@ -146,4 +144,50 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 	})
 
 	return result, nil
+}
+
+// resolveAdherencePolicy decides the effective TLS adherence policy given the
+// result of fetching it from the APIServer. On fail-closed errors it returns a
+// wrapped error and fetched=false; on success or graceful/transient errors it
+// returns fetched=true (logging graceful/transient errors and falling back to
+// NoOpinion) so the watcher can be seeded and self-heal.
+func resolveAdherencePolicy(policy oapiconfig.TLSAdherencePolicy, err error, log logr.Logger) (oapiconfig.TLSAdherencePolicy, bool, error) {
+	if err == nil {
+		return policy, true, nil
+	}
+
+	failClosed, reason := classifyAdherenceFetchError(err)
+	if failClosed {
+		return oapiconfig.TLSAdherencePolicyNoOpinion, false, fmt.Errorf("%s: %w", reason, err)
+	}
+
+	log.Info(reason, "error", err)
+	return oapiconfig.TLSAdherencePolicyNoOpinion, true, nil
+}
+
+// classifyAdherenceFetchError decides how ConfigureTLS should react to an error
+// returned while fetching the cluster TLS adherence policy. It returns failClosed=true
+// when the operator must not continue (Forbidden / unexpected), and a human-readable
+// reason for logging or error wrapping.
+func classifyAdherenceFetchError(err error) (failClosed bool, reason string) {
+	switch {
+	case apierrors.IsNotFound(err), apimeta.IsNoMatchError(err):
+		return false, "APIServer resource not found, continuing with default TLS adherence policy"
+	case isTransientAPIError(err):
+		return false, "transient API error reading TLS adherence policy, continuing with defaults; watcher will retry"
+	case apierrors.IsForbidden(err):
+		return true, "forbidden reading TLS adherence policy (check operator RBAC for the APIServer resource)"
+	default:
+		return true, "unexpected error reading TLS adherence policy"
+	}
+}
+
+// isTransientAPIError reports whether err is a transient API error likely to
+// succeed on retry.
+func isTransientAPIError(err error) bool {
+	return apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		errors.Is(err, context.DeadlineExceeded)
 }
