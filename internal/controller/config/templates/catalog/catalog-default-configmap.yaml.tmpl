@@ -15,15 +15,7 @@ metadata:
 data:
   sources.yaml: |-
     catalogs:
-      - name: Red Hat AI
-        id: redhat_ai_models
-        enabled: true
-        type: yaml
-        properties:
-          yamlCatalogPath: /shared-data/models-catalog.yaml
-        labels:
-          - Red Hat AI
-      - name: Red Hat AI validated
+      - name: Red Hat Validated Models
         id: redhat_ai_validated_models
         enabled: true
         type: yaml
@@ -31,7 +23,7 @@ data:
           yamlCatalogPath: /shared-data/validated-models-catalog.yaml
         labels:
           - Red Hat AI validated
-      - name: Other
+      - name: Other Models
         id: other_models
         enabled: true
         type: yaml
@@ -39,15 +31,12 @@ data:
           yamlCatalogPath: /shared-data/other-models-catalog.yaml
     labels:
       - name: Red Hat AI validated
-        displayName: Red Hat AI - validated models
+        displayName: Red Hat Validated Models
         description: Third-party models verified by Red Hat to ensure reliable performance and compatibility. Some of these include validated runtime arguments for enabling additional capabilities.
         assetType: models
-      - name: Red Hat AI
-        assetType: models
-        description: Red Hat models with full support and legal indemnification.
       - name: null
         assetType: models
-        displayName: Other models
+        displayName: Other Models
         description: A broad collection of third-party, community, and admin-configured models.
       - name: Red Hat
         assetType: mcp_servers
