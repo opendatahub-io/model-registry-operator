@@ -19,6 +19,7 @@ package setup
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -115,10 +117,7 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		profile, err := tlspkg.FetchAPIServerTLSProfile(ctx, bootstrapClient)
 		if err != nil {
 			switch {
-			case apierrors.IsServiceUnavailable(err),
-				apierrors.IsTimeout(err),
-				apierrors.IsServerTimeout(err),
-				apierrors.IsTooManyRequests(err):
+			case isTransientAPIError(err):
 				log.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
 			default:
 				log.Error(err, "unable to fetch TLS profile, using defaults")
@@ -136,7 +135,12 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 		var adherenceErr error
 		result.AdherencePolicy, adherenceErr = tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
 		if adherenceErr != nil {
-			log.Info("unable to fetch TLS adherence policy, watcher will retry", "error", adherenceErr)
+			failClosed, reason := classifyAdherenceFetchError(adherenceErr)
+			if failClosed {
+				return TLSConfig{}, fmt.Errorf("%s: %w", reason, adherenceErr)
+			}
+			log.Info(reason, "error", adherenceErr)
+			result.AdherencePolicy = oapiconfig.TLSAdherencePolicyNoOpinion
 		}
 		result.AdherenceFetched = true
 	}
@@ -146,4 +150,31 @@ func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (T
 	})
 
 	return result, nil
+}
+
+// classifyAdherenceFetchError decides how ConfigureTLS should react to an error
+// returned while fetching the cluster TLS adherence policy. It returns failClosed=true
+// when the operator must not continue (Forbidden / unexpected), and a human-readable
+// reason for logging or error wrapping.
+func classifyAdherenceFetchError(err error) (failClosed bool, reason string) {
+	switch {
+	case apierrors.IsNotFound(err), apimeta.IsNoMatchError(err):
+		return false, "APIServer resource not found, continuing with default TLS adherence policy"
+	case isTransientAPIError(err):
+		return false, "transient API error reading TLS adherence policy, continuing with defaults; watcher will retry"
+	case apierrors.IsForbidden(err):
+		return true, "forbidden reading TLS adherence policy (check operator RBAC for the APIServer resource)"
+	default:
+		return true, "unexpected error reading TLS adherence policy"
+	}
+}
+
+// isTransientAPIError reports whether err is a transient API error likely to
+// succeed on retry.
+func isTransientAPIError(err error) bool {
+	return apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		errors.Is(err, context.DeadlineExceeded)
 }
