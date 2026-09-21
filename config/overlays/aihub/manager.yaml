@@ -29,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
       - name: manager
-        image: quay.io/opendatahub/model-registry-operator:latest
+        image: quay.io/opendatahub/model-registry-operator:v0.3.17
         command:
           - /manager
         args:
@@ -44,9 +44,9 @@ spec:
               fieldRef:
                 fieldPath: metadata.namespace
           - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE
-            value: quay.io/opendatahub/model-registry-operator:latest
+            value: quay.io/opendatahub/model-registry-operator:v0.3.17
           - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE
-            value: quay.io/opendatahub/model-registry:latest
+            value: quay.io/opendatahub/model-registry:v0.3.17
           - name: RELATED_IMAGE_POSTGRESQL_16_IMAGE
             value: quay.io/sclorg/postgresql-16-c10s:latest
           - name: RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE
@@ -56,7 +56,7 @@ spec:
           - name: RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE
             value: quay.io/opendatahub/odh-model-metadata-collection:latest
           - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE
-            value: quay.io/opendatahub/model-registry-job-async-upload:latest
+            value: quay.io/opendatahub/model-registry-job-async-upload:v0.3.17
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
