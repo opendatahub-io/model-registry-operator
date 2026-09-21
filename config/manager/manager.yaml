@@ -74,7 +74,7 @@ spec:
         name: manager
         env:
           - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE
-            value: quay.io/opendatahub/model-registry:latest
+            value: quay.io/opendatahub/model-registry:v0.3.17
           - name: OAUTH_PROXY_IMAGE
             value: quay.io/openshift/origin-oauth-proxy:latest
           - name: RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE
