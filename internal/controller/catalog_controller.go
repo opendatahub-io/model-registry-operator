@@ -373,6 +373,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		"catalog-configmap.yaml.tmpl",
 		"catalog-mcp-configmap.yaml.tmpl",
 		"catalog-agent-configmap.yaml.tmpl",
+		"catalog-serving-runtime-configmap.yaml.tmpl",
 	} {
 		var done bool
 		result2, done, err = r.manageUserSourcesConfigmap(ctx, catalogParams, tmpl, noDefaultSource)
