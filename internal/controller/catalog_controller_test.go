@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -117,6 +118,59 @@ var _ = Describe("Catalog controller", func() {
 			catHash := dep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
 			Expect(catHash).To(Not(BeEmpty()))
 
+			By("Checking serving runtime source wiring in the catalog Deployment")
+			var runtimeVolumes []corev1.Volume
+			for _, volume := range dep.Spec.Template.Spec.Volumes {
+				if volume.Name == "user-serving-runtime-sources" {
+					runtimeVolumes = append(runtimeVolumes, volume)
+				}
+			}
+			Expect(runtimeVolumes).To(HaveLen(1))
+			Expect(runtimeVolumes[0].ConfigMap).To(Not(BeNil()))
+			Expect(runtimeVolumes[0].ConfigMap.Name).To(Equal("serving-runtime-catalog-sources"))
+			catalogContainer := dep.Spec.Template.Spec.Containers[0]
+			Expect(catalogContainer.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+				Name:      "user-serving-runtime-sources",
+				MountPath: "/data/user-serving-runtime-sources",
+			}))
+			Expect(catalogContainer.Args).To(ContainElement("--catalogs-path=/data/user-serving-runtime-sources/sources.yaml"))
+
+			By("Checking the managed default serving runtime source and its unique label")
+			defaultCM := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "default-catalog-sources", Namespace: namespaceName}, defaultCM)
+			Expect(err).To(Not(HaveOccurred()))
+			var defaultSources struct {
+				Labels []struct {
+					Name      string `json:"name"`
+					AssetType string `json:"assetType"`
+				} `json:"labels"`
+				ServingRuntimeCatalogs []struct {
+					Name       string   `json:"name"`
+					ID         string   `json:"id"`
+					Type       string   `json:"type"`
+					Enabled    bool     `json:"enabled"`
+					Labels     []string `json:"labels"`
+					Properties struct {
+						YAMLCatalogPath string `json:"yamlCatalogPath"`
+					} `json:"properties"`
+				} `json:"serving_runtime_catalogs"`
+			}
+			Expect(yaml.Unmarshal([]byte(defaultCM.Data[sourcesFileName]), &defaultSources)).To(Succeed())
+			labelTypes := make(map[string]string, len(defaultSources.Labels))
+			for _, label := range defaultSources.Labels {
+				Expect(labelTypes).NotTo(HaveKey(label.Name))
+				labelTypes[label.Name] = label.AssetType
+			}
+			Expect(labelTypes).To(HaveKeyWithValue("Red Hat Serving Runtimes", "serving_runtimes"))
+			Expect(defaultSources.ServingRuntimeCatalogs).To(HaveLen(1))
+			runtimeSource := defaultSources.ServingRuntimeCatalogs[0]
+			Expect(runtimeSource.Name).To(Equal("Red Hat Serving Runtimes"))
+			Expect(runtimeSource.ID).To(Equal("rh_serving_runtimes"))
+			Expect(runtimeSource.Type).To(Equal("yaml"))
+			Expect(runtimeSource.Enabled).To(BeTrue())
+			Expect(runtimeSource.Properties.YAMLCatalogPath).To(Equal("/shared-data/redhat-serving-runtimes-catalog.yaml"))
+			Expect(runtimeSource.Labels).To(ConsistOf("Red Hat Serving Runtimes"))
+
 			By("Checking created catalog Service")
 			svc := &corev1.Service{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, svc)
@@ -164,11 +218,15 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 
 			By("Checking created user-sources ConfigMaps and verifying no owner references")
-			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources", "serving-runtime-catalog-sources"} {
 				userCM := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, userCM)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(userCM.OwnerReferences).To(BeEmpty())
+				if cmName == "serving-runtime-catalog-sources" {
+					Expect(userCM.Data).To(HaveKeyWithValue(sourcesFileName, "serving_runtime_catalogs: []"))
+					Expect(userCM.Labels).To(HaveKeyWithValue("app.kubernetes.io/created-by", "model-registry-operator"))
+				}
 			}
 
 			crb := &rbac.ClusterRoleBinding{}
