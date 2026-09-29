@@ -10,6 +10,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -964,6 +965,49 @@ var _ = Describe("Catalog controller", func() {
 				Expect(adoptedCM.OwnerReferences).To(BeEmpty())
 				Expect(adoptedCM.Data).To(Equal(customData))
 			}
+		})
+
+		It("Should mark the Catalog deployment available when an EndpointSlice has a ready endpoint", func() {
+			dep := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},
+				Spec: appsv1.DeploymentSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": catalogResourceName}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": catalogResourceName}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "catalog", Image: "example.com/catalog:latest"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
+			dep.Status.Conditions = []appsv1.DeploymentCondition{{
+				Type:               appsv1.DeploymentAvailable,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
+			}}
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			ready := true
+			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      catalogResourceName + "-test",
+					Namespace: namespaceName,
+					Labels:    map[string]string{discoveryv1.LabelServiceName: catalogResourceName},
+				},
+				AddressType: discoveryv1.AddressTypeIPv4,
+				Endpoints: []discoveryv1.Endpoint{{
+					Addresses:  []string{"10.0.0.1"},
+					Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+				}},
+			})).To(Succeed())
+
+			condition, err := catalogReconciler.checkDeploymentAvailability(ctx,
+				types.NamespacedName{Name: catalogResourceName, Namespace: namespaceName},
+				catalogResourceName,
+				catalogResourceName,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
 		})
 	})
 })
