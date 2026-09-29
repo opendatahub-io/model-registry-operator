@@ -7,7 +7,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/go-logr/logr v1.4.4
 	github.com/onsi/ginkgo/v2 v2.33.0
-	github.com/onsi/gomega v1.43.0
+	github.com/onsi/gomega v1.44.0
 	github.com/opendatahub-io/odh-platform-utilities v0.4.0
 	github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c
 	github.com/openshift/api v0.0.0-20260610192510-1b2a074e0bd6
@@ -109,7 +109,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/mod v0.38.0 // indirect
