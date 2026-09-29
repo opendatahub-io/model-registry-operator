@@ -1207,7 +1207,7 @@ labels:
 			Expect(initialCM.Data).To(Equal(preExisting.Data))
 			Expect(initialCM.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
 
-			// envtest has no Deployment or Endpoint controller. Mark the deployment
+			// envtest has no Deployment or EndpointSlice controller. Mark the deployment
 			// available so the Catalog reconciler stops polling before the delete.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
@@ -1217,9 +1217,18 @@ labels:
 				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
 			}}
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
-			Expect(k8sClient.Create(ctx, &corev1.Endpoints{
-				ObjectMeta: metav1.ObjectMeta{Name: depKey.Name, Namespace: depKey.Namespace},
-				Subsets:    []corev1.EndpointSubset{{Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}}}},
+			ready := true
+			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      depKey.Name + "-test",
+					Namespace: depKey.Namespace,
+					Labels:    map[string]string{discoveryv1.LabelServiceName: depKey.Name},
+				},
+				AddressType: discoveryv1.AddressTypeIPv4,
+				Endpoints: []discoveryv1.Endpoint{{
+					Addresses:  []string{"10.0.0.1"},
+					Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+				}},
 			})).To(Succeed())
 			catalogKey := types.NamespacedName{Name: "catalog", Namespace: namespaceName}
 			Eventually(func() bool {
