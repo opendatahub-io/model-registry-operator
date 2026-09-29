@@ -861,12 +861,13 @@ func (r *CatalogReconciler) removeDefaultSource(doc string) (string, error) {
 		Labels     []string          `json:"labels,omitempty"`
 	}
 	var sources struct {
-		Catalogs      []catalog `json:"catalogs,omitempty"`
-		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
-		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
-		AgentCatalogs []catalog `json:"agent_catalogs,omitempty"`
-		Labels        any       `json:"labels,omitempty"`
-		NamedQueries  any       `json:"namedQueries,omitempty"`
+		Catalogs               []catalog `json:"catalogs,omitempty"`
+		ModelCatalogs          []catalog `json:"model_catalogs,omitempty"`
+		McpCatalogs            []catalog `json:"mcp_catalogs,omitempty"`
+		AgentCatalogs          []catalog `json:"agent_catalogs,omitempty"`
+		ServingRuntimeCatalogs []catalog `json:"serving_runtime_catalogs,omitempty"`
+		Labels                 any       `json:"labels,omitempty"`
+		NamedQueries           any       `json:"namedQueries,omitempty"`
 	}
 
 	err := yaml.UnmarshalStrict([]byte(doc), &sources)
@@ -1516,7 +1517,14 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b = b.Watches(
 		&corev1.ConfigMap{},
 		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
-		builder.WithPredicates(predicate.Or(catalogSourceLabels, labelsPredicate)),
+		builder.WithPredicates(predicate.Or(
+			catalogSourceLabels,
+			labelsPredicate,
+			// Pre-existing administrator ConfigMaps may lack operator labels.
+			predicate.NewPredicateFuncs(func(object client.Object) bool {
+				return object.GetName() == "serving-runtime-catalog-sources"
+			}),
+		)),
 	)
 
 	b = b.Watches(
