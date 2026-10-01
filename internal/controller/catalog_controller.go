@@ -20,6 +20,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -615,18 +616,26 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	}
 
 	if available {
-		endpoints := &corev1.Endpoints{} //nolint:staticcheck
-		if err := r.Get(ctx, key, endpoints); err != nil {
+		endpointSlices := &discoveryv1.EndpointSliceList{}
+		if err := r.List(ctx, endpointSlices,
+			client.InNamespace(key.Namespace),
+			client.MatchingLabels{discoveryv1.LabelServiceName: key.Name},
+		); err != nil {
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable
-			condition.Message = fmt.Sprintf("Service endpoints not found: %v", err)
+			condition.Message = fmt.Sprintf("Service endpoint slices not found: %v", err)
 			return condition, nil
 		}
 
 		hasReadyEndpoints := false
-		for _, subset := range endpoints.Subsets {
-			if len(subset.Addresses) > 0 {
-				hasReadyEndpoints = true
+		for _, endpointSlice := range endpointSlices.Items {
+			for _, endpoint := range endpointSlice.Endpoints {
+				if (endpoint.Conditions.Ready == nil || *endpoint.Conditions.Ready) && len(endpoint.Addresses) > 0 {
+					hasReadyEndpoints = true
+					break
+				}
+			}
+			if hasReadyEndpoints {
 				break
 			}
 		}
