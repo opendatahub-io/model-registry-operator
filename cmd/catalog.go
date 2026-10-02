@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -48,6 +49,46 @@ var catalogCmd = &cobra.Command{
 	Short: "Run the Model Catalog operator",
 	Long:  `Runs the Model Catalog operator as an independent process.`,
 	RunE:  runCatalog,
+}
+
+const catalogServiceName = "model-catalog"
+
+func catalogCacheOptions(registriesNamespace string) cache.Options {
+	objOptions := cache.ByObject{
+		Label: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/created-by": "model-registry-operator",
+		}),
+	}
+	endpointSliceOptions := cache.ByObject{
+		Namespaces: map[string]cache.Config{
+			registriesNamespace: {},
+		},
+		Label: labels.SelectorFromSet(labels.Set{
+			discoveryv1.LabelServiceName: catalogServiceName,
+		}),
+	}
+
+	return cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&appsv1.Deployment{}:            objOptions,
+			&corev1.PersistentVolumeClaim{}: objOptions,
+			&corev1.ServiceAccount{}:        objOptions,
+			&corev1.Service{}:               objOptions,
+			&corev1.Secret{}:                objOptions,
+			&networkingv1.NetworkPolicy{}:   objOptions,
+			&rbacv1.ClusterRoleBinding{}:    objOptions,
+			&rbacv1.RoleBinding{}:           objOptions,
+			&rbacv1.Role{}:                  objOptions,
+			// EndpointSlices are controller-created rather than operator-created.
+			// Cache only the Catalog Service endpoints in the registries namespace.
+			&discoveryv1.EndpointSlice{}: endpointSliceOptions,
+			&corev1.ConfigMap{}: {
+				Namespaces: map[string]cache.Config{
+					registriesNamespace: {},
+				},
+			},
+		},
+	}
 }
 
 func runCatalog(_ *cobra.Command, _ []string) error {
@@ -89,32 +130,14 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 
 	config.SetRegistriesNamespace(registriesNamespace)
 
-	objOptions := cache.ByObject{
-		Label: labels.SelectorFromSet(labels.Set{
-			"app.kubernetes.io/created-by": "model-registry-operator",
-		}),
-	}
-	cacheOptions := cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&appsv1.Deployment{}:            objOptions,
-			&corev1.PersistentVolumeClaim{}: objOptions,
-			&corev1.ServiceAccount{}:        objOptions,
-			&corev1.Service{}:               objOptions,
-			&corev1.Secret{}:                objOptions,
-			&networkingv1.NetworkPolicy{}:   objOptions,
-			&rbacv1.ClusterRoleBinding{}:    objOptions,
-			&rbacv1.RoleBinding{}:           objOptions,
-			&rbacv1.Role{}:                  objOptions,
-			&corev1.ConfigMap{}: {
-				Namespaces: map[string]cache.Config{
-					registriesNamespace: {},
-				},
-			},
-		},
-	}
+	cacheOptions := catalogCacheOptions(registriesNamespace)
 
 	if capabilities.IsOpenShift {
-		cacheOptions.ByObject[&routev1.Route{}] = objOptions
+		cacheOptions.ByObject[&routev1.Route{}] = cache.ByObject{
+			Label: labels.SelectorFromSet(labels.Set{
+				"app.kubernetes.io/created-by": "model-registry-operator",
+			}),
+		}
 	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
