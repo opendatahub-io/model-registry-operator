@@ -22,6 +22,8 @@ import (
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
@@ -1289,6 +1291,68 @@ labels:
 					recreated.Labels["app.kubernetes.io/created-by"] == "model-registry-operator"
 			}, 10*time.Second).Should(BeTrue())
 		})
+		It("Should report the Catalog unavailable while a required NetworkPolicy fails to reconcile", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+			catalogKey := types.NamespacedName{Name: "catalog", Namespace: namespaceName}
+
+			By("Seeding a stale Available=True condition")
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
+				Type:   ConditionTypeAvailable,
+				Status: metav1.ConditionTrue,
+				Reason: ReasonDeploymentAvailable,
+			})
+			Expect(k8sClient.Status().Update(ctx, catalog)).To(Succeed())
+
+			By("Failing writes of the catalog egress NetworkPolicy")
+			errPolicyRejected := fmt.Errorf("networkpolicy rejected")
+			isEgressPolicy := func(obj client.Object) bool {
+				_, ok := obj.(*networkingv1.NetworkPolicy)
+				return ok && obj.GetName() == "model-catalog-egress"
+			}
+			watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+			catalogReconciler.Client = interceptor.NewClient(watchClient, interceptor.Funcs{
+				Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					if isEgressPolicy(obj) {
+						return errPolicyRejected
+					}
+					return c.Create(ctx, obj, opts...)
+				},
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if isEgressPolicy(obj) {
+						return errPolicyRejected
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
+
+			req := reconcile.Request{NamespacedName: catalogKey}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(MatchError(errPolicyRejected), "the error should be returned so the request is retried")
+
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			cond := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(ReasonResourcesUnavailable))
+			Expect(cond.Message).To(ContainSubstring(errPolicyRejected.Error()))
+
+			By("Clearing the failure only after the NetworkPolicy reconciles")
+			catalogReconciler.Client = k8sClient
+			catalogReconciler.resourceManager = nil // drop the manager bound to the failing client
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, &networkingv1.NetworkPolicy{})).To(Succeed())
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			cond = apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).NotTo(Equal(ReasonResourcesUnavailable))
+		})
+
 		It("Should mark the Catalog deployment available when an EndpointSlice has a ready endpoint", func() {
 			dep := &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},

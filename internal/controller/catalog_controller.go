@@ -232,7 +232,7 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	res, err := r.ensureCatalogResources(ctx, catalog)
 	if err != nil {
-		return res, err
+		return r.handleReconcileErrors(ctx, catalog, res, err)
 	}
 
 	condition, statusErr := r.updateStatus(ctx, catalog)
@@ -556,6 +556,22 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// handleReconcileErrors marks the Catalog unavailable when its resources, including required
+// NetworkPolicies, fail to reconcile, and returns the original error so the request is retried.
+// The condition clears on the next successful reconcile, when updateStatus runs again.
+func (r *CatalogReconciler) handleReconcileErrors(ctx context.Context, catalog *catalogv1alpha1.Catalog, result ctrl.Result, err error) (ctrl.Result, error) {
+	apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
+		Type:    ConditionTypeAvailable,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonResourcesUnavailable,
+		Message: fmt.Sprintf("failed to reconcile catalog resources: %v", err),
+	})
+	if statusErr := r.Status().Update(ctx, catalog); statusErr != nil {
+		klog.FromContext(ctx).Error(statusErr, "Failed to update catalog status")
+	}
+	return result, err
 }
 
 func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog *catalogv1alpha1.Catalog) (*metav1.Condition, error) {
