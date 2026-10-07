@@ -11,11 +11,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -300,6 +302,42 @@ labels:
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(pgSvc.OwnerReferences).To(HaveLen(1))
 			Expect(pgSvc.OwnerReferences[0].Kind).To(Equal("Catalog"))
+
+			By("Checking created catalog egress NetworkPolicy allows all egress for the catalog pod only")
+			catalogDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, catalogDep)).To(Succeed())
+			catalogEgress := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, catalogEgress)).To(Succeed())
+			expectAllowAllEgress(catalogEgress)
+			Expect(catalogEgress.OwnerReferences).To(HaveLen(1))
+			Expect(catalogEgress.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			catalogEgressSelector := labels.SelectorFromSet(catalogEgress.Spec.PodSelector.MatchLabels)
+			Expect(catalogEgressSelector.Matches(labels.Set(catalogDep.Spec.Template.Labels))).To(BeTrue())
+			Expect(catalogEgressSelector.Matches(labels.Set(pgDep.Spec.Template.Labels))).To(BeFalse())
+
+			By("Checking created postgres egress NetworkPolicy denies all egress for the postgres pod only")
+			pgEgress := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres-egress", Namespace: namespaceName}, pgEgress)).To(Succeed())
+			expectDenyAllEgress(pgEgress)
+			Expect(pgEgress.OwnerReferences).To(HaveLen(1))
+			Expect(pgEgress.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			pgEgressSelector := labels.SelectorFromSet(pgEgress.Spec.PodSelector.MatchLabels)
+			Expect(pgEgressSelector.Matches(labels.Set(pgDep.Spec.Template.Labels))).To(BeTrue())
+			Expect(pgEgressSelector.Matches(labels.Set(catalogDep.Spec.Template.Labels))).To(BeFalse())
+
+			By("Checking that a deleted catalog egress NetworkPolicy is recreated")
+			Expect(k8sClient.Delete(ctx, catalogEgress)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, &networkingv1.NetworkPolicy{})).To(Succeed())
+
+			By("Checking that egress rules added to the postgres deny-all NetworkPolicy are removed")
+			pgEgress.Spec.Egress = []networkingv1.NetworkPolicyEgressRule{{}}
+			Expect(k8sClient.Update(ctx, pgEgress)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres-egress", Namespace: namespaceName}, pgEgress)).To(Succeed())
+			expectDenyAllEgress(pgEgress)
 
 			By("Checking created Role and RoleBinding")
 			role := &rbac.Role{}

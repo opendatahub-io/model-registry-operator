@@ -479,8 +479,25 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
+		log.Info("Creating or updating postgres egress NetworkPolicy")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, postgresParams, "catalog-postgres-egress-network-policy.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	} else {
 		log.Info("Skipping catalog DB creation as configured")
+	}
+
+	result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-egress-network-policy.yaml.tmpl", crOwner)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	if r.Capabilities.IsOpenShift {
@@ -776,7 +793,10 @@ func (r *CatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context, par
 	r.applyLabels(&netPol.ObjectMeta, params)
 	r.applyOwnerReference(&netPol.ObjectMeta, owner)
 
-	return r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &netPol)
+	if r.resourceManager == nil {
+		r.resourceManager = &ResourceManager{Client: r.Client}
+	}
+	return r.resourceManager.CreateOrUpdateNetworkPolicy(ctx, &netPol)
 }
 
 func (r *CatalogReconciler) createOrUpdateConfigmap(ctx context.Context, params *CatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
