@@ -465,6 +465,16 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 			result = result2
 		}
 
+		// ingress networkpolicy for the proxy port, or the REST port without a proxy
+		// always reconciled, so changing spec.kubeRBACProxy or its serviceRoute never removes it
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "ingress-network-policy.yaml.tmpl")
+		if err != nil {
+			return result2, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
+
 		if r.GatewayDomain != "" {
 			// Data Science Gateway mode: create HTTPRoute + ReferenceGrant
 			result2, err = r.createOrUpdateGatewayResources(ctx, params)
@@ -490,7 +500,7 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 
 	// create or update kube-rbac-proxy config if enabled, delete if disabled
 	// This also handles cleanup of OAuth proxy resources since they share the same
-	// ClusterRoleBinding, Route, and NetworkPolicy names
+	// ClusterRoleBinding and Route names
 	result2, err = r.createOrUpdateKubeRBACProxyConfig(ctx, params, registry)
 	if err != nil {
 		return result2, err

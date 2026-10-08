@@ -1291,6 +1291,16 @@ labels:
 					recreated.Labels["app.kubernetes.io/created-by"] == "model-registry-operator"
 			}, 10*time.Second).Should(BeTrue())
 		})
+		It("Should render the catalog ingress NetworkPolicy with an explicit proxy port", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			ingressPolicy := &networkingv1.NetworkPolicy{}
+			Expect(catalogReconciler.Apply(catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, ""),
+				"catalog-kube-rbac-proxy-network-policy.yaml.tmpl", ingressPolicy)).To(Succeed())
+			expectIngressPolicy(ingressPolicy, 8443)
+		})
+
 		It("Should report the Catalog unavailable while a required NetworkPolicy fails to reconcile", func() {
 			catalog := &catalogv1alpha1.Catalog{
 				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},

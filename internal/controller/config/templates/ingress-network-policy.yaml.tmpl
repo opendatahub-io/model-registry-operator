@@ -1,3 +1,6 @@
+# Ingress for the model registry API pod, reconciled on OpenShift regardless of spec.kubeRBACProxy or
+# serviceRoute so that toggling them never leaves the pod without an ingress policy (ODH-ADR-Operator-0016).
+# The port is always explicit: the kube-rbac-proxy port, or the REST port when no proxy is configured.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -23,9 +26,7 @@ spec:
           opendatahub.io/generated-namespace: "true"
     ports:
       - protocol: TCP
-        {{- if .Spec.KubeRBACProxy}}
-        port: {{.Spec.KubeRBACProxy.Port}}
-        {{- end}}
+        port: {{if .Spec.KubeRBACProxy}}{{.Spec.KubeRBACProxy.Port}}{{else}}{{.Spec.Rest.Port}}{{end}}
   podSelector:
     matchLabels:
       app: {{.Name}}
