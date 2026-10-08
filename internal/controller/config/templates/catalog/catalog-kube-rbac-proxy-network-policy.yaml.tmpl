@@ -23,9 +23,7 @@ spec:
           opendatahub.io/generated-namespace: "true"
     ports:
       - protocol: TCP
-        {{- if .Spec.KubeRBACProxy}}
         port: {{.Spec.KubeRBACProxy.Port}}
-        {{- end}}
   podSelector:
     matchLabels:
       app: {{.Name}}
