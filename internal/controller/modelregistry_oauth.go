@@ -20,10 +20,8 @@ import (
 	"context"
 
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
-	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,11 +36,6 @@ func (r *ModelRegistryReconciler) deleteProxyClusterRoleBinding(ctx context.Cont
 func (r *ModelRegistryReconciler) deleteProxyRoute(ctx context.Context, params *ModelRegistryParams) error {
 	route := routev1.Route{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https", Namespace: params.Namespace}}
 	return client.IgnoreNotFound(r.Delete(ctx, &route))
-}
-
-func (r *ModelRegistryReconciler) deleteProxyNetworkPolicy(ctx context.Context, params *ModelRegistryParams) error {
-	networkPolicy := networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: params.Name + "-https-route", Namespace: params.Namespace}}
-	return client.IgnoreNotFound(r.Delete(ctx, &networkPolicy))
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.Context, params *ModelRegistryParams,
@@ -80,22 +73,6 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 			if result2 != ResourceUnchanged {
 				result = result2
 			}
-
-			if registry.Spec.KubeRBACProxy.ServiceRoute == config.RouteEnabled {
-				// create kube-rbac-proxy networkpolicy to ensure route is exposed
-				result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "kube-rbac-proxy-network-policy.yaml.tmpl")
-				if err != nil {
-					return result2, err
-				}
-				if result2 != ResourceUnchanged {
-					result = result2
-				}
-			} else {
-				// remove kube-rbac-proxy networkpolicy if it exists
-				if err = r.deleteProxyNetworkPolicy(ctx, params); err != nil {
-					return result, err
-				}
-			}
 		}
 
 	} else {
@@ -104,16 +81,14 @@ func (r *ModelRegistryReconciler) createOrUpdateKubeRBACProxyConfig(ctx context.
 			return result, err
 		}
 
-		// remove shared proxy resources (ClusterRoleBinding, Route, NetworkPolicy)
+		// remove shared proxy resources (ClusterRoleBinding, Route)
 		// These are shared between OAuth proxy and kube-rbac-proxy
+		// The ingress NetworkPolicy is kept and switched to the REST port in updateRegistryResources
 		if err = r.deleteProxyClusterRoleBinding(ctx, params); err != nil {
 			return result, err
 		}
 		if r.Capabilities.IsOpenShift {
 			if err = r.deleteProxyRoute(ctx, params); err != nil {
-				return result, err
-			}
-			if err = r.deleteProxyNetworkPolicy(ctx, params); err != nil {
 				return result, err
 			}
 		}
