@@ -11,14 +11,22 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbac "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -77,6 +85,101 @@ var _ = Describe("Catalog controller", func() {
 			}
 		})
 
+		It("Should preserve serving runtime sources when removing the legacy default source", func() {
+			legacySources := `catalogs:
+  - name: Default models
+    id: default_catalog
+    type: yaml
+  - name: Admin models
+    id: admin_models
+    type: yaml
+serving_runtime_catalogs:
+  - name: Team runtime
+    id: team_runtime
+    type: yaml
+    enabled: false
+    properties:
+      yamlCatalogPath: /data/user-serving-runtime-sources/team.yaml
+    labels:
+      - Team runtimes
+labels:
+  - name: Team runtimes
+    assetType: serving_runtimes
+`
+			stripped, err := catalogReconciler.removeDefaultSource(legacySources)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stripped).NotTo(BeEmpty())
+			var parsed struct {
+				Catalogs []struct {
+					ID string `json:"id"`
+				} `json:"catalogs"`
+				ServingRuntimeCatalogs []struct {
+					ID         string   `json:"id"`
+					Enabled    *bool    `json:"enabled"`
+					Labels     []string `json:"labels"`
+					Properties struct {
+						YAMLCatalogPath string `json:"yamlCatalogPath"`
+					} `json:"properties"`
+				} `json:"serving_runtime_catalogs"`
+				Labels []struct {
+					Name      string `json:"name"`
+					AssetType string `json:"assetType"`
+				} `json:"labels"`
+			}
+			Expect(yaml.Unmarshal([]byte(stripped), &parsed)).To(Succeed())
+			Expect(parsed.Catalogs).To(HaveLen(1))
+			Expect(parsed.Catalogs[0].ID).To(Equal("admin_models"))
+			Expect(parsed.ServingRuntimeCatalogs).To(HaveLen(1))
+			Expect(parsed.ServingRuntimeCatalogs[0].ID).To(Equal("team_runtime"))
+			Expect(parsed.ServingRuntimeCatalogs[0].Enabled).NotTo(BeNil())
+			Expect(*parsed.ServingRuntimeCatalogs[0].Enabled).To(BeFalse())
+			Expect(parsed.ServingRuntimeCatalogs[0].Labels).To(ConsistOf("Team runtimes"))
+			Expect(parsed.ServingRuntimeCatalogs[0].Properties.YAMLCatalogPath).To(Equal("/data/user-serving-runtime-sources/team.yaml"))
+			Expect(parsed.Labels).To(HaveLen(1))
+			Expect(parsed.Labels[0].AssetType).To(Equal("serving_runtimes"))
+		})
+
+		It("Should reject unknown source fields during legacy migration", func() {
+			stripped, err := catalogReconciler.removeDefaultSource("catalogs:\n  - id: default_catalog\n    name: Default\n    type: yaml\nunsupported_catalogs: []\n")
+			Expect(err).To(HaveOccurred())
+			Expect(stripped).To(BeEmpty())
+		})
+
+		It("Should retain administrator runtime registrations when reconciling a legacy sources ConfigMap", func() {
+			cmKey := types.NamespacedName{Name: "model-catalog-sources", Namespace: namespaceName}
+			Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: cmKey.Name, Namespace: cmKey.Namespace},
+				Data: map[string]string{
+					sourcesFileName: "catalogs:\n  - name: Default\n    id: default_catalog\n    type: yaml\n  - name: Admin\n    id: admin_models\n    type: yaml\nserving_runtime_catalogs:\n  - name: Team runtime\n    id: team_runtime\n    type: yaml\n    properties:\n      yamlCatalogPath: /data/user-model-sources/team.yaml\n",
+					"team.yaml":     "runtimes: []\n",
+				},
+			})).To(Succeed())
+			Expect(k8sClient.Create(ctx, &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			})).To(Succeed())
+
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "catalog", Namespace: namespaceName}}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, cmKey, cm)).To(Succeed())
+			var sources struct {
+				Catalogs []struct {
+					ID string `json:"id"`
+				} `json:"catalogs"`
+				ServingRuntimeCatalogs []struct {
+					ID string `json:"id"`
+				} `json:"serving_runtime_catalogs"`
+			}
+			Expect(yaml.Unmarshal([]byte(cm.Data[sourcesFileName]), &sources)).To(Succeed())
+			Expect(sources.Catalogs).To(HaveLen(1))
+			Expect(sources.Catalogs[0].ID).To(Equal("admin_models"))
+			Expect(sources.ServingRuntimeCatalogs).To(HaveLen(1))
+			Expect(sources.ServingRuntimeCatalogs[0].ID).To(Equal("team_runtime"))
+			Expect(cm.Data["team.yaml"]).To(Equal("runtimes: []\n"))
+			Expect(cm.OwnerReferences).To(BeEmpty())
+		})
+
 		It("Should create and manage all resources for a Catalog CR", func() {
 			catalog := &catalogv1alpha1.Catalog{
 				ObjectMeta: metav1.ObjectMeta{
@@ -117,6 +220,59 @@ var _ = Describe("Catalog controller", func() {
 			catHash := dep.Spec.Template.Annotations["modelregistry.opendatahub.io/postgres-secret-hash"]
 			Expect(catHash).To(Not(BeEmpty()))
 
+			By("Checking serving runtime source wiring in the catalog Deployment")
+			var runtimeVolumes []corev1.Volume
+			for _, volume := range dep.Spec.Template.Spec.Volumes {
+				if volume.Name == "user-serving-runtime-sources" {
+					runtimeVolumes = append(runtimeVolumes, volume)
+				}
+			}
+			Expect(runtimeVolumes).To(HaveLen(1))
+			Expect(runtimeVolumes[0].ConfigMap).To(Not(BeNil()))
+			Expect(runtimeVolumes[0].ConfigMap.Name).To(Equal("serving-runtime-catalog-sources"))
+			catalogContainer := dep.Spec.Template.Spec.Containers[0]
+			Expect(catalogContainer.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+				Name:      "user-serving-runtime-sources",
+				MountPath: "/data/user-serving-runtime-sources",
+			}))
+			Expect(catalogContainer.Args).To(ContainElement("--catalogs-path=/data/user-serving-runtime-sources/sources.yaml"))
+
+			By("Checking the managed default serving runtime source and its unique label")
+			defaultCM := &corev1.ConfigMap{}
+			err = k8sClient.Get(ctx, types.NamespacedName{Name: "default-catalog-sources", Namespace: namespaceName}, defaultCM)
+			Expect(err).To(Not(HaveOccurred()))
+			var defaultSources struct {
+				Labels []struct {
+					Name      string `json:"name"`
+					AssetType string `json:"assetType"`
+				} `json:"labels"`
+				ServingRuntimeCatalogs []struct {
+					Name       string   `json:"name"`
+					ID         string   `json:"id"`
+					Type       string   `json:"type"`
+					Enabled    bool     `json:"enabled"`
+					Labels     []string `json:"labels"`
+					Properties struct {
+						YAMLCatalogPath string `json:"yamlCatalogPath"`
+					} `json:"properties"`
+				} `json:"serving_runtime_catalogs"`
+			}
+			Expect(yaml.Unmarshal([]byte(defaultCM.Data[sourcesFileName]), &defaultSources)).To(Succeed())
+			labelTypes := make(map[string]string, len(defaultSources.Labels))
+			for _, label := range defaultSources.Labels {
+				Expect(labelTypes).NotTo(HaveKey(label.Name))
+				labelTypes[label.Name] = label.AssetType
+			}
+			Expect(labelTypes).To(HaveKeyWithValue("Red Hat Serving Runtimes", "serving_runtimes"))
+			Expect(defaultSources.ServingRuntimeCatalogs).To(HaveLen(1))
+			runtimeSource := defaultSources.ServingRuntimeCatalogs[0]
+			Expect(runtimeSource.Name).To(Equal("Red Hat Serving Runtimes"))
+			Expect(runtimeSource.ID).To(Equal("rh_serving_runtimes"))
+			Expect(runtimeSource.Type).To(Equal("yaml"))
+			Expect(runtimeSource.Enabled).To(BeTrue())
+			Expect(runtimeSource.Properties.YAMLCatalogPath).To(Equal("/shared-data/redhat-serving-runtimes-catalog.yaml"))
+			Expect(runtimeSource.Labels).To(ConsistOf("Red Hat Serving Runtimes"))
+
 			By("Checking created catalog Service")
 			svc := &corev1.Service{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, svc)
@@ -149,6 +305,42 @@ var _ = Describe("Catalog controller", func() {
 			Expect(pgSvc.OwnerReferences).To(HaveLen(1))
 			Expect(pgSvc.OwnerReferences[0].Kind).To(Equal("Catalog"))
 
+			By("Checking created catalog egress NetworkPolicy allows all egress for the catalog pod only")
+			catalogDep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, catalogDep)).To(Succeed())
+			catalogEgress := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, catalogEgress)).To(Succeed())
+			expectAllowAllEgress(catalogEgress)
+			Expect(catalogEgress.OwnerReferences).To(HaveLen(1))
+			Expect(catalogEgress.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			catalogEgressSelector := labels.SelectorFromSet(catalogEgress.Spec.PodSelector.MatchLabels)
+			Expect(catalogEgressSelector.Matches(labels.Set(catalogDep.Spec.Template.Labels))).To(BeTrue())
+			Expect(catalogEgressSelector.Matches(labels.Set(pgDep.Spec.Template.Labels))).To(BeFalse())
+
+			By("Checking created postgres egress NetworkPolicy denies all egress for the postgres pod only")
+			pgEgress := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres-egress", Namespace: namespaceName}, pgEgress)).To(Succeed())
+			expectDenyAllEgress(pgEgress)
+			Expect(pgEgress.OwnerReferences).To(HaveLen(1))
+			Expect(pgEgress.OwnerReferences[0].Kind).To(Equal("Catalog"))
+			pgEgressSelector := labels.SelectorFromSet(pgEgress.Spec.PodSelector.MatchLabels)
+			Expect(pgEgressSelector.Matches(labels.Set(pgDep.Spec.Template.Labels))).To(BeTrue())
+			Expect(pgEgressSelector.Matches(labels.Set(catalogDep.Spec.Template.Labels))).To(BeFalse())
+
+			By("Checking that a deleted catalog egress NetworkPolicy is recreated")
+			Expect(k8sClient.Delete(ctx, catalogEgress)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, &networkingv1.NetworkPolicy{})).To(Succeed())
+
+			By("Checking that egress rules added to the postgres deny-all NetworkPolicy are removed")
+			pgEgress.Spec.Egress = []networkingv1.NetworkPolicyEgressRule{{}}
+			Expect(k8sClient.Update(ctx, pgEgress)).To(Succeed())
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-postgres-egress", Namespace: namespaceName}, pgEgress)).To(Succeed())
+			expectDenyAllEgress(pgEgress)
+
 			By("Checking created Role and RoleBinding")
 			role := &rbac.Role{}
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}, role)
@@ -164,11 +356,15 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 
 			By("Checking created user-sources ConfigMaps and verifying no owner references")
-			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources"} {
+			for _, cmName := range []string{"model-catalog-sources", "mcp-catalog-sources", "agent-catalog-sources", "serving-runtime-catalog-sources"} {
 				userCM := &corev1.ConfigMap{}
 				err = k8sClient.Get(ctx, types.NamespacedName{Name: cmName, Namespace: namespaceName}, userCM)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(userCM.OwnerReferences).To(BeEmpty())
+				if cmName == "serving-runtime-catalog-sources" {
+					Expect(userCM.Data).To(HaveKeyWithValue(sourcesFileName, "serving_runtime_catalogs: []"))
+					Expect(userCM.Labels).To(HaveKeyWithValue("app.kubernetes.io/created-by", "model-registry-operator"))
+				}
 			}
 
 			crb := &rbac.ClusterRoleBinding{}
@@ -965,6 +1161,196 @@ var _ = Describe("Catalog controller", func() {
 				Expect(adoptedCM.OwnerReferences).To(BeEmpty())
 				Expect(adoptedCM.Data).To(Equal(customData))
 			}
+		})
+
+		It("Should preserve administrator serving runtime sources after edits and subsequent reconciles", func() {
+			cmKey := types.NamespacedName{Name: "serving-runtime-catalog-sources", Namespace: namespaceName}
+			initialData := map[string]string{
+				sourcesFileName: "serving_runtime_catalogs:\n  - name: Team runtime\n    id: team_runtime\n    type: yaml\n    properties:\n      yamlCatalogPath: /data/user-serving-runtime-sources/team.yaml\n",
+				"team.yaml":     "runtimes: []\n",
+			}
+			Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: cmKey.Name, Namespace: cmKey.Namespace},
+				Data:       initialData,
+			})).To(Succeed())
+			Expect(k8sClient.Create(ctx, &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			})).To(Succeed())
+
+			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "catalog", Namespace: namespaceName}}
+			_, err := catalogReconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			cm := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, cmKey, cm)).To(Succeed())
+			Expect(cm.Data).To(Equal(initialData))
+			Expect(cm.OwnerReferences).To(BeEmpty())
+			Expect(cm.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
+
+			cm.Data[sourcesFileName] += "  - name: Second runtime\n    id: second_runtime\n    type: yaml\n"
+			cm.Data["team.yaml"] = "runtimes:\n  - name: Team runtime\n"
+			Expect(k8sClient.Update(ctx, cm)).To(Succeed())
+			editedData := cm.DeepCopy().Data
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, cmKey, cm)).To(Succeed())
+			Expect(cm.Data).To(Equal(editedData))
+			Expect(cm.OwnerReferences).To(BeEmpty())
+		})
+
+		It("Should recreate an unlabeled administrator serving runtime ConfigMap from a delete watch event", func() {
+			cmKey := types.NamespacedName{Name: "serving-runtime-catalog-sources", Namespace: namespaceName}
+			preExisting := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: cmKey.Name, Namespace: cmKey.Namespace},
+				Data: map[string]string{
+					sourcesFileName: "serving_runtime_catalogs:\n  - name: Team runtime\n    id: team_runtime\n    type: yaml\n",
+				},
+			}
+			Expect(k8sClient.Create(ctx, preExisting)).To(Succeed())
+			Expect(k8sClient.Create(ctx, &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			})).To(Succeed())
+
+			mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+				Scheme: k8sClient.Scheme(),
+				Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{
+					namespaceName: {},
+				}},
+				Metrics:                metricsserver.Options{BindAddress: "0"},
+				HealthProbeBindAddress: "0",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			watchedReconciler := *catalogReconciler
+			watchedReconciler.Client = mgr.GetClient()
+			watchedReconciler.Scheme = mgr.GetScheme()
+			Expect(watchedReconciler.SetupWithManager(mgr)).To(Succeed())
+
+			watchCtx, cancel := context.WithCancel(ctx)
+			managerDone := make(chan error, 1)
+			go func() { managerDone <- mgr.Start(watchCtx) }()
+			DeferCleanup(func() {
+				cancel()
+				select {
+				case err := <-managerDone:
+					Expect(err).NotTo(HaveOccurred())
+				case <-time.After(10 * time.Second):
+					Fail("catalog manager did not stop")
+				}
+			})
+			Expect(mgr.GetCache().WaitForCacheSync(watchCtx)).To(BeTrue())
+
+			depKey := types.NamespacedName{Name: "model-catalog", Namespace: namespaceName}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, depKey, &appsv1.Deployment{})
+			}, 20*time.Second).Should(Succeed())
+			initialCM := &corev1.ConfigMap{}
+			Expect(k8sClient.Get(ctx, cmKey, initialCM)).To(Succeed())
+			Expect(initialCM.Data).To(Equal(preExisting.Data))
+			Expect(initialCM.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
+
+			// envtest has no Deployment or EndpointSlice controller. Mark the deployment
+			// available so the Catalog reconciler stops polling before the delete.
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
+			dep.Status.Conditions = []appsv1.DeploymentCondition{{
+				Type:               appsv1.DeploymentAvailable,
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
+			}}
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+			ready := true
+			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      depKey.Name + "-test",
+					Namespace: depKey.Namespace,
+					Labels:    map[string]string{discoveryv1.LabelServiceName: depKey.Name},
+				},
+				AddressType: discoveryv1.AddressTypeIPv4,
+				Endpoints: []discoveryv1.Endpoint{{
+					Addresses:  []string{"10.0.0.1"},
+					Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+				}},
+			})).To(Succeed())
+			catalogKey := types.NamespacedName{Name: "catalog", Namespace: namespaceName}
+			Eventually(func() bool {
+				catalog := &catalogv1alpha1.Catalog{}
+				if err := k8sClient.Get(ctx, catalogKey, catalog); err != nil {
+					return false
+				}
+				return apimeta.IsStatusConditionTrue(catalog.Status.Conditions, ConditionTypeAvailable)
+			}, 20*time.Second).Should(BeTrue())
+
+			Expect(k8sClient.Delete(ctx, initialCM)).To(Succeed())
+			Eventually(func() bool {
+				recreated := &corev1.ConfigMap{}
+				if err := k8sClient.Get(ctx, cmKey, recreated); err != nil {
+					return false
+				}
+				return recreated.UID != initialCM.UID &&
+					recreated.Data[sourcesFileName] == "serving_runtime_catalogs: []" &&
+					len(recreated.OwnerReferences) == 0 &&
+					recreated.Labels["app.kubernetes.io/created-by"] == "model-registry-operator"
+			}, 10*time.Second).Should(BeTrue())
+		})
+		It("Should report the Catalog unavailable while a required NetworkPolicy fails to reconcile", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			Expect(k8sClient.Create(ctx, catalog)).To(Succeed())
+			catalogKey := types.NamespacedName{Name: "catalog", Namespace: namespaceName}
+
+			By("Seeding a stale Available=True condition")
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
+				Type:   ConditionTypeAvailable,
+				Status: metav1.ConditionTrue,
+				Reason: ReasonDeploymentAvailable,
+			})
+			Expect(k8sClient.Status().Update(ctx, catalog)).To(Succeed())
+
+			By("Failing writes of the catalog egress NetworkPolicy")
+			errPolicyRejected := fmt.Errorf("networkpolicy rejected")
+			isEgressPolicy := func(obj client.Object) bool {
+				_, ok := obj.(*networkingv1.NetworkPolicy)
+				return ok && obj.GetName() == "model-catalog-egress"
+			}
+			watchClient, err := client.NewWithWatch(cfg, client.Options{Scheme: k8sClient.Scheme()})
+			Expect(err).NotTo(HaveOccurred())
+			catalogReconciler.Client = interceptor.NewClient(watchClient, interceptor.Funcs{
+				Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+					if isEgressPolicy(obj) {
+						return errPolicyRejected
+					}
+					return c.Create(ctx, obj, opts...)
+				},
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if isEgressPolicy(obj) {
+						return errPolicyRejected
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
+
+			req := reconcile.Request{NamespacedName: catalogKey}
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).To(MatchError(errPolicyRejected), "the error should be returned so the request is retried")
+
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			cond := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Reason).To(Equal(ReasonResourcesUnavailable))
+			Expect(cond.Message).To(ContainSubstring(errPolicyRejected.Error()))
+
+			By("Clearing the failure only after the NetworkPolicy reconciles")
+			catalogReconciler.Client = k8sClient
+			catalogReconciler.resourceManager = nil // drop the manager bound to the failing client
+			_, err = catalogReconciler.Reconcile(ctx, req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "model-catalog-egress", Namespace: namespaceName}, &networkingv1.NetworkPolicy{})).To(Succeed())
+			Expect(k8sClient.Get(ctx, catalogKey, catalog)).To(Succeed())
+			cond = apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).NotTo(Equal(ReasonResourcesUnavailable))
 		})
 
 		It("Should mark the Catalog deployment available when an EndpointSlice has a ready endpoint", func() {

@@ -1,0 +1,31 @@
+# Egress for the model registry API pod (rest server + kube-rbac-proxy sidecar).
+# Egress is intentionally UNRESTRICTED (allow-all), as permitted by ODH-ADR-Operator-0016 R5 when documented:
+# - kube-rbac-proxy calls the Kubernetes API (TokenReview/SubjectAccessReview); API server endpoints are
+#   control-plane host IPs (or external on hosted control planes) and cannot be expressed statically
+#   (see RHOAIENG-90747).
+# - The database may be external (spec.postgres.host / spec.mysql.host), commonly a hostname, which
+#   NetworkPolicy cannot select.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-egress
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  name: {{.Name}}-egress
+  namespace: {{.Namespace}}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}
+  policyTypes:
+  - Egress
+  egress:
+  - {}
