@@ -232,7 +232,7 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	res, err := r.ensureCatalogResources(ctx, catalog)
 	if err != nil {
-		return res, err
+		return r.handleReconcileErrors(ctx, catalog, res, err)
 	}
 
 	condition, statusErr := r.updateStatus(ctx, catalog)
@@ -479,8 +479,25 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
+		log.Info("Creating or updating postgres egress NetworkPolicy")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, postgresParams, "catalog-postgres-egress-network-policy.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	} else {
 		log.Info("Skipping catalog DB creation as configured")
+	}
+
+	result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-egress-network-policy.yaml.tmpl", crOwner)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	if r.Capabilities.IsOpenShift {
@@ -539,6 +556,22 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// handleReconcileErrors marks the Catalog unavailable when its resources, including required
+// NetworkPolicies, fail to reconcile, and returns the original error so the request is retried.
+// The condition clears on the next successful reconcile, when updateStatus runs again.
+func (r *CatalogReconciler) handleReconcileErrors(ctx context.Context, catalog *catalogv1alpha1.Catalog, result ctrl.Result, err error) (ctrl.Result, error) {
+	apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
+		Type:    ConditionTypeAvailable,
+		Status:  metav1.ConditionFalse,
+		Reason:  ReasonResourcesUnavailable,
+		Message: fmt.Sprintf("failed to reconcile catalog resources: %v", err),
+	})
+	if statusErr := r.Status().Update(ctx, catalog); statusErr != nil {
+		klog.FromContext(ctx).Error(statusErr, "Failed to update catalog status")
+	}
+	return result, err
 }
 
 func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog *catalogv1alpha1.Catalog) (*metav1.Condition, error) {
@@ -776,7 +809,10 @@ func (r *CatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context, par
 	r.applyLabels(&netPol.ObjectMeta, params)
 	r.applyOwnerReference(&netPol.ObjectMeta, owner)
 
-	return r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &netPol)
+	if r.resourceManager == nil {
+		r.resourceManager = &ResourceManager{Client: r.Client}
+	}
+	return r.resourceManager.CreateOrUpdateNetworkPolicy(ctx, &netPol)
 }
 
 func (r *CatalogReconciler) createOrUpdateConfigmap(ctx context.Context, params *CatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
