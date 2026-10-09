@@ -15,12 +15,14 @@ func fakeGetenv(m map[string]string) func(string) string {
 
 func TestResolveChildImages_FullEnv(t *testing.T) {
 	env := map[string]string{
-		config.ModelRegistryOperatorImage: "registry.example/op@sha256:aaa",
-		config.RestImage:                  "registry.example/rest@sha256:bbb",
-		config.PostgresImage:              "registry.example/pg@sha256:ccc",
-		config.KubeRBACProxyImage:         "registry.example/krp@sha256:ddd",
-		config.CatalogDataImage:           "registry.example/cat@sha256:eee",
-		config.BenchmarkDataImage:         "registry.example/bench@sha256:fff",
+		config.ModelRegistryOperatorImage:     "registry.example/op@sha256:aaa",
+		config.RestImage:                      "registry.example/rest@sha256:bbb",
+		config.PostgresImage:                  "registry.example/pg@sha256:ccc",
+		config.KubeRBACProxyImage:             "registry.example/krp@sha256:ddd",
+		config.CatalogDataImage:               "registry.example/cat@sha256:eee",
+		config.BenchmarkDataImage:             "registry.example/bench@sha256:fff",
+		config.CatalogDataImageStreamSource:   "registry.example/catalog:latest",
+		config.BenchmarkDataImageStreamSource: "registry.example/benchmarks:stable",
 	}
 
 	got := ResolveChildImages(fakeGetenv(env))
@@ -35,6 +37,8 @@ func TestResolveChildImages_FullEnv(t *testing.T) {
 		{Name: config.KubeRBACProxyImage, Value: env[config.KubeRBACProxyImage]},
 		{Name: config.CatalogDataImage, Value: env[config.CatalogDataImage]},
 		{Name: config.BenchmarkDataImage, Value: env[config.BenchmarkDataImage]},
+		{Name: config.CatalogDataImageStreamSource, Value: env[config.CatalogDataImageStreamSource]},
+		{Name: config.BenchmarkDataImageStreamSource, Value: env[config.BenchmarkDataImageStreamSource]},
 	}
 	if len(got.OperandEnv) != len(want) {
 		t.Fatalf("OperandEnv len = %d, want %d (%+v)", len(got.OperandEnv), len(want), got.OperandEnv)

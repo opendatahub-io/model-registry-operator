@@ -75,6 +75,74 @@ To remove it:
 make undeploy OVERLAY=overlays/catalog
 ```
 
+The Catalog selects catalog and benchmark data independently. They may use the
+same combined image today or separate images and versions:
+
+| Each field (`catalogDataImageStream`, `benchmarkDataImageStream`) | Behavior |
+| --- | --- |
+| Omitted or empty | Use that image's current product release default. |
+| `stable` | Follow scheduled imports from its managed ImageStream (OpenShift only). |
+| `sha256:<64 lowercase hex>` | Pin that digest in the configured import repository, including rollback. |
+
+AIHub leaves both fields unset when it creates the Catalog, using the release
+images supplied by the product operator on all clusters. The standalone sample
+also leaves both selections empty. AIHub preserves later admin selections.
+Scheduled updates require an admin to select `stable` and configure a published
+import source. For example, mixed selections are supported:
+
+```yaml
+spec:
+  catalogDataImageStream: stable
+  benchmarkDataImageStream: sha256:1111111111111111111111111111111111111111111111111111111111111111
+```
+
+The release defaults come from `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
+and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. They remain
+bootstrap and recovery images shipped with the product. Each import source defaults
+to `:stable` in its release repository. `CATALOG_DATA_IMAGE_STREAM_SOURCE` and
+`BENCHMARK_DATA_IMAGE_STREAM_SOURCE` can override the full source references for
+standalone delivery, including a different repository or floating tag such as
+`:latest`. The ImageStream's local selection tag remains `stable`.
+
+The operator creates its ImageStreams from an embedded template with scheduled
+imports and watches their status. Identical sources share `model-catalog-data:stable`;
+separate sources use `model-catalog-data:stable` for catalog data and
+`model-catalog-benchmark-data:stable` for benchmarks. A successful new digest rolls
+out the Catalog without changing its spec. Pins ignore subsequent imports.
+Clearing either field returns that image to its current release default.
+
+A pending first import uses the bundled image, and ordinary pending updates retain
+the applied image. A reported import failure, an unusable imported image, or an
+invalid selection **stops Catalog serving** by scaling its deployment to zero;
+it does not keep serving an older image. The pod template retains its prior image
+references for diagnosis. A later successful import automatically restarts the
+Catalog. An admin can also recover by pinning a working digest, clearing the
+affected field, or correcting its selection. ImageStream API errors also stop
+serving when the Kubernetes API allows the deployment to be updated.
+
+After an import failure, a pending retry or changed source keeps serving stopped
+until that image imports successfully. It does not temporarily revive old content.
+
+| Catalog condition | Meaning |
+| --- | --- |
+| `CatalogDataImageResolved`, `BenchmarkDataImageResolved` | Each selection's resolution, including image references and failures. |
+| `CatalogDataImageImportHealthy`, `BenchmarkDataImageImportHealthy` | Each import's success, pending state, or failure, with registry error details. |
+| `DataImageResolved`, `DataImageImportHealthy` | Aggregate observations of both images. |
+| `DataImageUpdateBlocked` | Whether an image fault currently blocks serving, with recovery guidance. |
+| `Degraded` | Catalog image selection/import fault; pending imports alone do not degrade it. |
+| `Available` | False while image faults stop serving; otherwise follows workload readiness. |
+
+A warning Event surfaces new failures. These Catalog image conditions are not
+propagated into AIHub/DSC readiness, so an image update fault does not declare the
+whole installation Not Ready. Frontend consumers can use the image-specific
+conditions to display the failure; the stopped service also makes the problem
+visible to users rather than silently serving old content.
+
+Failures from an older ImageStream source generation are ignored after a new
+import has been requested. Manually selected ImageStream sources, import history,
+and unrelated tags survive reconciliation. Unchanged observations do not rewrite
+status, and concurrent Catalog edits reject stale status writes.
+
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
 
@@ -302,4 +370,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

@@ -1,0 +1,28 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{.DataImageStreamName}}
+  namespace: {{.Namespace}}
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}
+    app.kubernetes.io/component: model-catalog
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-catalog
+    app.kubernetes.io/managed-by: model-registry-operator
+spec:
+  tags:
+    - name: {{.DataImageStreamTag}}
+      annotations:
+        aihub.opendatahub.io/managed-source: {{printf "%q" .DataImageStreamSource}}
+      from:
+        kind: DockerImage
+        name: {{printf "%q" .DataImageStreamSource}}
+      reference: false
+      importPolicy:
+        scheduled: true
+        importMode: PreserveOriginal
+      referencePolicy:
+        type: Source

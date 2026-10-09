@@ -151,13 +151,13 @@ func (in *CatalogSpec) DeepCopyInto(out *CatalogSpec) {
 	*out = *in
 	in.Resources.DeepCopyInto(&out.Resources)
 	in.Database.DeepCopyInto(&out.Database)
-	if in.CatalogDataImage != nil {
-		in, out := &in.CatalogDataImage, &out.CatalogDataImage
+	if in.CatalogDataImageStream != nil {
+		in, out := &in.CatalogDataImageStream, &out.CatalogDataImageStream
 		*out = new(string)
 		**out = **in
 	}
-	if in.BenchmarkDataImage != nil {
-		in, out := &in.BenchmarkDataImage, &out.BenchmarkDataImage
+	if in.BenchmarkDataImageStream != nil {
+		in, out := &in.BenchmarkDataImageStream, &out.BenchmarkDataImageStream
 		*out = new(string)
 		**out = **in
 	}

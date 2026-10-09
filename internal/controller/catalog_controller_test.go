@@ -1340,6 +1340,14 @@ labels:
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonResourcesUnavailable))
 			Expect(cond.Message).To(ContainSubstring(errPolicyRejected.Error()))
+			Expect(cond.ObservedGeneration).To(Equal(catalog.Generation))
+
+			By("Preserving image resolution observations when resource reconciliation fails")
+			imageCond := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
+			Expect(imageCond).NotTo(BeNil())
+			Expect(imageCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(imageCond.Reason).To(Equal("ReleaseDefault"))
+			Expect(imageCond.ObservedGeneration).To(Equal(catalog.Generation))
 
 			By("Clearing the failure only after the NetworkPolicy reconciles")
 			catalogReconciler.Client = k8sClient
