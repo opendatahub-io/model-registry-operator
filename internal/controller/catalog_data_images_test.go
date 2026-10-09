@@ -186,7 +186,7 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 	assertImages(importImage(dataTestDigest3, false, true), dataTestRepository+"@"+dataTestDigest3)
 	assertCondition(metav1.ConditionTrue, "ImageStreamResolved")
 	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
+	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 
 	// Manual selection and rollback pin directly, without changing the import source.
 	pin := dataTestDigest2
@@ -250,8 +250,7 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 		assertImages(reconcile(), releaseDefault)
 		assertCondition(metav1.ConditionTrue, "ReleaseDefault")
 		assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "NotTrackingImageStream")
-		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
-		assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
+		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 		assertImages(importImage(dataTestDigest3, false, false), releaseDefault)
 	}
 }

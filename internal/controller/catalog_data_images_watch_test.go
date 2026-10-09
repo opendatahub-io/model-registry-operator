@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -164,7 +165,11 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 			ObjectMeta:  metav1.ObjectMeta{Name: "catalog-ready", Namespace: namespace, Labels: map[string]string{discoveryv1.LabelServiceName: catalogResourceName}},
 			AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
 		})).To(Succeed())
-		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		Eventually(func() bool {
+			condition := conditionFor(conditionWorkloadAvailable)
+			return condition != nil && condition.Status == metav1.ConditionTrue
+		}, 10*time.Second).Should(BeTrue())
+		Expect(available()).To(Equal(metav1.ConditionFalse))
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportPending"))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 
@@ -181,35 +186,12 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 				return direct.Status().Update(ctx, stream)
 			}, 10*time.Second).Should(Succeed())
 		}
-		// Simulate the separate runtime producer; import and healthy endpoints alone
-		// are intentionally insufficient to mark Catalog data ready.
-		activateCurrentPair := func() {
-			Eventually(func() error {
-				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-					return err
-				}
-				if catalog.Status.ImageUpdate == nil || catalog.Status.ImageUpdate.CurrentAttempt.ResolvedImages == nil {
-					return fmt.Errorf("candidate not resolved")
-				}
-				before := catalog.DeepCopy()
-				attempt := &catalog.Status.ImageUpdate.CurrentAttempt
-				refs := attempt.ResolvedImages.References()
-				catalog.Status.ImageUpdate.ActivationOutcome = &catalogv1alpha1.CatalogImageOutcome{
-					CatalogUID: catalog.UID, AttemptID: attempt.AttemptID, Images: &refs,
-					State: "Succeeded", Stage: "Activation", Reason: "Activated", Message: "Test runtime activated both images",
-				}
-				return direct.Status().Patch(ctx, catalog, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
-			}, 10*time.Second).Should(Succeed())
-			Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionTrue))
-			Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		}
 		image1 := dataTestRepository + "@" + dataTestDigest1
 		image2 := dataTestRepository + "@" + dataTestDigest2
 		updateImport(image1, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image1, image1}))
 		updateImport(image2, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, image2}))
-		activateCurrentPair()
 		updateImport("", true)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{image2, image2}))
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportFailed"))
@@ -219,10 +201,8 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		updateImport(image2, false)
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportSucceeded"))
-		Expect(available()).To(Equal(metav1.ConditionFalse))
-		Expect(degraded()).To(Equal(metav1.ConditionTrue))
-		activateCurrentPair()
-		// Fail again before pinning; valid selection starts activation, not recovery.
+		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		// Fail again before pinning to prove selection changes clear stale faults.
 		updateImport("", true)
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionTrue))
 		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
@@ -246,7 +226,7 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image3, image3}))
 		Eventually(conditionReason, 10*time.Second).Should(Equal("DigestPinned"))
 		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
-		activateCurrentPair()
+		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		updateImport(image1, false)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{image3, image3}))
 		setSelections(dataTestDigest2, dataTestDigest2)
@@ -255,9 +235,26 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 			{"latest", "latest"}, {"model-catalog-data:stable", "model-catalog-data:stable"},
 			{"sha256:invalid", "sha256:invalid"},
 		} {
-			setSelections(pair[0], pair[1])
-			Eventually(conditionReason, 10*time.Second).Should(Equal("InvalidDataImageSelection"))
-			Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionTrue))
+			Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
+			beforeGeneration := catalog.Generation
+			Eventually(func() error {
+				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+					return err
+				}
+				catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = &pair[0], &pair[1]
+				if err := direct.Update(ctx, catalog); apierrors.IsInvalid(err) {
+					return nil
+				} else if err != nil {
+					return err
+				}
+				return fmt.Errorf("unsupported selections were accepted: %v", pair)
+			}, 10*time.Second).Should(Succeed())
+			Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
+			Expect(catalog.Generation).To(Equal(beforeGeneration))
+			Expect(catalog.Spec.CatalogDataImageStream).To(HaveValue(Equal(dataTestDigest2)))
+			Expect(catalog.Spec.BenchmarkDataImageStream).To(HaveValue(Equal(dataTestDigest2)))
+			Eventually(conditionReason, 10*time.Second).Should(Equal("DigestPinned"))
+			Expect(degraded()).To(Equal(metav1.ConditionFalse))
 			Consistently(deploymentImages, 200*time.Millisecond).Should(Equal([]string{image2, image2}))
 		}
 		setSelections(stable, stable)
@@ -266,7 +263,7 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
 		Eventually(conditionReason, 10*time.Second).Should(Equal("ReleaseDefault"))
 		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
-		activateCurrentPair()
+		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		updateImport(image2, false)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
 
@@ -308,7 +305,7 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		updateBenchmark(dataTestDigest2, false)
 		Eventually(replicas, 10*time.Second).Should(Equal(int32(1)))
-		activateCurrentPair()
+		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
 		Expect(catalog.Generation).To(Equal(generation))
 	})

@@ -137,8 +137,6 @@ type CatalogParams struct {
 	BenchmarkDataImage      string
 	DataImageStreamName     string
 	DataImageStreamSource   string
-	DataImageAttemptID      string
-	CatalogUID              types.UID
 	PostgresResources       *corev1.ResourceRequirements
 	DatabaseVolumeSizeLimit *resource.Quantity
 	CatalogResources        *corev1.ResourceRequirements
@@ -171,7 +169,6 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		Namespace:               catalog.Namespace,
 		Component:               catalogResourceName,
 		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
-		CatalogUID:              catalog.UID,
 		BenchmarkDataImage:      config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresResources:       catalog.Spec.Resources.Postgres,
 		DatabaseVolumeSizeLimit: catalog.Spec.Database.Volume.SizeLimit,
@@ -243,7 +240,7 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	statusBefore := catalog.DeepCopy()
 	res, err := r.ensureCatalogResources(ctx, catalog)
-	// ensureCatalogResources persists image intent before changing a workload.
+	// ensureCatalogResources persists image observations before changing a workload.
 	// Use that updated resource version for the final optimistic status patch.
 	statusBefore.ResourceVersion = catalog.ResourceVersion
 	var imagesUnavailable *catalogDataImagesUnavailable
@@ -255,10 +252,8 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 		reduceCatalogImageReadiness(catalog)
 		statusErr := r.patchCatalogStatus(ctx, catalog, statusBefore)
-		confirmedFailure := catalog.Status.ImageUpdate != nil && catalog.Status.ImageUpdate.CurrentAttempt.SelectionOutcome.State == "Failed"
-		if activation := catalog.Status.ImageUpdate.CurrentActivation(catalog); activation != nil && activation.State == "Failed" {
-			confirmedFailure = true
-		}
+		resolved := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
+		confirmedFailure := resolved != nil && resolved.Status == metav1.ConditionFalse && resolved.Reason != "NoSuccessfulImport"
 		if statusErr == nil && r.Recorder != nil && confirmedFailure {
 			previous := apimeta.FindStatusCondition(statusBefore.Status.Conditions, conditionDataImageUpdateBlocked)
 			if previous == nil || previous.Status != blocked.Status || previous.Reason != blocked.Reason || previous.Message != blocked.Message {
@@ -271,13 +266,13 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return r.handleReconcileErrors(ctx, catalog, statusBefore, res, err)
 	}
 
-	condition, statusErr := r.updateStatus(ctx, catalog, statusBefore)
+	_, statusErr := r.updateStatus(ctx, catalog, statusBefore)
 	if statusErr != nil {
 		log.Error(statusErr, "Failed to update catalog status")
 		return res, statusErr
 	}
 
-	if condition != nil {
+	if condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionWorkloadAvailable); condition != nil {
 		if condition.Reason == ReasonDeploymentCooldown {
 			// Requeue after a fixed delay to avoid exponential backoff.
 			return ctrl.Result{RequeueAfter: time.Second}, nil
@@ -375,16 +370,13 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	beforeResolution := catalog.DeepCopy()
 	resolutionErr := r.resolveCatalogDataImages(ctx, catalog, catalogParams)
-	// Publish the attempt and unready state before a candidate can reach pods.
-	// A conflict prevents applying this candidate; reconciliation rereads intent.
+	// Publish current image observations before applying the workload. A conflict
+	// prevents applying stale selections; reconciliation rereads current intent.
 	if err := r.patchCatalogStatus(ctx, catalog, beforeResolution); err != nil {
 		return ctrl.Result{}, errors.Join(resolutionErr, err)
 	}
 	if resolutionErr != nil {
 		return ctrl.Result{}, resolutionErr
-	}
-	if activation := catalog.Status.ImageUpdate.CurrentActivation(catalog); activation != nil && activation.State == "Failed" {
-		return ctrl.Result{}, &catalogDataImagesUnavailable{}
 	}
 
 	result := ResourceUnchanged
@@ -1402,8 +1394,6 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		DataImageStreamName     string
 		DataImageStreamTag      string
 		DataImageStreamSource   string
-		DataImageAttemptID      string
-		CatalogUID              types.UID
 		PostgresImage           string
 		PostgresUser            string
 		PostgresDatabase        string
@@ -1428,8 +1418,6 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		DataImageStreamName:     CatalogDataImageStreamName,
 		DataImageStreamTag:      catalogDataImageStreamTag,
 		DataImageStreamSource:   catalogDataImageSources()[0],
-		DataImageAttemptID:      params.DataImageAttemptID,
-		CatalogUID:              params.CatalogUID,
 		PostgresImage:           config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:            config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresDatabase:        config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),

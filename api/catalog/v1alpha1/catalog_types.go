@@ -81,11 +81,12 @@ type CatalogSpec struct {
 	// its configured data repository. The benchmark field may select a different image.
 	// AIHub creates the initial Catalog with both fields unset to use release defaults.
 	// Selection/import failures make Catalog and AIHub unready. Successful
-	// resolution starts activation; recovery requires an activation outcome for
-	// the current attempt and both immutable images. Deployment scale-down is
-	// temporary containment; runtime serving enforcement is a separate integration.
+	// resolution permits rollout; readiness also requires a healthy workload.
+	// Deployment scale-down is temporary containment. Runtime validation and
+	// serving enforcement will be integrated with RHOAIENG-97414.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^(|stable|sha256:[a-f0-9]{64})$`
 	CatalogDataImageStream *string `json:"catalogDataImageStream,omitempty"`
 
 	// BenchmarkDataImageStream independently selects the benchmark data image
@@ -94,6 +95,7 @@ type CatalogSpec struct {
 	// independently. Unset and empty values are equivalent.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^(|stable|sha256:[a-f0-9]{64})$`
 	BenchmarkDataImageStream *string `json:"benchmarkDataImageStream,omitempty"`
 
 	// Proxy configures outbound HTTP proxy settings for the catalog. If unset,
@@ -108,14 +110,10 @@ type CatalogSpec struct {
 // CatalogStatus defines the observed state of Catalog.
 type CatalogStatus struct {
 	// Conditions represent the latest available observations of the Catalog's state.
-	// Ready and Available require current activation evidence and workload health.
-	// WorkloadAvailable tracks deployment health independently of data activation.
+	// Ready and Available require current image resolution and workload health.
+	// WorkloadAvailable tracks deployment health independently of image selection.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-
-	// ImageUpdate is the shared selection/import and activation contract.
-	// +optional
-	ImageUpdate *CatalogImageUpdateStatus `json:"imageUpdate,omitempty"`
 
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional

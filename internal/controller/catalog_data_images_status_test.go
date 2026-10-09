@@ -72,13 +72,6 @@ func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.C
 	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
 		t.Fatal(err)
 	}
-	reportDataImageActivation(t, r, catalog, "Succeeded", "Activation", "Activated")
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-		t.Fatal(err)
-	}
 	assertDataImageCondition(t, catalog, ConditionTypeAvailable, metav1.ConditionTrue, ReasonDeploymentAvailable)
 	return r, catalog
 }
@@ -240,8 +233,7 @@ func TestCatalogDataImageAPIFailureStatusAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
-			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, reason)
-			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
+			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 			if err := base.Get(ctx, deploymentKey, after); err != nil {
 				t.Fatal(err)
 			}
@@ -394,8 +386,8 @@ func TestCatalogManualRecoveryDuringImageStreamOutage(t *testing.T) {
 		if err := base.Get(ctx, key, catalog); err != nil {
 			t.Fatal(err)
 		}
-		assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionTrue, "ActivationPending")
-		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImageStreamUnavailable")
+		assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed")
+		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 	}
 }
 
@@ -443,6 +435,11 @@ func TestCatalogPendingRetryDoesNotResumeAfterImportFailure(t *testing.T) {
 	// The previous failed condition is stale, but a pending new source must
 	// not restore old content before there is a successful import.
 	checkReplicas(0)
+	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
+		t.Fatal(err)
+	}
+	assertDataImageCondition(t, catalog, conditionImageSelectionReady, metav1.ConditionUnknown, "AwaitingSuccessfulImport")
+	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
 	// Persisted conditions preserve this behavior over reconciler restarts.
 	r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
 	checkReplicas(0)

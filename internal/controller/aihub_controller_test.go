@@ -1171,7 +1171,7 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	}
 
 	if got.Status.Phase != common.PhaseNotReady {
-		t.Errorf("Phase = %q, want %q until Catalog activation", got.Status.Phase, common.PhaseNotReady)
+		t.Errorf("Phase = %q, want %q until current Catalog readiness", got.Status.Phase, common.PhaseNotReady)
 	}
 
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
@@ -1186,9 +1186,9 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	if catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil {
 		t.Fatal("initial Catalog must leave both image selections unset to use the release defaults")
 	}
-	// Missing Catalog activation is progressing, not a confirmed failure.
+	// Missing Catalog status is progressing, not a confirmed failure.
 	if result.RequeueAfter == 0 {
-		t.Fatal("Catalog activation must be polled while pending")
+		t.Fatal("Catalog readiness must be polled while pending")
 	}
 	assertConditionStatus(t, got, ConditionCatalogDataReady, metav1.ConditionFalse)
 	catalog.Status.Conditions = []metav1.Condition{
@@ -1699,7 +1699,7 @@ func TestAIHubCatalogReadiness(t *testing.T) {
 		wantFailed         bool
 	}{
 		{name: "missing status"},
-		{name: "pending activation", readyStatus: metav1.ConditionFalse, observedGeneration: 2},
+		{name: "pending image resolution", readyStatus: metav1.ConditionFalse, observedGeneration: 2},
 		{name: "confirmed failure", readyStatus: metav1.ConditionFalse, observedGeneration: 2, degraded: true, wantFailed: true},
 		{name: "stale success", readyStatus: metav1.ConditionTrue, observedGeneration: 1},
 		{name: "current success", readyStatus: metav1.ConditionTrue, observedGeneration: 2, wantReady: true},
@@ -1708,7 +1708,7 @@ func TestAIHubCatalogReadiness(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
 			if test.readyStatus != "" {
-				catalog.Status.Conditions = append(catalog.Status.Conditions, metav1.Condition{Type: conditionCatalogReady, Status: test.readyStatus, ObservedGeneration: test.observedGeneration, Reason: "ActivationState", Message: "Catalog activation state", LastTransitionTime: metav1.Now()})
+				catalog.Status.Conditions = append(catalog.Status.Conditions, metav1.Condition{Type: conditionCatalogReady, Status: test.readyStatus, ObservedGeneration: test.observedGeneration, Reason: "ReadinessState", Message: "Catalog readiness state", LastTransitionTime: metav1.Now()})
 			}
 			if test.degraded {
 				catalog.Status.Conditions = append(catalog.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, ObservedGeneration: 2, Reason: "ImportFailed", Message: "Import failed", LastTransitionTime: metav1.Now()})

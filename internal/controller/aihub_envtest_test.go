@@ -388,7 +388,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		t.Fatalf("reconcile #2 failed: %v", err)
 	}
 	if result2.RequeueAfter == 0 {
-		t.Fatal("Catalog activation must remain pending after operator readiness")
+		t.Fatal("Catalog status must remain pending after operator readiness")
 	}
 	markAIHubTestCatalogReady(t, k8sClient, regNs)
 	result2, err = r.Reconcile(ctx, req)
@@ -1615,14 +1615,14 @@ func TestAIHubSelectorMigration_Envtest(t *testing.T) {
 	}
 }
 
-// Simulate the owned Catalog controller's aggregate activation/health evidence.
+// Simulate the owned Catalog controller's aggregate image resolution/workload status.
 func markAIHubTestCatalogReady(t *testing.T, cli client.Client, namespace string) {
 	t.Helper()
 	catalog := &catalogv1alpha1.Catalog{}
 	if err := cli.Get(context.Background(), client.ObjectKey{Name: catalogCRName, Namespace: namespace}, catalog); err != nil {
 		t.Fatal(err)
 	}
-	catalog.Status.Conditions = []metav1.Condition{{Type: conditionCatalogReady, Status: metav1.ConditionTrue, ObservedGeneration: catalog.Generation, Reason: "Activated", Message: "Test Catalog controller accepted current activation", LastTransitionTime: metav1.Now()}}
+	catalog.Status.Conditions = []metav1.Condition{{Type: conditionCatalogReady, Status: metav1.ConditionTrue, ObservedGeneration: catalog.Generation, Reason: ReasonDeploymentAvailable, Message: "Test Catalog controller reports resolved images and a healthy workload", LastTransitionTime: metav1.Now()}}
 	if err := cli.Status().Update(context.Background(), catalog); err != nil {
 		t.Fatal(err)
 	}

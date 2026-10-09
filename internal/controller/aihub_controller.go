@@ -75,7 +75,7 @@ const (
 	// is available.
 	ConditionCatalogReady = "CatalogReady"
 
-	// ConditionCatalogDataReady tracks the owned Catalog's activation and health.
+	// ConditionCatalogDataReady tracks the owned Catalog's image selection and health.
 	ConditionCatalogDataReady = "CatalogDataReady"
 
 	// Platform version ConfigMap (created by the orchestrator in the
@@ -435,7 +435,7 @@ func reconcileAIHubCatalogReadiness(catalog *catalogv1alpha1.Catalog, manager *c
 	degraded := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeDegraded)
 	failed = degraded != nil && degraded.ObservedGeneration == catalog.Generation && degraded.Status == metav1.ConditionTrue
 	if condition == nil || condition.ObservedGeneration != catalog.Generation {
-		manager.MarkFalse(ConditionCatalogDataReady, conditions.WithReason("CatalogStatusPending"), conditions.WithMessage("Waiting for current Catalog readiness and activation status"))
+		manager.MarkFalse(ConditionCatalogDataReady, conditions.WithReason("CatalogStatusPending"), conditions.WithMessage("Waiting for current Catalog readiness status"))
 		return false, failed
 	}
 	if condition.Status != metav1.ConditionTrue || failed {

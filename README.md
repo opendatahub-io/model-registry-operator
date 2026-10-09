@@ -119,12 +119,11 @@ and requests deployment scale-down as **temporary containment**. Scale-down does
 not prove that existing pods have stopped answering requests and cannot provide
 structured unavailable responses or accessible runtime status endpoints.
 
-A successful import, manual pin, or cleared field permits deployment reconciliation
-to begin activation. It does not restore readiness or clear a previous data failure.
-Recovery requires a successful Activation outcome matching the persisted attempt,
-Catalog UID, and both immutable image references, together with healthy resources.
-The pod template carries the attempt ID, and the runtime receives that ID, the
-Catalog UID, and both image references as environment variables.
+A successful import, manual pin, or cleared field permits deployment reconciliation.
+Catalog readiness requires both requested images to resolve and the workload to
+be healthy. Empty fields support the release references supplied by the product
+operator, including the upstream development tags. Unsupported selections are
+rejected by API validation; controller checks also protect existing objects.
 
 After an import failure, a pending retry or changed source keeps deployment
 scale-down requested until that image imports successfully. Runtime gate enforcement
@@ -135,28 +134,26 @@ is still required to guarantee that old content cannot be served during this per
 | `CatalogDataImageResolved`, `BenchmarkDataImageResolved` | Each selection's resolution, including image references and failures. |
 | `CatalogDataImageImportHealthy`, `BenchmarkDataImageImportHealthy` | Each import's success, pending state, or failure, with registry error details. |
 | `DataImageResolved`, `DataImageImportHealthy` | Aggregate observations of both images. |
-| `ImageSelectionReady` | Current attempt's selection/import outcome, separate from activation. |
-| `DataActivationReady` | Accepted activation outcome for the current attempt and both images. |
-| `DataImageUpdateBlocked` | True until the current image pair has validated activation. |
-| `Degraded` | Confirmed data failure, retained through pending recovery until successful activation. |
+| `ImageSelectionReady` | Current selection/import outcome. Pending imports are Unknown. |
+| `DataImageUpdateBlocked` | Confirmed selection/import failure or pending retry after failure prevents rollout. |
+| `Degraded` | Confirmed data failure, retained during a pending import retry; cleared by successful resolution. |
 | `WorkloadAvailable` | Deployment and resource health; it does not establish data activation. |
-| `Ready`, `Available` | Require current successful activation and healthy Catalog resources. |
+| `Ready`, `Available` | Require current successful image resolution and healthy Catalog resources. |
 
 A warning Event surfaces new failures. AIHub watches its owned Catalog and includes
 its current readiness in `CatalogDataReady`, alongside child operator availability.
 Confirmed Catalog failures make AIHub unready and degraded; the parent operator's
-existing module readiness aggregation propagates this to DSC. Pending activation
-is unready without being treated as a new confirmed failure.
+existing module readiness aggregation propagates this to DSC. A pending first
+import is unready without being treated as a confirmed failure. Once the workload
+is healthy, import changes are handled by watches rather than continuous polling.
 
-`status.imageUpdate` records the current attempt and resolved image pair, separate
-selection and activation outcomes, retained failure details, and last successful
-activation metadata. Import success alone cannot restore readiness, and superseded
-or mismatched activation reports are ignored. The runtime outcome producer and
-actual backend availability gate are **not implemented by this operator change**.
-Without genuine activation evidence, Catalog and AIHub remain unready, including
-when release-default fields are empty. The combined feature cannot ship until
-RHOAIENG-97414 provides validation, atomic activation, and runtime gate enforcement.
-See the [activation handoff](docs/catalog-image-activation.md) for the contract.
+Activation-dependent readiness, persisted activation attempts/outcomes, and the
+backend availability gate are deferred until RHOAIENG-97414 supplies the runtime
+integration. This change neither requires a nonexistent activation reporter nor
+fabricates activation success from an import or healthy deployment. The complete
+failure/activation contract still requires content validation, atomic activation,
+and runtime gate enforcement. See the [activation handoff](docs/catalog-image-activation.md)
+for those integration requirements.
 
 Failures from an older ImageStream source generation are ignored after a new
 import has been requested. Manually selected ImageStream sources, import history,

@@ -27,9 +27,6 @@ spec:
         app.kubernetes.io/name: {{.Name}}
       annotations:
         openshift.io/required-scc: restricted-v2
-        {{- if .DataImageAttemptID}}
-        aihub.opendatahub.io/data-image-attempt: "{{.DataImageAttemptID}}"
-        {{- end}}
         {{- if .PostgresSecretHash}}
         modelregistry.opendatahub.io/postgres-secret-hash: "{{.PostgresSecretHash}}"
         {{- end}}
@@ -179,16 +176,6 @@ spec:
             mountPath: /data/labeled-sources/{{.Name}}
           {{- end}}
           env:
-            {{- if .DataImageAttemptID}}
-            - name: CATALOG_IMAGE_ATTEMPT_ID
-              value: "{{.DataImageAttemptID}}"
-            - name: CATALOG_CR_UID
-              value: "{{.CatalogUID}}"
-            - name: CATALOG_DATA_IMAGE_REFERENCE
-              value: "{{.CatalogDataImage}}"
-            - name: CATALOG_BENCHMARK_IMAGE_REFERENCE
-              value: "{{.BenchmarkDataImage}}"
-            {{- end}}
             - name: PGHOST
               value: {{.Name}}-postgres
             - name: PGDATABASE

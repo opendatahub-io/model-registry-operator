@@ -1248,8 +1248,7 @@ labels:
 			Expect(initialCM.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
 
 			// envtest has no Deployment or EndpointSlice controller. Mark the deployment
-			// available independently of data activation before the delete. The
-			// activation polling interval exceeds the delete-watch assertion window.
+			// available so rollout polling stops before testing the delete watch.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
 			dep.Status.Conditions = []appsv1.DeploymentCondition{{
@@ -1279,9 +1278,9 @@ labels:
 				}
 				return apimeta.IsStatusConditionTrue(catalog.Status.Conditions, conditionWorkloadAvailable)
 			}, 20*time.Second).Should(BeTrue())
-			unactivated := &catalogv1alpha1.Catalog{}
-			Expect(k8sClient.Get(ctx, catalogKey, unactivated)).To(Succeed())
-			Expect(apimeta.IsStatusConditionFalse(unactivated.Status.Conditions, conditionCatalogReady)).To(BeTrue())
+			healthy := &catalogv1alpha1.Catalog{}
+			Expect(k8sClient.Get(ctx, catalogKey, healthy)).To(Succeed())
+			Expect(apimeta.IsStatusConditionTrue(healthy.Status.Conditions, conditionCatalogReady)).To(BeTrue())
 
 			Expect(k8sClient.Delete(ctx, initialCM)).To(Succeed())
 			Eventually(func() bool {
