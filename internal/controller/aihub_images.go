@@ -31,6 +31,8 @@ var operandImageEnvNames = []string{
 	config.KubeRBACProxyImage,
 	config.CatalogDataImage,
 	config.BenchmarkDataImage,
+	config.CatalogDataImageStreamSource,
+	config.BenchmarkDataImageStreamSource,
 }
 
 // ChildImages holds the images AIHub projects onto its child operator Deployments.

@@ -1075,6 +1075,40 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	assertConditionStatus(t, got, string(common.ConditionTypeProvisioningSucceeded), metav1.ConditionTrue)
 	assertConditionStatus(t, got, ConditionModelRegistryReady, metav1.ConditionTrue)
 	assertConditionStatus(t, got, ConditionCatalogReady, metav1.ConditionTrue)
+
+	catalog := &catalogv1alpha1.Catalog{}
+	if err := fakeClient.Get(ctx, client.ObjectKey{Namespace: regNs, Name: catalogCRName}, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil {
+		t.Fatal("initial Catalog must leave both image selections unset to use the release defaults")
+	}
+	// User selections and Catalog image failures do not get overwritten or
+	// included in platform readiness when AIHub reconciles again.
+	pin := dataTestDigest1
+	stable := "stable"
+	catalog.Spec.CatalogDataImageStream = &stable
+	catalog.Spec.BenchmarkDataImageStream = &pin
+	catalog.Status.Conditions = []metav1.Condition{
+		{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, Reason: "ImportFailed", Message: "benchmark import failed", LastTransitionTime: metav1.Now()},
+		{Type: ConditionTypeAvailable, Status: metav1.ConditionFalse, Reason: "DataImagesUnavailable", Message: "serving stopped", LastTransitionTime: metav1.Now()},
+	}
+	if err := fakeClient.Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
+	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != stable || catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != pin {
+		t.Fatal("AIHub overwrote the admin's independent image selections")
+	}
 }
 
 func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {

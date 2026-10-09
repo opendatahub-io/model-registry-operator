@@ -385,6 +385,8 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Namespace: spec.InstancesNamespace,
 		},
 	}
+	// Leave image selections unset to use the images supplied by the product
+	// operator. CreateIfNotExists preserves later admin selections.
 	newCatalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	if err := ctrl.SetControllerReference(aihub, newCatalog, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("setting Catalog owner reference: %w", err)

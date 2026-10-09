@@ -75,23 +75,27 @@ type CatalogSpec struct {
 	// +optional
 	Database CatalogDatabase `json:"database,omitempty"`
 
-	// CatalogDataImage overrides the catalog data init container image by sha256
-	// digest (e.g. "sha256:<64 hex>") or image tag (e.g. "v2.19"). The operator
-	// pins it onto the trusted repository derived from the default image. A digest
-	// is recommended because a tag can be repointed without triggering a rollout.
-	// Invalid or unset values fall back to the default image.
+	// CatalogDataImageStream independently selects the catalog data image.
+	// Empty uses its current release default. "stable" follows the managed
+	// ImageStream (OpenShift only); sha256:<64 lowercase hex> pins a digest in
+	// its configured data repository. The benchmark field may select a different image.
+	// AIHub creates the initial Catalog with both fields unset to use release defaults.
+	// Pending imports bootstrap from the release image or keep the applied image.
+	// Invalid selections and failed or unusable imports stop Catalog serving and
+	// set Available=False and Degraded=True. A successful import or valid manual
+	// selection restores serving. Image-specific resolution/import conditions and
+	// DataImageUpdateBlocked explain the failure without changing AIHub readiness.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
-	CatalogDataImage *string `json:"catalogDataImage,omitempty"`
+	CatalogDataImageStream *string `json:"catalogDataImageStream,omitempty"`
 
-	// BenchmarkDataImage overrides the benchmark data init container image by
-	// sha256 digest (e.g. "sha256:<64 hex>") or image tag (e.g. "v2.19"). The
-	// operator pins it onto the trusted repository derived from the default image.
-	// A digest is recommended because a tag can be repointed without triggering a
-	// rollout. Invalid or unset values fall back to the default image.
+	// BenchmarkDataImageStream independently selects the benchmark data image
+	// using the same empty/stable/digest choices as CatalogDataImageStream.
+	// Identical import sources share an ImageStream; separate sources are tracked
+	// independently. Unset and empty values are equivalent.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
-	BenchmarkDataImage *string `json:"benchmarkDataImage,omitempty"`
+	BenchmarkDataImageStream *string `json:"benchmarkDataImageStream,omitempty"`
 
 	// Proxy configures outbound HTTP proxy settings for the catalog. If unset,
 	// the operator defaults to the cluster-wide proxy settings from the
@@ -105,6 +109,8 @@ type CatalogSpec struct {
 // CatalogStatus defines the observed state of Catalog.
 type CatalogStatus struct {
 	// Conditions represent the latest available observations of the Catalog's state.
+	// Available tracks workload readiness. DataImageResolved tracks image selection,
+	// DataImageImportHealthy tracks imports, and Degraded reports data image faults.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
