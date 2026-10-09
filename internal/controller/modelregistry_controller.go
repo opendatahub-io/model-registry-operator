@@ -425,6 +425,14 @@ func (r *ModelRegistryReconciler) updateRegistryResources(ctx context.Context, p
 		result = result2
 	}
 
+	result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "egress-network-policy.yaml.tmpl")
+	if err != nil {
+		return result2, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	if r.Capabilities.IsOpenShift {
 		// Create OpenShift Group resource only if user API is available
 		// In BYOIDC mode (OpenShift 4.20+), user.openshift.io API is not available
@@ -617,6 +625,16 @@ func (r *ModelRegistryReconciler) createOrUpdatePostgres(ctx context.Context, pa
 		result = result2
 	}
 
+	log.Info("Creating or updating postgres egress NetworkPolicy")
+	result2, err = r.createOrUpdateNetworkPolicy(ctx, params, registry, "postgres-egress-network-policy.yaml.tmpl")
+	if err != nil {
+		log.Error(err, "Failed to create or update postgres egress NetworkPolicy")
+		return result, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
+	}
+
 	// Update the spec in memory
 	log.Info("Updating spec in memory with postgres details")
 	port := int32(5432)
@@ -674,7 +692,8 @@ func (r *ModelRegistryReconciler) createOrUpdateNetworkPolicy(ctx context.Contex
 		return result, err
 	}
 
-	return r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &networkPolicy)
+	resourceManager := &ResourceManager{Client: r.Client}
+	return resourceManager.CreateOrUpdateNetworkPolicy(ctx, &networkPolicy)
 }
 
 func (r *ModelRegistryReconciler) createOrUpdateRole(ctx context.Context, params *ModelRegistryParams,

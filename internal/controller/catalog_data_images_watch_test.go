@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -68,6 +69,8 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme: scheme, Metrics: metricsserver.Options{BindAddress: "0"},
 			Cache: cache.Options{DefaultNamespaces: map[string]cache.Config{namespace: {}}},
+			// Other isolated managers in this suite also register the Catalog controller.
+			Controller: controllerconfig.Controller{SkipNameValidation: new(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
 		templates, err := config.ParseTemplates()

@@ -24,6 +24,7 @@ import (
 	"text/template"
 
 	"github.com/banzaicloud/k8s-objectmatcher/patch"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/discovery"
@@ -204,6 +205,30 @@ func (r *ResourceManager) CreateOrUpdate(ctx context.Context, currObj client.Obj
 	}
 
 	return result, nil
+}
+
+// CreateOrUpdateNetworkPolicy is CreateOrUpdate for NetworkPolicies, plus a reset of rules added to a
+// rule list the desired policy leaves empty. An empty list (e.g. deny-all `egress: []`) is omitted when
+// serialized, so the three-way patch in CreateOrUpdate never considers that field owned and would keep
+// rules added out of band, silently turning deny-all into allow.
+func (r *ResourceManager) CreateOrUpdateNetworkPolicy(ctx context.Context, newObj *networkingv1.NetworkPolicy) (OperationResult, error) {
+	var currObj networkingv1.NetworkPolicy
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(newObj), &currObj)
+	if err == nil &&
+		((len(newObj.Spec.Egress) == 0 && len(currObj.Spec.Egress) > 0) ||
+			(len(newObj.Spec.Ingress) == 0 && len(currObj.Spec.Ingress) > 0)) {
+		klog.FromContext(ctx).Info("updating", "kind", newObj.GetObjectKind().GroupVersionKind(), "name", newObj.GetName(),
+			"reason", "unexpected rules in empty rule list")
+		newObj.SetResourceVersion(currObj.GetResourceVersion())
+		if err := patch.DefaultAnnotator.SetLastAppliedAnnotation(newObj); err != nil {
+			return ResourceUnchanged, err
+		}
+		return ResourceUpdated, r.Client.Update(ctx, newObj)
+	}
+	if client.IgnoreNotFound(err) != nil {
+		return ResourceUnchanged, err
+	}
+	return r.CreateOrUpdate(ctx, &networkingv1.NetworkPolicy{}, newObj)
 }
 
 func (r *ResourceManager) CreateIfNotExists(ctx context.Context, currObj client.Object, newObj client.Object) (OperationResult, error) {

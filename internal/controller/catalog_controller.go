@@ -261,9 +261,7 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return res, errors.Join(imagesUnavailable.cause, stopErr, statusErr)
 	}
 	if err != nil {
-		// Persist image faults even when resource reconciliation stops early.
-		// Keep the last observed operand availability independent of these faults.
-		return res, errors.Join(err, r.patchCatalogStatus(ctx, catalog, statusBefore))
+		return r.handleReconcileErrors(ctx, catalog, statusBefore, res, err)
 	}
 
 	condition, statusErr := r.updateStatus(ctx, catalog, statusBefore)
@@ -427,6 +425,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		"catalog-configmap.yaml.tmpl",
 		"catalog-mcp-configmap.yaml.tmpl",
 		"catalog-agent-configmap.yaml.tmpl",
+		"catalog-serving-runtime-configmap.yaml.tmpl",
 	} {
 		var done bool
 		result2, done, err = r.manageUserSourcesConfigmap(ctx, catalogParams, tmpl, noDefaultSource)
@@ -532,8 +531,25 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		if result2 != ResourceUnchanged {
 			result = result2
 		}
+
+		log.Info("Creating or updating postgres egress NetworkPolicy")
+		result2, err = r.createOrUpdateNetworkPolicy(ctx, postgresParams, "catalog-postgres-egress-network-policy.yaml.tmpl", crOwner)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if result2 != ResourceUnchanged {
+			result = result2
+		}
 	} else {
 		log.Info("Skipping catalog DB creation as configured")
+	}
+
+	result2, err = r.createOrUpdateNetworkPolicy(ctx, catalogParams, "catalog-egress-network-policy.yaml.tmpl", crOwner)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if result2 != ResourceUnchanged {
+		result = result2
 	}
 
 	if r.Capabilities.IsOpenShift {
@@ -592,6 +608,20 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 		return ctrl.Result{Requeue: true}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+// handleReconcileErrors marks the Catalog unavailable when its resources, including required
+// NetworkPolicies, fail to reconcile, and returns the original error so the request is retried.
+// The condition clears on the next successful reconcile, when updateStatus runs again.
+func (r *CatalogReconciler) handleReconcileErrors(ctx context.Context, catalog, before *catalogv1alpha1.Catalog, result ctrl.Result, err error) (ctrl.Result, error) {
+	apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
+		Type:               ConditionTypeAvailable,
+		Status:             metav1.ConditionFalse,
+		Reason:             ReasonResourcesUnavailable,
+		Message:            fmt.Sprintf("failed to reconcile catalog resources: %v", err),
+		ObservedGeneration: catalog.Generation,
+	})
+	return result, errors.Join(err, r.patchCatalogStatus(ctx, catalog, before))
 }
 
 func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *catalogv1alpha1.Catalog) (*metav1.Condition, error) {
@@ -842,7 +872,10 @@ func (r *CatalogReconciler) createOrUpdateNetworkPolicy(ctx context.Context, par
 	r.applyLabels(&netPol.ObjectMeta, params)
 	r.applyOwnerReference(&netPol.ObjectMeta, owner)
 
-	return r.createOrUpdate(ctx, &networkingv1.NetworkPolicy{}, &netPol)
+	if r.resourceManager == nil {
+		r.resourceManager = &ResourceManager{Client: r.Client}
+	}
+	return r.resourceManager.CreateOrUpdateNetworkPolicy(ctx, &netPol)
 }
 
 func (r *CatalogReconciler) createOrUpdateConfigmap(ctx context.Context, params *CatalogParams, templateName string, owner *metav1.OwnerReference) (OperationResult, error) {
@@ -927,12 +960,13 @@ func (r *CatalogReconciler) removeDefaultSource(doc string) (string, error) {
 		Labels     []string          `json:"labels,omitempty"`
 	}
 	var sources struct {
-		Catalogs      []catalog `json:"catalogs,omitempty"`
-		ModelCatalogs []catalog `json:"model_catalogs,omitempty"`
-		McpCatalogs   []catalog `json:"mcp_catalogs,omitempty"`
-		AgentCatalogs []catalog `json:"agent_catalogs,omitempty"`
-		Labels        any       `json:"labels,omitempty"`
-		NamedQueries  any       `json:"namedQueries,omitempty"`
+		Catalogs               []catalog `json:"catalogs,omitempty"`
+		ModelCatalogs          []catalog `json:"model_catalogs,omitempty"`
+		McpCatalogs            []catalog `json:"mcp_catalogs,omitempty"`
+		AgentCatalogs          []catalog `json:"agent_catalogs,omitempty"`
+		ServingRuntimeCatalogs []catalog `json:"serving_runtime_catalogs,omitempty"`
+		Labels                 any       `json:"labels,omitempty"`
+		NamedQueries           any       `json:"namedQueries,omitempty"`
 	}
 
 	err := yaml.UnmarshalStrict([]byte(doc), &sources)
@@ -1601,7 +1635,14 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	b = b.Watches(
 		&corev1.ConfigMap{},
 		handler.EnqueueRequestsFromMapFunc(r.getCatalogsForConfigMap),
-		builder.WithPredicates(predicate.Or(catalogSourceLabels, labelsPredicate)),
+		builder.WithPredicates(predicate.Or(
+			catalogSourceLabels,
+			labelsPredicate,
+			// Pre-existing administrator ConfigMaps may lack operator labels.
+			predicate.NewPredicateFuncs(func(object client.Object) bool {
+				return object.GetName() == "serving-runtime-catalog-sources"
+			}),
+		)),
 	)
 
 	b = b.Watches(

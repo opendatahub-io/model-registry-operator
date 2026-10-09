@@ -46,6 +46,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -586,6 +587,41 @@ var _ = Describe("ModelRegistry controller", func() {
 					"NetworkPolicy port should use TCP protocol")
 				Expect(port.Port.IntVal).To(Equal(int32(5432)),
 					"NetworkPolicy port should be 5432 (PostgreSQL)")
+
+				By("Checking if the Postgres egress NetworkPolicy denies all egress")
+				postgresEgressKey := types.NamespacedName{Name: registryName + "-postgres-egress", Namespace: namespace.Name}
+				postgresEgressNetworkPolicy := &networkingv1.NetworkPolicy{}
+				Expect(k8sClient.Get(ctx, postgresEgressKey, postgresEgressNetworkPolicy)).To(Succeed())
+				Expect(postgresEgressNetworkPolicy.Spec.PodSelector.MatchLabels).To(Equal(postgresNetworkPolicy.Spec.PodSelector.MatchLabels),
+					"egress NetworkPolicy should select the same postgres pods as the ingress NetworkPolicy")
+				expectDenyAllEgress(postgresEgressNetworkPolicy)
+
+				By("Checking that a deleted Postgres egress NetworkPolicy is recreated")
+				Expect(k8sClient.Delete(ctx, postgresEgressNetworkPolicy)).To(Succeed())
+				Eventually(func() error {
+					if _, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespaceName}); err != nil {
+						return err
+					}
+					return k8sClient.Get(ctx, postgresEgressKey, &networkingv1.NetworkPolicy{})
+				}, time.Minute, time.Second).Should(Succeed())
+
+				By("Checking that egress rules added to the Postgres deny-all NetworkPolicy are removed")
+				Expect(k8sClient.Get(ctx, postgresEgressKey, postgresEgressNetworkPolicy)).To(Succeed())
+				postgresEgressNetworkPolicy.Spec.Egress = []networkingv1.NetworkPolicyEgressRule{{}}
+				Expect(k8sClient.Update(ctx, postgresEgressNetworkPolicy)).To(Succeed())
+				Eventually(func() error {
+					if _, err := modelRegistryReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespaceName}); err != nil {
+						return err
+					}
+					found := &networkingv1.NetworkPolicy{}
+					if err := k8sClient.Get(ctx, postgresEgressKey, found); err != nil {
+						return err
+					}
+					if len(found.Spec.Egress) != 0 {
+						return fmt.Errorf("expected no egress rules, got %v", found.Spec.Egress)
+					}
+					return nil
+				}, time.Minute, time.Second).Should(Succeed())
 			})
 
 			It("When using external PostgreSQL database should not create NetworkPolicy", func() {
@@ -629,6 +665,12 @@ var _ = Describe("ModelRegistry controller", func() {
 				Consistently(func() error {
 					found := &networkingv1.NetworkPolicy{}
 					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres", Namespace: namespace.Name}, found)
+				}, 5*time.Second, time.Second).ShouldNot(Succeed())
+
+				By("Verifying that Postgres egress NetworkPolicy was NOT created for external database")
+				Consistently(func() error {
+					found := &networkingv1.NetworkPolicy{}
+					return k8sClient.Get(ctx, types.NamespacedName{Name: registryName + "-postgres-egress", Namespace: namespace.Name}, found)
 				}, 5*time.Second, time.Second).ShouldNot(Succeed())
 
 				By("Verifying that Postgres Deployment was NOT created for external database")
@@ -1214,6 +1256,22 @@ var _ = Describe("ModelRegistry controller", func() {
 	})
 })
 
+// expectAllowAllEgress asserts the documented allow-all egress shape from ODH-ADR-Operator-0016 R5.
+func expectAllowAllEgress(np *networkingv1.NetworkPolicy) {
+	GinkgoHelper()
+	Expect(np.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeEgress}))
+	Expect(np.Spec.Egress).To(Equal([]networkingv1.NetworkPolicyEgressRule{{}}), "egress should be a single allow-all rule")
+	Expect(np.Spec.Ingress).To(BeEmpty())
+}
+
+// expectDenyAllEgress asserts a deny-all egress policy (Egress policy type with no egress rules).
+func expectDenyAllEgress(np *networkingv1.NetworkPolicy) {
+	GinkgoHelper()
+	Expect(np.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeEgress}))
+	Expect(np.Spec.Egress).To(BeEmpty(), "egress should deny all traffic")
+	Expect(np.Spec.Ingress).To(BeEmpty())
+}
+
 func initModelRegistryReconciler(template *template.Template) *ModelRegistryReconciler {
 	scheme := k8sClient.Scheme()
 
@@ -1398,6 +1456,25 @@ func validateRegistryBase(ctx context.Context, typeNamespaceName types.Namespace
 			found := &appsv1.Deployment{}
 			return k8sClient.Get(ctx, typeNamespaceName, found)
 		}, time.Minute, time.Second).Should(Succeed())
+
+		By("Checking if the egress NetworkPolicy was successfully created in the reconciliation")
+		egressNetworkPolicy := &networkingv1.NetworkPolicy{}
+		Eventually(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: typeNamespaceName.Name + "-egress", Namespace: typeNamespaceName.Namespace}, egressNetworkPolicy)
+		}, time.Minute, time.Second).Should(Succeed())
+		Expect(egressNetworkPolicy.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+			"app":                    typeNamespaceName.Name,
+			"component":              "model-registry",
+			"app.kubernetes.io/name": typeNamespaceName.Name,
+		}))
+		expectAllowAllEgress(egressNetworkPolicy)
+		registryDeployment := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, typeNamespaceName, registryDeployment)).To(Succeed())
+		Expect(labels.SelectorFromSet(egressNetworkPolicy.Spec.PodSelector.MatchLabels).
+			Matches(labels.Set(registryDeployment.Spec.Template.Labels))).To(BeTrue(),
+			"egress NetworkPolicy should select the model registry pods")
+		Expect(metav1.IsControlledBy(egressNetworkPolicy, modelRegistry)).To(BeTrue(),
+			"egress NetworkPolicy should be controlled by the ModelRegistry")
 
 		if modelRegistryReconciler.Capabilities.IsOpenShift {
 			By("Checking if the Route was successfully created in the reconciliation")
