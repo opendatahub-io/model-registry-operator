@@ -646,8 +646,26 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 	}
 
 	cond.ObservedGeneration = catalog.Generation
+	failure, activationErr := r.catalogActivationFailure(ctx, catalog)
+	if activationErr != nil && !apierrors.IsNotFound(activationErr) {
+		return nil, errors.Join(activationErr, r.patchCatalogStatus(ctx, catalog, before))
+	}
+	if failure != nil {
+		cond = activationUnavailableCondition(catalog, failure)
+		setCatalogDataImageCondition(catalog, conditionDataImageActivationFailed, metav1.ConditionTrue, failure.Reason, failure.Message)
+		setCatalogDataImageCondition(catalog, ConditionTypeDegraded, metav1.ConditionTrue, failure.Reason, failure.Message)
+	} else {
+		setCatalogDataImageCondition(catalog, conditionDataImageActivationFailed, metav1.ConditionFalse, "NoReportedActivationFailure", "No current image-pair failure reported; this does not certify activation success")
+	}
 	apimeta.SetStatusCondition(&catalog.Status.Conditions, cond)
-	return &cond, r.patchCatalogStatus(ctx, catalog, before)
+	statusErr := r.patchCatalogStatus(ctx, catalog, before)
+	if statusErr == nil && failure != nil && r.Recorder != nil {
+		previous := apimeta.FindStatusCondition(before.Status.Conditions, conditionDataImageActivationFailed)
+		if previous == nil || previous.Status != metav1.ConditionTrue || previous.Reason != failure.Reason || previous.Message != failure.Message {
+			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, failure.Reason, "CatalogActivationFailed", "%s", failure.Message)
+		}
+	}
+	return &cond, statusErr
 }
 
 func (r *CatalogReconciler) patchCatalogStatus(ctx context.Context, catalog, before *catalogv1alpha1.Catalog) error {
@@ -1606,6 +1624,7 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
+	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod))
 
 	if r.Capabilities.IsOpenShift {
 		b = b.Owns(&routev1.Route{})

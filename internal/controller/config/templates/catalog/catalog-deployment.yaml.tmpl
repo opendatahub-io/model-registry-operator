@@ -80,6 +80,7 @@ spec:
             - /bin/sh
             - -c
             - cp /app/data/*.yaml /shared-data/
+          terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data
@@ -93,7 +94,8 @@ spec:
           command:
             - /bin/sh
             - -c
-            - cp -r /app/benchmarks/* /shared-benchmark-data/ || true
+            - cp -r /app/benchmarks/. /shared-benchmark-data/
+          terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             - name: benchmark-data
               mountPath: /shared-benchmark-data
@@ -118,6 +120,8 @@ spec:
             - --catalogs-path=/data/labeled-sources/{{.Name}}/sources.yaml
             {{- end}}
             - --performance-metrics=/shared-benchmark-data
+            - --required-catalogs-path=/data/default-sources/sources.yaml
+            - --require-performance-metrics
           image: {{.Spec.Rest.Image}}
           ports:
             - name: http-api
@@ -176,6 +180,8 @@ spec:
             mountPath: /data/labeled-sources/{{.Name}}
           {{- end}}
           env:
+            - name: CATALOG_ACTIVATION_FAILURE_PATH
+              value: /dev/termination-log
             - name: PGHOST
               value: {{.Name}}-postgres
             - name: PGDATABASE
