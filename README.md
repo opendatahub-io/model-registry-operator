@@ -75,6 +75,99 @@ To remove it:
 make undeploy OVERLAY=overlays/catalog
 ```
 
+The Catalog selects catalog and benchmark data independently. They may use the
+same combined image today or separate images and versions:
+
+| Each field (`catalogDataImageStream`, `benchmarkDataImageStream`) | Behavior |
+| --- | --- |
+| Omitted or empty | Use that image's current product release default. |
+| `stable` | Follow scheduled imports from its managed ImageStream (OpenShift only). |
+| `sha256:<64 lowercase hex>` | Pin that digest in the configured import repository, including rollback. |
+
+AIHub leaves both fields unset when it creates the Catalog, using the release
+images supplied by the product operator on all clusters. The standalone sample
+also leaves both selections empty. AIHub preserves later admin selections.
+Scheduled updates require an admin to select `stable` and configure a published
+import source. For example, mixed selections are supported:
+
+```yaml
+spec:
+  catalogDataImageStream: stable
+  benchmarkDataImageStream: sha256:1111111111111111111111111111111111111111111111111111111111111111
+```
+
+The release defaults come from `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
+and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. They remain
+bootstrap and recovery images shipped with the product. Each import source defaults
+to `:stable` in its release repository. `CATALOG_DATA_IMAGE_STREAM_SOURCE` and
+`BENCHMARK_DATA_IMAGE_STREAM_SOURCE` can override the full source references for
+standalone delivery, including a different repository or floating tag such as
+`:latest`. The ImageStream's local selection tag remains `stable`.
+
+The operator creates its ImageStreams from an embedded template with scheduled
+imports and watches their status. Identical sources share `model-catalog-data:stable`;
+separate sources use `model-catalog-data:stable` for catalog data and
+`model-catalog-benchmark-data:stable` for benchmarks. A successful new digest rolls
+out the Catalog without changing its spec. Pins ignore subsequent imports.
+Clearing either field returns that image to its current release default.
+
+A pending first import currently uses the bundled deployment images, and ordinary
+pending updates retain the applied images. These are deployment compatibility
+behaviors, not evidence that the requested data is ready. A reported import failure,
+an unusable imported image, or an invalid selection makes Catalog readiness false
+and requests deployment scale-down as **temporary containment**. Scale-down does
+not prove that existing pods have stopped answering requests and cannot provide
+structured unavailable responses or accessible runtime status endpoints.
+
+A successful import, manual pin, or cleared field permits deployment reconciliation.
+Catalog readiness requires both requested images to resolve and the workload to
+complete its rollout for that image pair. `status.resolvedImages` records both
+references. A change to either reference invalidates prior workload readiness
+before the new template is applied, including scheduled updates without a Catalog
+edit. The deployment must contain both selected images, observe its current
+generation, and have all desired replicas updated, ready, and available. Old
+rollout replicas and ready endpoints alone cannot establish readiness. Repeated
+imports of unchanged references preserve a healthy workload.
+
+Empty fields support the release references supplied by the product
+operator, including the upstream development tags. Unsupported selections are
+rejected by API validation; controller checks also protect existing objects.
+
+After an import failure, a pending retry or changed source keeps deployment
+scale-down requested until that image imports successfully. Runtime gate enforcement
+is still required to guarantee that old content cannot be served during this period.
+
+| Catalog condition | Meaning |
+| --- | --- |
+| `CatalogDataImageResolved`, `BenchmarkDataImageResolved` | Each selection's resolution, including image references and failures. |
+| `CatalogDataImageImportHealthy`, `BenchmarkDataImageImportHealthy` | Each import's success, pending state, or failure, with registry error details. |
+| `DataImageResolved`, `DataImageImportHealthy` | Aggregate observations of both images. |
+| `ImageSelectionReady` | Current selection/import outcome. Pending imports are Unknown. |
+| `DataImageUpdateBlocked` | Confirmed selection/import failure or pending retry after failure prevents rollout. |
+| `Degraded` | Confirmed data failure, retained during a pending import retry; cleared by successful resolution. |
+| `WorkloadAvailable` | Completed rollout for the current image pair plus resource health; it does not establish data activation. |
+| `Ready`, `Available` | Require current successful image resolution and healthy Catalog resources. |
+
+A warning Event surfaces new failures. AIHub watches its owned Catalog and includes
+its current readiness in `CatalogDataReady`, alongside child operator availability.
+Confirmed Catalog failures make AIHub unready and degraded; the parent operator's
+existing module readiness aggregation propagates this to DSC. A pending first
+import is unready without being treated as a confirmed failure. Once the workload
+is healthy, import changes are handled by watches rather than continuous polling.
+
+Activation-dependent readiness, persisted activation attempts/outcomes, and the
+backend availability gate are deferred until RHOAIENG-97414 supplies the runtime
+integration. This change neither requires a nonexistent activation reporter nor
+fabricates activation success from an import or healthy deployment. The complete
+failure/activation contract still requires content validation, atomic activation,
+and runtime gate enforcement. See the [activation handoff](docs/catalog-image-activation.md)
+for those integration requirements.
+
+Failures from an older ImageStream source generation are ignored after a new
+import has been requested. Manually selected ImageStream sources, import history,
+and unrelated tags survive reconciliation. Unchanged observations do not rewrite
+status, and concurrent Catalog edits reject stale status writes.
+
 #### Authorization
 For all OAuth Proxy samples, a Kubernetes user or serviceaccount authorization token MUST be passed in calls to model registry services using the header:
 
@@ -302,4 +395,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-

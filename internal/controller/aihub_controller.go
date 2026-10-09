@@ -75,6 +75,9 @@ const (
 	// is available.
 	ConditionCatalogReady = "CatalogReady"
 
+	// ConditionCatalogDataReady tracks the owned Catalog's image selection and health.
+	ConditionCatalogDataReady = "CatalogDataReady"
+
 	// Platform version ConfigMap (created by the orchestrator in the
 	// application namespace).
 	platformVersionConfigMap    = "odh-modelregistry-config"
@@ -157,6 +160,7 @@ func newAIHubConditionManager(aihub *aihubv1alpha1.AIHub) *conditions.Manager {
 		string(common.ConditionTypeProvisioningSucceeded),
 		ConditionModelRegistryReady,
 		ConditionCatalogReady,
+		ConditionCatalogDataReady,
 	)
 }
 
@@ -386,6 +390,8 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Namespace: spec.InstancesNamespace,
 		},
 	}
+	// Leave image selections unset to use the images supplied by the product
+	// operator. CreateIfNotExists preserves later admin selections.
 	newCatalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	if err := ctrl.SetControllerReference(aihub, newCatalog, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("setting Catalog owner reference: %w", err)
@@ -395,8 +401,13 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if _, err := rm.CreateIfNotExists(ctx, currCatalog, newCatalog); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
 	}
+	catalogReady, catalogFailed := reconcileAIHubCatalogReadiness(currCatalog, condMgr)
 
-	if gatewayDomain == "" {
+	if catalogFailed {
+		failure := apimeta.FindStatusCondition(currCatalog.Status.Conditions, ConditionTypeDegraded)
+		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+			conditions.WithReason(failure.Reason), conditions.WithMessage("Catalog: %s", failure.Message))
+	} else if gatewayDomain == "" {
 		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
 			conditions.WithSeverity(common.ConditionSeverityInfo),
 			conditions.WithReason("GatewayDomainUnavailable"),
@@ -411,7 +422,28 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, sErr
 	}
 	log.Info("AIHub reconciliation complete")
+	if !catalogReady {
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// The owned Catalog watch triggers failure and recovery propagation. Stale or
+// missing status is progress, never evidence that the Catalog is ready.
+func reconcileAIHubCatalogReadiness(catalog *catalogv1alpha1.Catalog, manager *conditions.Manager) (ready, failed bool) {
+	condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionCatalogReady)
+	degraded := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeDegraded)
+	failed = degraded != nil && degraded.ObservedGeneration == catalog.Generation && degraded.Status == metav1.ConditionTrue
+	if condition == nil || condition.ObservedGeneration != catalog.Generation {
+		manager.MarkFalse(ConditionCatalogDataReady, conditions.WithReason("CatalogStatusPending"), conditions.WithMessage("Waiting for current Catalog readiness status"))
+		return false, failed
+	}
+	if condition.Status != metav1.ConditionTrue || failed {
+		manager.MarkFalse(ConditionCatalogDataReady, conditions.WithReason(condition.Reason), conditions.WithMessage("Catalog: %s", condition.Message))
+		return false, failed
+	}
+	manager.MarkTrue(ConditionCatalogDataReady, conditions.WithReason(condition.Reason))
+	return true, false
 }
 
 // reconcileIncompatibleSelectors deletes any live child Deployment whose immutable

@@ -61,8 +61,8 @@ func TestCatalogFields(t *testing.T) {
 	cpu := resource.MustParse("100m")
 	mem := resource.MustParse("256Mi")
 	size := resource.MustParse("10Gi")
-	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	catalogSelection := "stable"
+	benchmarkSelection := "stable"
 
 	cat := &v1alpha1.Catalog{
 		ObjectMeta: metav1.ObjectMeta{
@@ -89,8 +89,8 @@ func TestCatalogFields(t *testing.T) {
 					SizeLimit: &size,
 				},
 			},
-			CatalogDataImage:   &catalogDigest,
-			BenchmarkDataImage: &benchmarkDigest,
+			CatalogDataImageStream:   &catalogSelection,
+			BenchmarkDataImageStream: &benchmarkSelection,
 		},
 	}
 
@@ -105,18 +105,18 @@ func TestCatalogFields(t *testing.T) {
 	} else if cat.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Errorf("unexpected sizeLimit: %v", cat.Spec.Database.Volume.SizeLimit)
 	}
-	if cat.Spec.CatalogDataImage == nil || *cat.Spec.CatalogDataImage != catalogDigest {
-		t.Errorf("unexpected catalogDataImage: %v", cat.Spec.CatalogDataImage)
+	if cat.Spec.CatalogDataImageStream == nil || *cat.Spec.CatalogDataImageStream != catalogSelection {
+		t.Errorf("unexpected catalogDataImageStream: %v", cat.Spec.CatalogDataImageStream)
 	}
-	if cat.Spec.BenchmarkDataImage == nil || *cat.Spec.BenchmarkDataImage != benchmarkDigest {
-		t.Errorf("unexpected benchmarkDataImage: %v", cat.Spec.BenchmarkDataImage)
+	if cat.Spec.BenchmarkDataImageStream == nil || *cat.Spec.BenchmarkDataImageStream != benchmarkSelection {
+		t.Errorf("unexpected benchmarkDataImageStream: %v", cat.Spec.BenchmarkDataImageStream)
 	}
 }
 
 func TestCatalogDeepCopy(t *testing.T) {
 	size := resource.MustParse("10Gi")
-	catalogDigest := "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-	benchmarkDigest := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	catalogSelection := "stable"
+	benchmarkSelection := "stable"
 	orig := &v1alpha1.Catalog{
 		Spec: v1alpha1.CatalogSpec{
 			Database: v1alpha1.CatalogDatabase{
@@ -124,26 +124,24 @@ func TestCatalogDeepCopy(t *testing.T) {
 					SizeLimit: &size,
 				},
 			},
-			CatalogDataImage:   &catalogDigest,
-			BenchmarkDataImage: &benchmarkDigest,
+			CatalogDataImageStream:   &catalogSelection,
+			BenchmarkDataImageStream: &benchmarkSelection,
 		},
 	}
 
 	cp := orig.DeepCopy()
 	newSize := resource.MustParse("20Gi")
 	cp.Spec.Database.Volume.SizeLimit = &newSize
-	newCatalogDigest := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	cp.Spec.CatalogDataImage = &newCatalogDigest
-	newBenchmarkDigest := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	cp.Spec.BenchmarkDataImage = &newBenchmarkDigest
+	*cp.Spec.CatalogDataImageStream = ""
+	*cp.Spec.BenchmarkDataImageStream = ""
 
 	if orig.Spec.Database.Volume.SizeLimit.Cmp(size) != 0 {
 		t.Error("DeepCopy did not produce independent SizeLimit")
 	}
-	if *orig.Spec.CatalogDataImage != catalogDigest {
-		t.Error("DeepCopy did not produce independent CatalogDataImage")
+	if *orig.Spec.CatalogDataImageStream != catalogSelection {
+		t.Error("DeepCopy did not produce independent CatalogDataImageStream")
 	}
-	if *orig.Spec.BenchmarkDataImage != benchmarkDigest {
-		t.Error("DeepCopy did not produce independent BenchmarkDataImage")
+	if *orig.Spec.BenchmarkDataImageStream != benchmarkSelection {
+		t.Error("DeepCopy did not produce independent BenchmarkDataImageStream")
 	}
 }

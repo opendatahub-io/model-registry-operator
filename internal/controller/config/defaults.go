@@ -65,6 +65,10 @@ const (
 	DefaultIstioIngressName    = "ingressgateway"
 
 	// config env variables
+	// Import sources are independent of the release-pinned bootstrap images.
+	CatalogDataImageStreamSource   = "CATALOG_DATA_IMAGE_STREAM_SOURCE"
+	BenchmarkDataImageStreamSource = "BENCHMARK_DATA_IMAGE_STREAM_SOURCE"
+
 	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
 	EnableWebhooks             = "ENABLE_WEBHOOKS"
 	DefaultDomain              = "DEFAULT_DOMAIN"
