@@ -1251,11 +1251,7 @@ labels:
 			// available so rollout polling stops before testing the delete watch.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
-			dep.Status.Conditions = []appsv1.DeploymentCondition{{
-				Type:               appsv1.DeploymentAvailable,
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
-			}}
+			dep.Status = completedCatalogDeploymentStatus(dep)
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 			ready := true
 			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
@@ -1376,11 +1372,7 @@ labels:
 				},
 			}
 			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
-			dep.Status.Conditions = []appsv1.DeploymentCondition{{
-				Type:               appsv1.DeploymentAvailable,
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
-			}}
+			dep.Status = completedCatalogDeploymentStatus(dep)
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 
 			ready := true
@@ -1401,6 +1393,7 @@ labels:
 				types.NamespacedName{Name: catalogResourceName, Namespace: namespaceName},
 				catalogResourceName,
 				catalogResourceName,
+				nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))

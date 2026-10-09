@@ -121,7 +121,15 @@ structured unavailable responses or accessible runtime status endpoints.
 
 A successful import, manual pin, or cleared field permits deployment reconciliation.
 Catalog readiness requires both requested images to resolve and the workload to
-be healthy. Empty fields support the release references supplied by the product
+complete its rollout for that image pair. `status.resolvedImages` records both
+references. A change to either reference invalidates prior workload readiness
+before the new template is applied, including scheduled updates without a Catalog
+edit. The deployment must contain both selected images, observe its current
+generation, and have all desired replicas updated, ready, and available. Old
+rollout replicas and ready endpoints alone cannot establish readiness. Repeated
+imports of unchanged references preserve a healthy workload.
+
+Empty fields support the release references supplied by the product
 operator, including the upstream development tags. Unsupported selections are
 rejected by API validation; controller checks also protect existing objects.
 
@@ -137,7 +145,7 @@ is still required to guarantee that old content cannot be served during this per
 | `ImageSelectionReady` | Current selection/import outcome. Pending imports are Unknown. |
 | `DataImageUpdateBlocked` | Confirmed selection/import failure or pending retry after failure prevents rollout. |
 | `Degraded` | Confirmed data failure, retained during a pending import retry; cleared by successful resolution. |
-| `WorkloadAvailable` | Deployment and resource health; it does not establish data activation. |
+| `WorkloadAvailable` | Completed rollout for the current image pair plus resource health; it does not establish data activation. |
 | `Ready`, `Available` | Require current successful image resolution and healthy Catalog resources. |
 
 A warning Event surfaces new failures. AIHub watches its owned Catalog and includes

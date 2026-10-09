@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 func newDataImageTestReconciler(t *testing.T, catalog *catalogv1alpha1.Catalog, openShift bool) *CatalogReconciler {
@@ -35,9 +36,33 @@ func newDataImageTestReconciler(t *testing.T, catalog *catalogv1alpha1.Catalog, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(catalog).
+		WithStatusSubresource(&catalogv1alpha1.Catalog{}, &imagev1.ImageStream{}, &appsv1.Deployment{}).Build()
+	// Model the API server's Deployment generation changes so rollout tests
+	// cannot accidentally accept status for a previous pod template.
+	withGenerations := interceptor.NewClient(base, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if deployment, ok := obj.(*appsv1.Deployment); ok {
+				deployment.Generation = 1
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if deployment, ok := obj.(*appsv1.Deployment); ok {
+				previous := &appsv1.Deployment{}
+				if err := c.Get(ctx, client.ObjectKeyFromObject(obj), previous); err != nil {
+					return err
+				}
+				deployment.Generation = previous.Generation
+				if !reflect.DeepEqual(previous.Spec, deployment.Spec) {
+					deployment.Generation++
+				}
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	})
 	return &CatalogReconciler{
-		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(catalog).
-			WithStatusSubresource(&catalogv1alpha1.Catalog{}, &imagev1.ImageStream{}, &appsv1.Deployment{}).Build(),
+		Client: withGenerations,
 		Scheme: scheme, Template: templates, Recorder: &events.FakeRecorder{}, Log: logr.Discard(),
 		Capabilities: ClusterCapabilities{IsOpenShift: openShift},
 	}

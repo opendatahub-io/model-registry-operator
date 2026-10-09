@@ -107,6 +107,17 @@ type CatalogSpec struct {
 	Proxy *ProxyConfig `json:"proxy,omitempty"`
 }
 
+// CatalogDataImages identifies the independently resolved image references.
+// Release defaults may contain tags; stable imports and pins contain digests.
+type CatalogDataImages struct {
+	// Catalog is the resolved catalog data image reference.
+	// +kubebuilder:validation:MinLength=1
+	Catalog string `json:"catalog"`
+	// Benchmark is the resolved benchmark data image reference.
+	// +kubebuilder:validation:MinLength=1
+	Benchmark string `json:"benchmark"`
+}
+
 // CatalogStatus defines the observed state of Catalog.
 type CatalogStatus struct {
 	// Conditions represent the latest available observations of the Catalog's state.
@@ -114,6 +125,12 @@ type CatalogStatus struct {
 	// WorkloadAvailable tracks deployment health independently of image selection.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ResolvedImages records the current pair when both selections resolve.
+	// Changing either reference invalidates the previous workload observation,
+	// including scheduled imports that do not change the Catalog generation.
+	// +optional
+	ResolvedImages *CatalogDataImages `json:"resolvedImages,omitempty"`
 
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional

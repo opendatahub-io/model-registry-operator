@@ -157,7 +157,7 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 			if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
 				return err
 			}
-			deployment.Status.Conditions = []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Minute))}}
+			deployment.Status = completedCatalogDeploymentStatus(deployment)
 			return direct.Status().Update(ctx, deployment)
 		}, 10*time.Second).Should(Succeed())
 		ready := true
@@ -173,6 +173,12 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportPending"))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 
+		replicas := func() int32 {
+			if err := direct.Get(ctx, deploymentKey, deployment); err != nil || deployment.Spec.Replicas == nil {
+				return -1
+			}
+			return *deployment.Spec.Replicas
+		}
 		updateImport := func(image string, failed bool) {
 			Eventually(func() error {
 				if err := direct.Get(ctx, streamKey, stream); err != nil {
@@ -186,12 +192,30 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 				return direct.Status().Update(ctx, stream)
 			}, 10*time.Second).Should(Succeed())
 		}
+		completeRollout := func() {
+			// Simulate Deployment-controller evidence for the current API-server
+			// generation. Existing endpoints alone must not complete a rollout.
+			Eventually(func() error {
+				if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
+					return err
+				}
+				deployment.Status = completedCatalogDeploymentStatus(deployment)
+				return direct.Status().Update(ctx, deployment)
+			}, 10*time.Second).Should(Succeed())
+			Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionTrue))
+		}
 		image1 := dataTestRepository + "@" + dataTestDigest1
 		image2 := dataTestRepository + "@" + dataTestDigest2
 		updateImport(image1, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image1, image1}))
+		completeRollout()
 		updateImport(image2, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, image2}))
+		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
+		Expect(catalog.Generation).To(Equal(generation))
+		Expect(catalog.Status.ResolvedImages).To(Equal(&catalogv1alpha1.CatalogDataImages{Catalog: image2, Benchmark: image2}))
+		completeRollout()
 		updateImport("", true)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{image2, image2}))
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportFailed"))
@@ -202,6 +226,8 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		updateImport(image2, false)
 		Eventually(importReason, 10*time.Second).Should(Equal("ImportSucceeded"))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		Eventually(replicas, 10*time.Second).Should(Equal(int32(1)))
+		completeRollout()
 		// Fail again before pinning to prove selection changes clear stale faults.
 		updateImport("", true)
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionTrue))
@@ -227,10 +253,12 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Eventually(conditionReason, 10*time.Second).Should(Equal("DigestPinned"))
 		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		completeRollout()
 		updateImport(image1, false)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{image3, image3}))
 		setSelections(dataTestDigest2, dataTestDigest2)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, image2}))
+		completeRollout()
 		for _, pair := range [][2]string{
 			{"latest", "latest"}, {"model-catalog-data:stable", "model-catalog-data:stable"},
 			{"sha256:invalid", "sha256:invalid"},
@@ -259,11 +287,13 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		}
 		setSelections(stable, stable)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image1, image1}))
+		completeRollout()
 		setSelections("", "")
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
 		Eventually(conditionReason, 10*time.Second).Should(Equal("ReleaseDefault"))
 		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		completeRollout()
 		updateImport(image2, false)
 		Consistently(deploymentImages, time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
 
@@ -290,22 +320,20 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 				return direct.Status().Update(ctx, benchmarkStream)
 			}, 10*time.Second).Should(Succeed())
 		}
-		replicas := func() int32 {
-			if err := direct.Get(ctx, deploymentKey, deployment); err != nil || deployment.Spec.Replicas == nil {
-				return -1
-			}
-			return *deployment.Spec.Replicas
-		}
 		updateBenchmark(dataTestDigest1, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, benchmarkRepository + "@" + dataTestDigest1}))
+		completeRollout()
 		updateBenchmark(dataTestDigest2, false)
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, benchmarkRepository + "@" + dataTestDigest2}))
+		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		completeRollout()
 		updateBenchmark(dataTestDigest2, true)
 		Eventually(replicas, 10*time.Second).Should(Equal(int32(0)))
 		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
 		updateBenchmark(dataTestDigest2, false)
 		Eventually(replicas, 10*time.Second).Should(Equal(int32(1)))
 		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
+		completeRollout()
 		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
 		Expect(catalog.Generation).To(Equal(generation))
 	})

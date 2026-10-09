@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
@@ -53,11 +52,14 @@ func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.C
 	if err := r.Status().Update(ctx, stream); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+		t.Fatal(err)
+	}
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
 		t.Fatal(err)
 	}
-	deployment.Status.Conditions = []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Minute))}}
+	deployment.Status = completedCatalogDeploymentStatus(deployment)
 	if err := r.Status().Update(ctx, deployment); err != nil {
 		t.Fatal(err)
 	}

@@ -26,7 +26,7 @@ func markDataImageWorkloadReady(t *testing.T, r *CatalogReconciler, catalog *cat
 	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
 		t.Fatal(err)
 	}
-	deployment.Status.Conditions = []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Minute))}}
+	deployment.Status = completedCatalogDeploymentStatus(deployment)
 	if err := r.Status().Update(ctx, deployment); err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +36,18 @@ func markDataImageWorkloadReady(t *testing.T, r *CatalogReconciler, catalog *cat
 		AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// envtest and the fake client do not run the Deployment controller.
+func completedCatalogDeploymentStatus(deployment *appsv1.Deployment) appsv1.DeploymentStatus {
+	replicas := int32(1)
+	if deployment.Spec.Replicas != nil {
+		replicas = *deployment.Spec.Replicas
+	}
+	return appsv1.DeploymentStatus{
+		ObservedGeneration: deployment.Generation, Replicas: replicas, UpdatedReplicas: replicas, ReadyReplicas: replicas, AvailableReplicas: replicas,
+		Conditions: []appsv1.DeploymentCondition{{Type: appsv1.DeploymentAvailable, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(time.Now().Add(-time.Minute))}},
 	}
 }
 

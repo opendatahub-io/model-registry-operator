@@ -645,7 +645,7 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 		Namespace: catalog.Namespace,
 	}
 
-	cond, err := r.checkDeploymentAvailability(ctx, depKey, catalogResourceName, catalogResourceName)
+	cond, err := r.checkDeploymentAvailability(ctx, depKey, catalogResourceName, catalogResourceName, catalog.Status.ResolvedImages)
 	if err != nil && !apierrors.IsNotFound(err) {
 		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionUnknown, "WorkloadStatusUnknown", err.Error())
 		reduceCatalogImageReadiness(catalog)
@@ -679,7 +679,7 @@ func (r *CatalogReconciler) patchCatalogStatus(ctx context.Context, catalog, bef
 	return nil
 }
 
-func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
+func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string, images *catalogv1alpha1.CatalogDataImages) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, deployment); err != nil {
 		return metav1.Condition{}, err
@@ -688,6 +688,25 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	condition := metav1.Condition{
 		Type:   ConditionTypeAvailable,
 		Status: metav1.ConditionFalse,
+	}
+	if images != nil {
+		var catalogImage, benchmarkImage string
+		for _, container := range deployment.Spec.Template.Spec.InitContainers {
+			switch container.Name {
+			case "catalog-data-init":
+				catalogImage = container.Image
+			case "benchmark-data-init":
+				benchmarkImage = container.Image
+			}
+		}
+		if catalogImage != images.Catalog || benchmarkImage != images.Benchmark {
+			condition.Reason, condition.Message = "ImagesUpdating", "Deployment template does not yet contain the current catalog and benchmark images"
+			return condition, nil
+		}
+	}
+	if deployment.Status.ObservedGeneration < deployment.Generation {
+		condition.Reason, condition.Message = ReasonDeploymentUnavailable, "Waiting for the deployment controller to observe the current template"
+		return condition, nil
 	}
 
 	available := false
@@ -720,6 +739,14 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 		}
 	}
 
+	desiredReplicas := int32(1)
+	if deployment.Spec.Replicas != nil {
+		desiredReplicas = *deployment.Spec.Replicas
+	}
+	if available && (desiredReplicas == 0 || deployment.Status.UpdatedReplicas != desiredReplicas || deployment.Status.Replicas != desiredReplicas || deployment.Status.ReadyReplicas < desiredReplicas || deployment.Status.AvailableReplicas < desiredReplicas) {
+		available = false
+		condition.Message = fmt.Sprintf("Waiting for rollout completion: desired=%d, replicas=%d, updated=%d, ready=%d, available=%d", desiredReplicas, deployment.Status.Replicas, deployment.Status.UpdatedReplicas, deployment.Status.ReadyReplicas, deployment.Status.AvailableReplicas)
+	}
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
 		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)

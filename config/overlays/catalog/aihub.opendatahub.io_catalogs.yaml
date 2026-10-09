@@ -301,6 +301,24 @@ spec:
                   by the controller.
                 format: int64
                 type: integer
+              resolvedImages:
+                description: |-
+                  ResolvedImages records the current pair when both selections resolve.
+                  Changing either reference invalidates the previous workload observation,
+                  including scheduled imports that do not change the Catalog generation.
+                properties:
+                  benchmark:
+                    description: Benchmark is the resolved benchmark data image reference.
+                    minLength: 1
+                    type: string
+                  catalog:
+                    description: Catalog is the resolved catalog data image reference.
+                    minLength: 1
+                    type: string
+                required:
+                - benchmark
+                - catalog
+                type: object
             type: object
         type: object
     served: true

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -168,6 +169,14 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 
 	aggregateDataImageConditions(catalog, conditionDataImageResolved, "CatalogDataImageResolved", "BenchmarkDataImageResolved")
 	aggregateDataImageConditions(catalog, conditionDataImageImportHealthy, "CatalogDataImageImportHealthy", "BenchmarkDataImageImportHealthy")
+	var images *catalogv1alpha1.CatalogDataImages
+	if apimeta.IsStatusConditionTrue(catalog.Status.Conditions, conditionDataImageResolved) {
+		images = &catalogv1alpha1.CatalogDataImages{Catalog: params.CatalogDataImage, Benchmark: params.BenchmarkDataImage}
+	}
+	if !reflect.DeepEqual(catalog.Status.ResolvedImages, images) {
+		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionFalse, "ImagesUpdating", "Waiting for the workload rollout for the current catalog and benchmark images")
+	}
+	catalog.Status.ResolvedImages = images
 	// Do not treat a pending first import as a failure.
 	var fault *metav1.Condition
 	for _, target := range targets {

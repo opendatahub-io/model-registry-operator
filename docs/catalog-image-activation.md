@@ -7,7 +7,11 @@ failures, requests deployment scale-down as temporary containment, and propagate
 current Catalog readiness through AIHub to DSC.
 
 Current `Ready` and `Available` require successful image resolution and workload
-health. Empty selections retain product release defaults, including upstream
+health for the selected pair. `status.resolvedImages` records both references;
+changed references invalidate previous workload readiness before deployment
+updates. Recovery requires matching deployment images, an observed current
+deployment generation, and completed rollout counts. This is workload evidence,
+not validated runtime activation. Empty selections retain product release defaults, including upstream
 development tags. No runtime activation success is fabricated, and no missing
 activation reporter prevents the existing release-default path from becoming ready.
 The code does not implement `status.imageUpdate`, persisted activation attempts,
