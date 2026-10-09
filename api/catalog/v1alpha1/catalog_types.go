@@ -80,11 +80,10 @@ type CatalogSpec struct {
 	// ImageStream (OpenShift only); sha256:<64 lowercase hex> pins a digest in
 	// its configured data repository. The benchmark field may select a different image.
 	// AIHub creates the initial Catalog with both fields unset to use release defaults.
-	// Pending imports bootstrap from the release image or keep the applied image.
-	// Invalid selections and failed or unusable imports stop Catalog serving and
-	// set Available=False and Degraded=True. A successful import or valid manual
-	// selection restores serving. Image-specific resolution/import conditions and
-	// DataImageUpdateBlocked explain the failure without changing AIHub readiness.
+	// Selection/import failures make Catalog and AIHub unready. Successful
+	// resolution starts activation; recovery requires an activation outcome for
+	// the current attempt and both immutable images. Deployment scale-down is
+	// temporary containment; runtime serving enforcement is a separate integration.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
 	CatalogDataImageStream *string `json:"catalogDataImageStream,omitempty"`
@@ -109,10 +108,14 @@ type CatalogSpec struct {
 // CatalogStatus defines the observed state of Catalog.
 type CatalogStatus struct {
 	// Conditions represent the latest available observations of the Catalog's state.
-	// Available tracks workload readiness. DataImageResolved tracks image selection,
-	// DataImageImportHealthy tracks imports, and Degraded reports data image faults.
+	// Ready and Available require current activation evidence and workload health.
+	// WorkloadAvailable tracks deployment health independently of data activation.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// ImageUpdate is the shared selection/import and activation contract.
+	// +optional
+	ImageUpdate *CatalogImageUpdateStatus `json:"imageUpdate,omitempty"`
 
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional

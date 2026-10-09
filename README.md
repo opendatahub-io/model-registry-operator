@@ -111,32 +111,52 @@ separate sources use `model-catalog-data:stable` for catalog data and
 out the Catalog without changing its spec. Pins ignore subsequent imports.
 Clearing either field returns that image to its current release default.
 
-A pending first import uses the bundled image, and ordinary pending updates retain
-the applied image. A reported import failure, an unusable imported image, or an
-invalid selection **stops Catalog serving** by scaling its deployment to zero;
-it does not keep serving an older image. The pod template retains its prior image
-references for diagnosis. A later successful import automatically restarts the
-Catalog. An admin can also recover by pinning a working digest, clearing the
-affected field, or correcting its selection. ImageStream API errors also stop
-serving when the Kubernetes API allows the deployment to be updated.
+A pending first import currently uses the bundled deployment images, and ordinary
+pending updates retain the applied images. These are deployment compatibility
+behaviors, not evidence that the requested data is ready. A reported import failure,
+an unusable imported image, or an invalid selection makes Catalog readiness false
+and requests deployment scale-down as **temporary containment**. Scale-down does
+not prove that existing pods have stopped answering requests and cannot provide
+structured unavailable responses or accessible runtime status endpoints.
 
-After an import failure, a pending retry or changed source keeps serving stopped
-until that image imports successfully. It does not temporarily revive old content.
+A successful import, manual pin, or cleared field permits deployment reconciliation
+to begin activation. It does not restore readiness or clear a previous data failure.
+Recovery requires a successful Activation outcome matching the persisted attempt,
+Catalog UID, and both immutable image references, together with healthy resources.
+The pod template carries the attempt ID, and the runtime receives that ID, the
+Catalog UID, and both image references as environment variables.
+
+After an import failure, a pending retry or changed source keeps deployment
+scale-down requested until that image imports successfully. Runtime gate enforcement
+is still required to guarantee that old content cannot be served during this period.
 
 | Catalog condition | Meaning |
 | --- | --- |
 | `CatalogDataImageResolved`, `BenchmarkDataImageResolved` | Each selection's resolution, including image references and failures. |
 | `CatalogDataImageImportHealthy`, `BenchmarkDataImageImportHealthy` | Each import's success, pending state, or failure, with registry error details. |
 | `DataImageResolved`, `DataImageImportHealthy` | Aggregate observations of both images. |
-| `DataImageUpdateBlocked` | Whether an image fault currently blocks serving, with recovery guidance. |
-| `Degraded` | Catalog image selection/import fault; pending imports alone do not degrade it. |
-| `Available` | False while image faults stop serving; otherwise follows workload readiness. |
+| `ImageSelectionReady` | Current attempt's selection/import outcome, separate from activation. |
+| `DataActivationReady` | Accepted activation outcome for the current attempt and both images. |
+| `DataImageUpdateBlocked` | True until the current image pair has validated activation. |
+| `Degraded` | Confirmed data failure, retained through pending recovery until successful activation. |
+| `WorkloadAvailable` | Deployment and resource health; it does not establish data activation. |
+| `Ready`, `Available` | Require current successful activation and healthy Catalog resources. |
 
-A warning Event surfaces new failures. These Catalog image conditions are not
-propagated into AIHub/DSC readiness, so an image update fault does not declare the
-whole installation Not Ready. Frontend consumers can use the image-specific
-conditions to display the failure; the stopped service also makes the problem
-visible to users rather than silently serving old content.
+A warning Event surfaces new failures. AIHub watches its owned Catalog and includes
+its current readiness in `CatalogDataReady`, alongside child operator availability.
+Confirmed Catalog failures make AIHub unready and degraded; the parent operator's
+existing module readiness aggregation propagates this to DSC. Pending activation
+is unready without being treated as a new confirmed failure.
+
+`status.imageUpdate` records the current attempt and resolved image pair, separate
+selection and activation outcomes, retained failure details, and last successful
+activation metadata. Import success alone cannot restore readiness, and superseded
+or mismatched activation reports are ignored. The runtime outcome producer and
+actual backend availability gate are **not implemented by this operator change**.
+Without genuine activation evidence, Catalog and AIHub remain unready, including
+when release-default fields are empty. The combined feature cannot ship until
+RHOAIENG-97414 provides validation, atomic activation, and runtime gate enforcement.
+See the [activation handoff](docs/catalog-image-activation.md) for the contract.
 
 Failures from an older ImageStream source generation are ignored after a new
 import has been requested. Manually selected ImageStream sources, import history,

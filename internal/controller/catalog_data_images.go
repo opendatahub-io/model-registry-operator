@@ -67,30 +67,17 @@ func setCatalogDataImageCondition(catalog *catalogv1alpha1.Catalog, conditionTyp
 	})
 }
 
-func updateCatalogDataImageDegraded(catalog *catalogv1alpha1.Catalog) {
-	blocked := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageUpdateBlocked)
-	if blocked == nil || blocked.ObservedGeneration != catalog.Generation {
-		return
-	}
-	status, reason, message := metav1.ConditionFalse, "DataImagesHealthy", "Data image selection and imports have no reported failures"
-	if blocked.Status == metav1.ConditionTrue {
-		status, reason, message = metav1.ConditionTrue, blocked.Reason, blocked.Message
-	}
-	setCatalogDataImageCondition(catalog, ConditionTypeDegraded, status, reason, message)
-}
-
 type catalogDataImagesUnavailable struct {
 	cause error
 }
 
 func (e *catalogDataImagesUnavailable) Error() string {
-	return "Catalog serving is stopped because data images are unavailable"
+	return "Catalog data images are unavailable; deployment scale-down is temporary containment"
 }
 func (e *catalogDataImagesUnavailable) Unwrap() error { return e.cause }
 
-// Resolve the selections independently. A fault stops serving rather than
-// silently falling back. A successful import or a valid manual selection allows
-// serving to resume, including after an operator restart.
+// Resolve the selections independently. Resolution permits activation to start;
+// it never establishes successful activation or restores aggregate readiness.
 func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalog *catalogv1alpha1.Catalog, params *CatalogParams) error {
 	sources := catalogDataImageSources()
 	targets := []struct {
@@ -102,8 +89,10 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 		{"benchmark", benchmarkDataImageStreamName(), sources[1], config.BenchmarkDataImageStreamSource, "BenchmarkDataImageResolved", "BenchmarkDataImageImportHealthy", catalog.Spec.BenchmarkDataImageStream, &params.BenchmarkDataImage},
 	}
 	streams := make(map[string]*imagev1.ImageStream)
+	var sourceEvidence [2]catalogv1alpha1.CatalogImageSource
 	var causes []error
-	for _, target := range targets {
+	for index, target := range targets {
+		sourceEvidence[index].Reference = *target.image
 		previousHealth := apimeta.FindStatusCondition(catalog.Status.Conditions, target.healthType)
 		previousResolution := apimeta.FindStatusCondition(catalog.Status.Conditions, target.resolvedType)
 		awaitingRecovery := (previousHealth != nil && previousHealth.Status == metav1.ConditionFalse) ||
@@ -129,6 +118,7 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 		if selection != catalogDataImageStreamTag {
 			// Rollback does not depend on the ImageStream API or import history.
 			*target.image = config.ResolveImage(&selection, target.sourceEnv, target.source)
+			sourceEvidence[index].Reference = *target.image
 			resolved(metav1.ConditionTrue, "DigestPinned", "Using the pinned image: "+*target.image)
 			continue
 		}
@@ -136,6 +126,7 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			resolved(metav1.ConditionFalse, "UnsupportedDataImageSelection", "The stable selection requires OpenShift ImageStreams")
 			continue
 		}
+		sourceEvidence[index] = catalogv1alpha1.CatalogImageSource{Reference: target.source, ImageStreamName: target.streamName, Tag: catalogDataImageStreamTag}
 		stream := streams[target.streamName]
 		if stream == nil {
 			stream, err = r.ensureCatalogDataImageStreamForSource(ctx, catalog, params, target.streamName, target.source)
@@ -147,17 +138,28 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			}
 			streams[target.streamName] = stream
 		}
+		sourceEvidence[index].ImageStreamUID = stream.UID
+		for _, tag := range stream.Spec.Tags {
+			if tag.Name == catalogDataImageStreamTag {
+				if tag.From != nil {
+					sourceEvidence[index].Reference = tag.From.Name
+				}
+				if tag.Generation != nil {
+					sourceEvidence[index].TagGeneration = *tag.Generation
+				}
+			}
+		}
 		importHealth := catalogDataImageImportHealth(stream)
 		health(importHealth.Status, importHealth.Reason, importHealth.Message)
 		if importHealth.Status == metav1.ConditionFalse {
-			resolved(metav1.ConditionFalse, importHealth.Reason, "The requested import is unusable; Catalog serving is stopped. "+importHealth.Message)
+			resolved(metav1.ConditionFalse, importHealth.Reason, "The requested import is unusable; Catalog readiness is false and deployment containment is requested. "+importHealth.Message)
 			continue
 		}
 		if importHealth.Status == metav1.ConditionUnknown && awaitingRecovery {
-			resolved(metav1.ConditionFalse, "AwaitingSuccessfulImport", "Catalog serving remains stopped after the previous import failure; waiting for a successful import or a valid manual selection")
+			resolved(metav1.ConditionUnknown, "AwaitingSuccessfulImport", "Waiting for successful import after the previous failure; activation is still required for recovery")
 			continue
 		}
-		if image := lastImportedCatalogDataImage(stream); image != "" {
+		if image := lastImportedCatalogDataImage(stream); importHealth.Status == metav1.ConditionTrue && image != "" {
 			*target.image = image
 			resolved(metav1.ConditionTrue, "ImageStreamResolved", "Using the last successfully imported image: "+image)
 			continue
@@ -180,21 +182,13 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 
 	aggregateDataImageConditions(catalog, conditionDataImageResolved, "CatalogDataImageResolved", "BenchmarkDataImageResolved")
 	aggregateDataImageConditions(catalog, conditionDataImageImportHealthy, "CatalogDataImageImportHealthy", "BenchmarkDataImageImportHealthy")
-	// Do not treat a pending first import as a failure.
-	var fault *metav1.Condition
-	for _, target := range targets {
-		condition := apimeta.FindStatusCondition(catalog.Status.Conditions, target.resolvedType)
-		health := apimeta.FindStatusCondition(catalog.Status.Conditions, target.healthType)
-		if condition.Status == metav1.ConditionFalse && (condition.Reason != "NoSuccessfulImport" || health.Status != metav1.ConditionUnknown) {
-			fault = condition
-			break
-		}
-	}
-	if fault != nil {
-		setCatalogDataImageCondition(catalog, conditionDataImageUpdateBlocked, metav1.ConditionTrue, fault.Reason, fault.Message+"; recovery requires a successful import or a valid Catalog selection (pin a working digest or clear to the release default)")
+	recordCatalogImageAttempt(catalog, params, sourceEvidence)
+	if catalog.Status.ImageUpdate.CurrentAttempt.SelectionOutcome.State == "Failed" {
 		return &catalogDataImagesUnavailable{cause: errors.Join(causes...)}
 	}
-	setCatalogDataImageCondition(catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed", "Data image updates are allowed")
+	if catalog.Status.ImageUpdate.CurrentAttempt.SelectionOutcome.State == "Pending" && catalog.Status.ImageUpdate.LastFailure != nil {
+		return &catalogDataImagesUnavailable{}
+	}
 	return nil
 }
 
@@ -241,7 +235,7 @@ func catalogDataImageImportHealth(stream *imagev1.ImageStream) metav1.Condition 
 		for _, imported := range tag.Conditions {
 			if imported.Type == imagev1.ImportSuccess && imported.Status == corev1.ConditionFalse && imported.Generation >= generation {
 				condition.Status, condition.Reason = metav1.ConditionFalse, "ImportFailed"
-				condition.Message = "The standalone data image import failed; Catalog serving is stopped until a successful import or valid manual selection"
+				condition.Message = "The standalone data image import failed; resolve the import or select valid images, then activate the current pair to recover"
 				if imported.Reason != "" {
 					condition.Message += ": " + imported.Reason
 				}
@@ -256,7 +250,7 @@ func catalogDataImageImportHealth(stream *imagev1.ImageStream) metav1.Condition 
 		}
 		if importedCatalogDataImage(tag.Items[0]) == "" {
 			condition.Status, condition.Reason = metav1.ConditionFalse, "InvalidImportedImage"
-			condition.Message = "The standalone data ImageStream has no usable digest in its latest import; Catalog serving is stopped until a successful import or valid manual selection"
+			condition.Message = "The standalone data ImageStream has no usable digest in its latest import; a usable current image pair and validated activation are required for recovery"
 			return condition
 		}
 		condition.Status, condition.Reason = metav1.ConditionTrue, "ImportSucceeded"

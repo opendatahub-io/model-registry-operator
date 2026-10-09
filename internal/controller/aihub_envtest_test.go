@@ -387,6 +387,14 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reconcile #2 failed: %v", err)
 	}
+	if result2.RequeueAfter == 0 {
+		t.Fatal("Catalog activation must remain pending after operator readiness")
+	}
+	markAIHubTestCatalogReady(t, k8sClient, regNs)
+	result2, err = r.Reconcile(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if result2.RequeueAfter != 0 {
 		t.Errorf("reconcile #2: expected RequeueAfter==0, got %v", result2.RequeueAfter)
 	}
@@ -712,6 +720,10 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		if _, err := r.Reconcile(ctx, req); err != nil {
 			t.Fatalf("reconcile #2 failed: %v", err)
 		}
+		markAIHubTestCatalogReady(t, k8sClient, regNs)
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatal(err)
+		}
 
 		got := &aihubv1alpha1.AIHub{}
 		if err := k8sClient.Get(ctx, req.NamespacedName, got); err != nil {
@@ -779,6 +791,10 @@ func TestAIHubGatewayDomain_Envtest(t *testing.T) {
 		patchChildrenAvailable(t, k8sClient, appNs)
 		if _, err := r.Reconcile(ctx, req); err != nil {
 			t.Fatalf("reconcile #2 failed: %v", err)
+		}
+		markAIHubTestCatalogReady(t, k8sClient, regNs)
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatal(err)
 		}
 
 		got := &aihubv1alpha1.AIHub{}
@@ -1596,5 +1612,18 @@ func TestAIHubSelectorMigration_Envtest(t *testing.T) {
 	}
 	if stableDep.UID != migratedUID {
 		t.Fatalf("Deployment was recreated on an idempotent reconcile: UID changed from %s to %s", migratedUID, stableDep.UID)
+	}
+}
+
+// Simulate the owned Catalog controller's aggregate activation/health evidence.
+func markAIHubTestCatalogReady(t *testing.T, cli client.Client, namespace string) {
+	t.Helper()
+	catalog := &catalogv1alpha1.Catalog{}
+	if err := cli.Get(context.Background(), client.ObjectKey{Name: catalogCRName, Namespace: namespace}, catalog); err != nil {
+		t.Fatal(err)
+	}
+	catalog.Status.Conditions = []metav1.Condition{{Type: conditionCatalogReady, Status: metav1.ConditionTrue, ObservedGeneration: catalog.Generation, Reason: "Activated", Message: "Test Catalog controller accepted current activation", LastTransitionTime: metav1.Now()}}
+	if err := cli.Status().Update(context.Background(), catalog); err != nil {
+		t.Fatal(err)
 	}
 }

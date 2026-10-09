@@ -72,6 +72,13 @@ func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.C
 	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
 		t.Fatal(err)
 	}
+	reportDataImageActivation(t, r, catalog, "Succeeded", "Activation", "Activated")
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
 	assertDataImageCondition(t, catalog, ConditionTypeAvailable, metav1.ConditionTrue, ReasonDeploymentAvailable)
 	return r, catalog
 }
@@ -195,10 +202,7 @@ func TestCatalogDataImageAPIFailureStatusAndRecovery(t *testing.T) {
 			}
 			assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionFalse, reason)
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, reason)
-			expectedAvailability := metav1.ConditionFalse
-			if operation == "read applied deployment" || operation == "stop deployment" {
-				expectedAvailability = metav1.ConditionUnknown // Cannot confirm the deployment was stopped.
-			}
+			expectedAvailability := metav1.ConditionFalse // A containment error never hides a confirmed failure.
 			if available := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable); available == nil || available.Status != expectedAvailability {
 				t.Fatalf("unexpected availability after image fault: %+v", available)
 			}
@@ -236,7 +240,8 @@ func TestCatalogDataImageAPIFailureStatusAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
-			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
+			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, reason)
+			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			if err := base.Get(ctx, deploymentKey, after); err != nil {
 				t.Fatal(err)
 			}
@@ -389,8 +394,8 @@ func TestCatalogManualRecoveryDuringImageStreamOutage(t *testing.T) {
 		if err := base.Get(ctx, key, catalog); err != nil {
 			t.Fatal(err)
 		}
-		assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed")
-		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
+		assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionTrue, "ActivationPending")
+		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImageStreamUnavailable")
 	}
 }
 

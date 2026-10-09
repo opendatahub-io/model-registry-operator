@@ -1165,20 +1165,16 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile failed: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got RequeueAfter=%v", result.RequeueAfter)
-	}
-
 	got := &aihubv1alpha1.AIHub{}
 	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
 		t.Fatal(err)
 	}
 
-	if got.Status.Phase != common.PhaseReady {
-		t.Errorf("Phase = %q, want %q", got.Status.Phase, common.PhaseReady)
+	if got.Status.Phase != common.PhaseNotReady {
+		t.Errorf("Phase = %q, want %q until Catalog activation", got.Status.Phase, common.PhaseNotReady)
 	}
 
-	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
 	assertConditionStatus(t, got, string(common.ConditionTypeProvisioningSucceeded), metav1.ConditionTrue)
 	assertConditionStatus(t, got, ConditionModelRegistryReady, metav1.ConditionTrue)
 	assertConditionStatus(t, got, ConditionCatalogReady, metav1.ConditionTrue)
@@ -1190,15 +1186,13 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 	if catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil {
 		t.Fatal("initial Catalog must leave both image selections unset to use the release defaults")
 	}
-	// User selections and Catalog image failures do not get overwritten or
-	// included in platform readiness when AIHub reconciles again.
-	pin := dataTestDigest1
-	stable := "stable"
-	catalog.Spec.CatalogDataImageStream = &stable
-	catalog.Spec.BenchmarkDataImageStream = &pin
+	// Missing Catalog activation is progressing, not a confirmed failure.
+	if result.RequeueAfter == 0 {
+		t.Fatal("Catalog activation must be polled while pending")
+	}
+	assertConditionStatus(t, got, ConditionCatalogDataReady, metav1.ConditionFalse)
 	catalog.Status.Conditions = []metav1.Condition{
-		{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, Reason: "ImportFailed", Message: "benchmark import failed", LastTransitionTime: metav1.Now()},
-		{Type: ConditionTypeAvailable, Status: metav1.ConditionFalse, Reason: "DataImagesUnavailable", Message: "serving stopped", LastTransitionTime: metav1.Now()},
+		{Type: conditionCatalogReady, Status: metav1.ConditionTrue, Reason: "Activated", Message: "Current images active", LastTransitionTime: metav1.Now()},
 	}
 	if err := fakeClient.Update(ctx, catalog); err != nil {
 		t.Fatal(err)
@@ -1210,12 +1204,47 @@ func TestAIHubReconciler_StatusReady(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
+	// User selections remain independent; failures propagate through AIHub.
+	pin := dataTestDigest1
+	stable := "stable"
+	catalog.Spec.CatalogDataImageStream = &stable
+	catalog.Spec.BenchmarkDataImageStream = &pin
+	catalog.Status.Conditions = []metav1.Condition{
+		{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, Reason: "ImportFailed", Message: "benchmark import failed", LastTransitionTime: metav1.Now()},
+		{Type: ConditionTypeAvailable, Status: metav1.ConditionFalse, Reason: "DataImagesUnavailable", Message: "serving stopped", LastTransitionTime: metav1.Now()},
+		{Type: conditionCatalogReady, Status: metav1.ConditionFalse, Reason: "DataImagesUnavailable", Message: "benchmark import failed", LastTransitionTime: metav1.Now()},
+	}
+	if err := fakeClient.Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionFalse)
+	assertConditionStatus(t, got, ConditionCatalogDataReady, metav1.ConditionFalse)
+	assertConditionStatus(t, got, string(common.ConditionTypeDegraded), metav1.ConditionTrue)
 	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
 		t.Fatal(err)
 	}
 	if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != stable || catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != pin {
 		t.Fatal("AIHub overwrote the admin's independent image selections")
 	}
+	catalog.Status.Conditions = []metav1.Condition{
+		{Type: conditionCatalogReady, Status: metav1.ConditionTrue, Reason: "Activated", Message: "Current images active", LastTransitionTime: metav1.Now()},
+	}
+	if err := fakeClient.Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := fakeClient.Get(ctx, req.NamespacedName, got); err != nil {
+		t.Fatal(err)
+	}
+	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 }
 
 func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {
@@ -1654,6 +1683,51 @@ func TestAIHubReconciler_ServiceMonitorGate(t *testing.T) {
 			}
 			if smCount != tc.wantSMCount {
 				t.Errorf("ServiceMonitor count in deploy set = %d, want %d", smCount, tc.wantSMCount)
+			}
+		})
+	}
+}
+
+func TestAIHubCatalogReadiness(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		readyStatus        metav1.ConditionStatus
+		observedGeneration int64
+		degraded           bool
+		otherFailure       bool
+		wantReady          bool
+		wantFailed         bool
+	}{
+		{name: "missing status"},
+		{name: "pending activation", readyStatus: metav1.ConditionFalse, observedGeneration: 2},
+		{name: "confirmed failure", readyStatus: metav1.ConditionFalse, observedGeneration: 2, degraded: true, wantFailed: true},
+		{name: "stale success", readyStatus: metav1.ConditionTrue, observedGeneration: 1},
+		{name: "current success", readyStatus: metav1.ConditionTrue, observedGeneration: 2, wantReady: true},
+		{name: "other component failure", readyStatus: metav1.ConditionTrue, observedGeneration: 2, otherFailure: true, wantReady: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Generation: 2}}
+			if test.readyStatus != "" {
+				catalog.Status.Conditions = append(catalog.Status.Conditions, metav1.Condition{Type: conditionCatalogReady, Status: test.readyStatus, ObservedGeneration: test.observedGeneration, Reason: "ActivationState", Message: "Catalog activation state", LastTransitionTime: metav1.Now()})
+			}
+			if test.degraded {
+				catalog.Status.Conditions = append(catalog.Status.Conditions, metav1.Condition{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, ObservedGeneration: 2, Reason: "ImportFailed", Message: "Import failed", LastTransitionTime: metav1.Now()})
+			}
+			aihub := &aihubv1alpha1.AIHub{}
+			manager := newAIHubConditionManager(aihub)
+			manager.MarkTrue(string(common.ConditionTypeProvisioningSucceeded))
+			manager.MarkTrue(ConditionCatalogReady)
+			if test.otherFailure {
+				manager.MarkFalse(ConditionModelRegistryReady)
+			} else {
+				manager.MarkTrue(ConditionModelRegistryReady)
+			}
+			ready, failed := reconcileAIHubCatalogReadiness(catalog, manager)
+			if ready != test.wantReady || failed != test.wantFailed {
+				t.Fatalf("Catalog readiness/failure = %t/%t, want %t/%t", ready, failed, test.wantReady, test.wantFailed)
+			}
+			if manager.IsHappy() != (test.wantReady && !test.otherFailure) {
+				t.Fatal("Catalog recovery hid another component failure or stale evidence")
 			}
 		})
 	}

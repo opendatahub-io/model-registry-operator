@@ -129,8 +129,12 @@ func TestCatalogIndependentDataImages(t *testing.T) {
 		t.Fatalf("unchanged failure repeated its Event: %q", event)
 	default:
 	}
+	failedAttempt := catalog.Status.ImageUpdate.CurrentAttempt.AttemptID
 	importImage(CatalogDataImageStreamName, catalogRepo, dataTestDigest3, false)
 	reconcile(catalogRepo+"@"+dataTestDigest2, benchmarkRepo+"@"+dataTestDigest3, 0)
+	if catalog.Status.ImageUpdate.CurrentAttempt.AttemptID == failedAttempt || catalog.Status.ImageUpdate.CurrentAttempt.ResolvedImages != nil {
+		t.Fatal("healthy independent import must advance failed pair's attempt without producing a candidate")
+	}
 
 	// Recovery requires no Catalog edit and applies both streams' latest imports.
 	importImage(BenchmarkDataImageStreamName, benchmarkRepo, dataTestDigest2, false)
@@ -138,7 +142,7 @@ func TestCatalogIndependentDataImages(t *testing.T) {
 	if catalog.Generation != generation {
 		t.Fatal("scheduled updates or recovery changed the Catalog selection")
 	}
-	assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed")
+	assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionTrue, "ActivationPending")
 	setSelections(dataTestDigest1, dataTestDigest3)
 	reconcile(catalogRepo+"@"+dataTestDigest1, benchmarkRepo+"@"+dataTestDigest3, 1)
 	setSelections(stable, dataTestDigest1)
