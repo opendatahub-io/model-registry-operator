@@ -1291,6 +1291,46 @@ labels:
 					recreated.Labels["app.kubernetes.io/created-by"] == "model-registry-operator"
 			}, 10*time.Second).Should(BeTrue())
 		})
+		It("Should render the catalog ingress NetworkPolicy with an explicit proxy port", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			ingressPolicy := &networkingv1.NetworkPolicy{}
+			Expect(catalogReconciler.Apply(catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, ""),
+				"catalog-kube-rbac-proxy-network-policy.yaml.tmpl", ingressPolicy)).To(Succeed())
+			expectIngressPolicy(ingressPolicy, 8443)
+			expectCatalogIngressPeers(ingressPolicy)
+		})
+
+		It("Should remove the applications namespace peer from an existing catalog ingress NetworkPolicy", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			params := catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, "")
+			resourceManager := &ResourceManager{Client: k8sClient}
+
+			By("Creating the policy as a previous operator version rendered it")
+			oldPolicy := &networkingv1.NetworkPolicy{}
+			Expect(catalogReconciler.Apply(params, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", oldPolicy)).To(Succeed())
+			oldPolicy.Spec.Ingress[0].From = append(oldPolicy.Spec.Ingress[0].From, networkingv1.NetworkPolicyPeer{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+				},
+			})
+			Expect(resourceManager.CreateOrUpdateNetworkPolicy(ctx, oldPolicy)).To(Equal(ResourceCreated))
+
+			By("Reconciling the current template")
+			newPolicy := &networkingv1.NetworkPolicy{}
+			Expect(catalogReconciler.Apply(params, "catalog-kube-rbac-proxy-network-policy.yaml.tmpl", newPolicy)).To(Succeed())
+			Expect(resourceManager.CreateOrUpdateNetworkPolicy(ctx, newPolicy)).To(Equal(ResourceUpdated))
+
+			updated := &networkingv1.NetworkPolicy{}
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newPolicy), updated)).To(Succeed())
+			expectIngressPolicy(updated, 8443)
+			expectCatalogIngressPeers(updated)
+			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
+		})
+
 		It("Should report the Catalog unavailable while a required NetworkPolicy fails to reconcile", func() {
 			catalog := &catalogv1alpha1.Catalog{
 				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
