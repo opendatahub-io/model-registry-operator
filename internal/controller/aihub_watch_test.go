@@ -13,6 +13,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,14 +176,15 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 		Scheme: scheme,
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
-				&appsv1.Deployment{}:         deployerCacheObj,
-				&corev1.Service{}:            deployerCacheObj,
-				&corev1.ServiceAccount{}:     deployerCacheObj,
-				&corev1.ConfigMap{}:          deployerCacheObj,
-				&rbacv1.Role{}:               deployerCacheObj,
-				&rbacv1.RoleBinding{}:        deployerCacheObj,
-				&rbacv1.ClusterRole{}:        deployerCacheObj,
-				&rbacv1.ClusterRoleBinding{}: deployerCacheObj,
+				&appsv1.Deployment{}:          deployerCacheObj,
+				&corev1.Service{}:             deployerCacheObj,
+				&corev1.ServiceAccount{}:      deployerCacheObj,
+				&corev1.ConfigMap{}:           deployerCacheObj,
+				&networkingv1.NetworkPolicy{}: deployerCacheObj,
+				&rbacv1.Role{}:                deployerCacheObj,
+				&rbacv1.RoleBinding{}:         deployerCacheObj,
+				&rbacv1.ClusterRole{}:         deployerCacheObj,
+				&rbacv1.ClusterRoleBinding{}:  deployerCacheObj,
 				&admissionregistrationv1.ValidatingWebhookConfiguration{}: deployerCacheObj,
 				&admissionregistrationv1.MutatingWebhookConfiguration{}:   deployerCacheObj,
 			},

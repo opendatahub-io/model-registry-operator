@@ -1,0 +1,30 @@
+# Egress for the model catalog pod (catalog server + kube-rbac-proxy sidecar).
+# Egress is intentionally UNRESTRICTED (allow-all), as permitted by ODH-ADR-Operator-0016 R5 when documented:
+# - kube-rbac-proxy and the catalog server call the Kubernetes API; API server endpoints are control-plane
+#   host IPs (or external on hosted control planes) and cannot be expressed statically (see RHOAIENG-90747).
+# - Hugging Face and other remote sources, and an optional HTTP(S) proxy, are reached by hostname, which
+#   NetworkPolicy cannot select.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: {{.Name}}
+    component: model-catalog
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-egress
+    app.kubernetes.io/component: model-catalog
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-catalog
+    app.kubernetes.io/managed-by: model-registry-operator
+  name: {{.Name}}-egress
+  namespace: {{.Namespace}}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-catalog
+      app.kubernetes.io/name: {{.Name}}
+  policyTypes:
+  - Egress
+  egress:
+  - {}

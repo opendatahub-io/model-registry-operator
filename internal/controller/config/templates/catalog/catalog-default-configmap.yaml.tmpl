@@ -50,6 +50,10 @@ data:
         assetType: agents
         displayName: Agent templates
         description: Browse templates from the Red Hat agentic starter kits collection. An agent template is a pre-built starting point for deploying agents.
+      - name: Red Hat Serving Runtimes
+        assetType: serving_runtimes
+        displayName: Red Hat Serving Runtimes
+        description: Red Hat serving runtimes and their supported versions.
     namedQueries:
       default-performance-filters:
         "artifacts.use_case.string_value":
@@ -93,3 +97,12 @@ data:
           yamlCatalogPath: /shared-data/redhat-agents-catalog.yaml
         labels:
           - Red Hat Agents
+    serving_runtime_catalogs:
+      - name: Red Hat Serving Runtimes
+        id: rh_serving_runtimes
+        type: yaml
+        enabled: true
+        properties:
+          yamlCatalogPath: /shared-data/redhat-serving-runtimes-catalog.yaml
+        labels:
+          - Red Hat Serving Runtimes

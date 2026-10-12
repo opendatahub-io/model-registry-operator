@@ -1,0 +1,44 @@
+# Ingress for the model registry API pod, reconciled on OpenShift regardless of spec.kubeRBACProxy or
+# serviceRoute so that toggling them never leaves the pod without an ingress policy (ODH-ADR-Operator-0016).
+# The port is always explicit: the kube-rbac-proxy port. The REST port fallback is a safeguard only, since the
+# reconciler always restores spec.kubeRBACProxy on OpenShift.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: {{.Name}}
+    component: model-registry
+    app.kubernetes.io/name: {{.Name}}
+    app.kubernetes.io/instance: {{.Name}}-https-route
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/created-by: model-registry-operator
+    app.kubernetes.io/part-of: model-registry
+    app.kubernetes.io/managed-by: model-registry-operator
+  name: {{.Name}}-https-route
+  namespace: {{.Namespace}}
+spec:
+  ingress:
+  - from:
+    # OpenShift router and Gateway API traffic for the Route / HTTPRoute exposure paths.
+    - namespaceSelector:
+        matchLabels:
+          network.openshift.io/policy-group: ingress
+    # AutoML BFF in the shared applications namespace calls the registry pod-to-pod using the in-cluster
+    # host from status.hosts. The apps namespace is shared, so the peer also requires the pod's stable
+    # Deployment selector label, owned by the Dashboard team.
+    - namespaceSelector:
+        matchLabels:
+          opendatahub.io/generated-namespace: "true"
+      podSelector:
+        matchLabels:
+          deployment: automl-ui
+    ports:
+      - protocol: TCP
+        port: {{if .Spec.KubeRBACProxy}}{{.Spec.KubeRBACProxy.Port}}{{else}}{{.Spec.Rest.Port}}{{end}}
+  podSelector:
+    matchLabels:
+      app: {{.Name}}
+      component: model-registry
+      app.kubernetes.io/name: {{.Name}}
+  policyTypes:
+  - Ingress

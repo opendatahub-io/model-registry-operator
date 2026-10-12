@@ -4,17 +4,20 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -330,6 +333,110 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 	}
 	if crdCount < 1 {
 		t.Errorf("expected at least 1 CRD, got %d", crdCount)
+	}
+}
+
+// TestRender_OperatorNetworkPolicies verifies that the rendered bundle contains a
+// NetworkPolicy for each child operator pod that satisfies ODH-ADR-Operator-0016:
+// it selects only that pod, governs both directions, has explicit sources and
+// ports on every ingress rule, and declares explicit egress behavior.
+func TestRender_OperatorNetworkPolicies(t *testing.T) {
+	renderPath := filepath.Join(assembleManifests(t), "modelregistry", "overlays", "odh")
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace("test-app-ns"))
+	if err != nil {
+		t.Fatalf("kustomize.Render failed: %v", err)
+	}
+
+	podLabels := map[string]k8slabels.Set{}
+	var policies []*networkingv1.NetworkPolicy
+	for i := range resources {
+		switch resources[i].GetKind() {
+		case "Deployment":
+			d := deploymentFromUnstructured(t, &resources[i])
+			podLabels[d.Name] = d.Spec.Template.Labels
+		case "NetworkPolicy":
+			np := &networkingv1.NetworkPolicy{}
+			if err := runtime.DefaultUnstructuredConverter.FromUnstructured(resources[i].Object, np); err != nil {
+				t.Fatal(err)
+			}
+			policies = append(policies, np)
+		}
+	}
+
+	wantIngressPorts := map[string][]int32{
+		childDeploymentName:   {8443, 9443},
+		catalogDeploymentName: {9443},
+	}
+	for deployName, wantPorts := range wantIngressPorts {
+		labels, ok := podLabels[deployName]
+		if !ok {
+			t.Fatalf("Deployment %s not found in rendered resources", deployName)
+		}
+
+		var matched []*networkingv1.NetworkPolicy
+		for _, np := range policies {
+			sel, err := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
+			if err != nil {
+				t.Fatalf("NetworkPolicy %s: invalid podSelector: %v", np.Name, err)
+			}
+			if sel.Matches(labels) {
+				matched = append(matched, np)
+			}
+		}
+		if len(matched) != 1 {
+			t.Fatalf("%s: want exactly 1 selecting NetworkPolicy, got %d", deployName, len(matched))
+		}
+		np := matched[0]
+
+		if np.Namespace != "test-app-ns" {
+			t.Errorf("%s: namespace = %q, want test-app-ns", np.Name, np.Namespace)
+		}
+		if len(np.Spec.PodSelector.MatchLabels) == 0 && len(np.Spec.PodSelector.MatchExpressions) == 0 {
+			t.Errorf("%s: podSelector must not be empty", np.Name)
+		}
+		for other, otherLabels := range podLabels {
+			sel, _ := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
+			if other != deployName && sel.Matches(otherLabels) {
+				t.Errorf("%s: podSelector also matches Deployment %s", np.Name, other)
+			}
+		}
+		if !slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) ||
+			!slices.Contains(np.Spec.PolicyTypes, networkingv1.PolicyTypeEgress) {
+			t.Errorf("%s: policyTypes = %v, want Ingress and Egress", np.Name, np.Spec.PolicyTypes)
+		}
+		if np.Spec.Egress == nil {
+			t.Errorf("%s: egress must be set explicitly", np.Name)
+		}
+
+		var gotPorts []int32
+		for _, rule := range np.Spec.Ingress {
+			if len(rule.From) == 0 || len(rule.Ports) == 0 {
+				t.Errorf("%s: ingress rule must have non-empty from and ports: %+v", np.Name, rule)
+			}
+			for _, peer := range rule.From {
+				if peer.PodSelector == nil && peer.NamespaceSelector == nil && peer.IPBlock == nil {
+					t.Errorf("%s: empty ingress peer", np.Name)
+				}
+				if peer.NamespaceSelector != nil && len(peer.NamespaceSelector.MatchLabels) == 0 &&
+					len(peer.NamespaceSelector.MatchExpressions) == 0 {
+					t.Errorf("%s: unrestricted namespaceSelector in ingress peer", np.Name)
+				}
+				if peer.IPBlock != nil && (peer.IPBlock.CIDR == "0.0.0.0/0" || peer.IPBlock.CIDR == "::/0") {
+					t.Errorf("%s: universal CIDR in ingress peer", np.Name)
+				}
+			}
+			for _, p := range rule.Ports {
+				if p.Port == nil {
+					t.Errorf("%s: ingress rule port must be explicit", np.Name)
+					continue
+				}
+				gotPorts = append(gotPorts, p.Port.IntVal)
+			}
+		}
+		slices.Sort(gotPorts)
+		if !slices.Equal(gotPorts, wantPorts) {
+			t.Errorf("%s: ingress ports = %v, want %v", np.Name, gotPorts, wantPorts)
+		}
 	}
 }
 

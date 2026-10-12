@@ -48,6 +48,9 @@ spec:
       - name: user-agent-sources
         configMap:
           name: agent-catalog-sources
+      - name: user-serving-runtime-sources
+        configMap:
+          name: serving-runtime-catalog-sources
       - name: default-sources
         configMap:
           name: default-catalog-sources
@@ -110,6 +113,7 @@ spec:
             - --catalogs-path=/data/user-model-sources/sources.yaml
             - --catalogs-path=/data/user-mcp-sources/sources.yaml
             - --catalogs-path=/data/user-agent-sources/sources.yaml
+            - --catalogs-path=/data/user-serving-runtime-sources/sources.yaml
             {{- range .LabeledSources}}
             - --catalogs-path=/data/labeled-sources/{{.Name}}/sources.yaml
             {{- end}}
@@ -159,6 +163,8 @@ spec:
             mountPath: /data/user-mcp-sources
           - name: user-agent-sources
             mountPath: /data/user-agent-sources
+          - name: user-serving-runtime-sources
+            mountPath: /data/user-serving-runtime-sources
           - name: default-sources
             mountPath: /data/default-sources
           - name: catalog-data
