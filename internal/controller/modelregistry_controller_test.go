@@ -522,6 +522,21 @@ var _ = Describe("ModelRegistry controller", func() {
 				reconcileRegistry()
 				Expect(k8sClient.Get(ctx, policyKey, networkPolicy)).To(Succeed())
 				expectIngressPolicy(networkPolicy, 8443)
+				expectModelRegistryIngressPeers(networkPolicy)
+
+				By("Checking that a namespace-only peer from a previous operator version is removed")
+				networkPolicy.Spec.Ingress[0].From = []networkingv1.NetworkPolicyPeer{
+					{NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
+					}},
+					{NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+					}},
+				}
+				Expect(k8sClient.Update(ctx, networkPolicy)).To(Succeed())
+				reconcileRegistry()
+				Expect(k8sClient.Get(ctx, policyKey, networkPolicy)).To(Succeed())
+				expectModelRegistryIngressPeers(networkPolicy)
 
 				By("Removing spec.kubeRBACProxy, which the reconciler restores on OpenShift")
 				Expect(k8sClient.Get(ctx, typeNamespaceName, modelRegistry)).To(Succeed())
@@ -1337,6 +1352,28 @@ func expectIngressPolicy(np *networkingv1.NetworkPolicy, port int32) {
 	Expect(np.Spec.Egress).To(BeEmpty())
 }
 
+// expectModelRegistryIngressPeers asserts the registry ingress peers are the router/gateway namespaces and the
+// AutoML BFF pods in the applications namespace, with no namespace-only peer on the shared applications namespace.
+func expectModelRegistryIngressPeers(np *networkingv1.NetworkPolicy) {
+	GinkgoHelper()
+	Expect(np.Spec.Ingress).To(HaveLen(1))
+	Expect(np.Spec.Ingress[0].From).To(ConsistOf(
+		networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
+			},
+		},
+		networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+			},
+			PodSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"deployment": "automl-ui"},
+			},
+		},
+	))
+}
+
 // expectDenyAllEgress asserts a deny-all egress policy (Egress policy type with no egress rules).
 func expectDenyAllEgress(np *networkingv1.NetworkPolicy) {
 	GinkgoHelper()
@@ -1882,6 +1919,7 @@ func validateRegistryKubeRBACProxy(ctx context.Context, typeNamespaceName types.
 		}, 5*time.Second, time.Second).Should(Succeed())
 		Expect(updated.Spec.KubeRBACProxy).NotTo(BeNil())
 		expectIngressPolicy(networkPolicy, *updated.Spec.KubeRBACProxy.Port)
+		expectModelRegistryIngressPeers(networkPolicy)
 
 		return nil
 	}

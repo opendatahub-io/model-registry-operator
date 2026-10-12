@@ -19,12 +19,19 @@ metadata:
 spec:
   ingress:
   - from:
+    # OpenShift router and Gateway API traffic for the Route / HTTPRoute exposure paths.
     - namespaceSelector:
         matchLabels:
           network.openshift.io/policy-group: ingress
+    # AutoML BFF in the shared applications namespace calls the registry pod-to-pod using the in-cluster
+    # host from status.hosts. The apps namespace is shared, so the peer also requires the pod's stable
+    # Deployment selector label, owned by the Dashboard team.
     - namespaceSelector:
         matchLabels:
           opendatahub.io/generated-namespace: "true"
+      podSelector:
+        matchLabels:
+          deployment: automl-ui
     ports:
       - protocol: TCP
         port: {{if .Spec.KubeRBACProxy}}{{.Spec.KubeRBACProxy.Port}}{{else}}{{.Spec.Rest.Port}}{{end}}
