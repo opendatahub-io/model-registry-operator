@@ -28,6 +28,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
+	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	platformlabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
@@ -232,12 +233,21 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	}
 
 	// --- Start manager in background ---
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
+	managerDone := make(chan error, 1)
 
 	go func() {
-		if err := mgr.Start(ctx); err != nil {
-			// Manager returns error on context cancel, which is expected.
-			t.Logf("manager stopped: %v", err)
+		managerDone <- mgr.Start(ctx)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case err := <-managerDone:
+			if err != nil {
+				t.Logf("manager stopped: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("AIHub manager did not stop before envtest shutdown")
 		}
 	}()
 
@@ -283,6 +293,10 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 	// --- Patch both child Deployments to Available ---
 	patchDeploymentAvailable(t, ctx, directClient, appNs, childDeploymentName)
 	patchDeploymentAvailable(t, ctx, directClient, appNs, catalogDeploymentName)
+	waitFor(t, 30*time.Second, 200*time.Millisecond, func() bool {
+		return directClient.Get(ctx, client.ObjectKey{Name: catalogCRName, Namespace: regNs}, &catalogv1alpha1.Catalog{}) == nil
+	}, "owned Catalog to be created")
+	markAIHubTestCatalogReady(t, directClient, regNs)
 
 	// Wait for a reconcile that sees both children Available.
 	waitFor(t, 30*time.Second, 200*time.Millisecond, func() bool {
@@ -297,6 +311,37 @@ func TestAIHubConfigMapWatch_Envtest(t *testing.T) {
 		}
 		return got.Status.Phase == "Ready"
 	}, "AIHub to reach Ready phase")
+
+	// Catalog status-only events must propagate failure and recovery through
+	// the owned-resource watch, independently of child operator availability.
+	catalog := &catalogv1alpha1.Catalog{}
+	if err := directClient.Get(ctx, client.ObjectKey{Name: catalogCRName, Namespace: regNs}, catalog); err != nil {
+		t.Fatal(err)
+	}
+	catalog.Status.Conditions = []metav1.Condition{
+		{Type: conditionCatalogReady, Status: metav1.ConditionFalse, ObservedGeneration: catalog.Generation, Reason: "DataImagesUnavailable", Message: "Benchmark validation failed", LastTransitionTime: metav1.Now()},
+		{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, ObservedGeneration: catalog.Generation, Reason: "BenchmarkContentInvalid", Message: "Benchmark validation failed", LastTransitionTime: metav1.Now()},
+	}
+	if err := directClient.Status().Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, 10*time.Second, 200*time.Millisecond, func() bool {
+		got := &aihubv1alpha1.AIHub{}
+		if err := directClient.Get(ctx, client.ObjectKey{Name: aihubCRName}, got); err != nil {
+			return false
+		}
+		for _, condition := range got.Status.Conditions {
+			if condition.Type == ConditionTypeDegraded && condition.Status == metav1.ConditionTrue && condition.Reason == "BenchmarkContentInvalid" {
+				return got.Status.Phase == "Not Ready"
+			}
+		}
+		return false
+	}, "Catalog failure to make AIHub unready and degraded")
+	markAIHubTestCatalogReady(t, directClient, regNs)
+	waitFor(t, 10*time.Second, 200*time.Millisecond, func() bool {
+		got := &aihubv1alpha1.AIHub{}
+		return directClient.Get(ctx, client.ObjectKey{Name: aihubCRName}, got) == nil && got.Status.Phase == "Ready"
+	}, "Catalog recovery to restore AIHub readiness")
 
 	// Record reconcile count before creating the ConfigMap.
 	countBefore := reconcileCount.Load()
