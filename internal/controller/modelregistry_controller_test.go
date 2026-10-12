@@ -1374,6 +1374,19 @@ func expectModelRegistryIngressPeers(np *networkingv1.NetworkPolicy) {
 	))
 }
 
+// expectCatalogIngressPeers asserts the catalog ingress peers are only the router/gateway namespaces.
+func expectCatalogIngressPeers(np *networkingv1.NetworkPolicy) {
+	GinkgoHelper()
+	Expect(np.Spec.Ingress).To(HaveLen(1))
+	Expect(np.Spec.Ingress[0].From).To(ConsistOf(
+		networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
+			},
+		},
+	))
+}
+
 // expectDenyAllEgress asserts a deny-all egress policy (Egress policy type with no egress rules).
 func expectDenyAllEgress(np *networkingv1.NetworkPolicy) {
 	GinkgoHelper()
