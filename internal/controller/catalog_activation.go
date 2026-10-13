@@ -43,6 +43,8 @@ func safeCatalogActivationFailure(failure *catalogActivationFailure) *catalogAct
 		stage, summary = "Loading", "Shipped benchmark content failed validation"
 	case "ActivationFailed":
 		summary = "Catalog validation failed"
+	case "ActivationTimedOut":
+		summary = "Catalog validation or startup did not complete within ten minutes"
 	case "CatalogStartupFailed":
 		summary = "Catalog process did not start"
 	default:

@@ -388,15 +388,12 @@ func validateNDJSON(path string) error {
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			return fmt.Errorf("%s:%d: %w", path, line, err)
 		}
-		identity := stringField(record, "id")
-		if identity == "" {
-			identity = stringField(record, "config_id")
-		}
-		if filepath.Base(path) == "evaluations.ndjson" {
-			identity = stringField(record, "benchmark")
-		}
-		if strings.TrimSpace(stringField(record, "model_id")) == "" || strings.TrimSpace(identity) == "" {
-			return fmt.Errorf("%s:%d: model_id and record identity are required", path, line)
+		// The runtime associates records with the adjacent metadata.json and
+		// accepts dynamic metric fields. Published evaluations can have a
+		// numeric id or dataset/metric without model_id or benchmark; published
+		// performance records use config_id without model_id.
+		if record == nil {
+			return fmt.Errorf("%s:%d: record must be a JSON object", path, line)
 		}
 	}
 	if err := scanner.Err(); err != nil {

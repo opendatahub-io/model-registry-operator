@@ -55,7 +55,10 @@ func (r *CatalogReconciler) prepareActivation(ctx context.Context, catalog *cata
 		a = &catalogv1alpha1.CatalogActivationStatus{CatalogUID: string(catalog.UID), AttemptID: hex.EncodeToString(nonce[:]), RequestHash: fingerprint, RequestedImages: images, Images: images, State: "Pending", Stage: "Activation", Reason: "ActivationPending", Message: "Waiting for image validation and the selected workload", StartedAt: metav1.Now(), LastSuccessful: previous}
 		catalog.Status.Activation = a
 	}
-	if resolved.Status != metav1.ConditionTrue {
+	// A timeout or validation failure is terminal for this request. In
+	// particular, an unchanged first import must not reset a timed-out
+	// attempt to Pending and briefly restart its workload.
+	if resolved.Status != metav1.ConditionTrue && a.State != "Failed" {
 		a.State, a.Stage, a.Reason, a.Message = "Pending", "Import", resolved.Reason,
 			"Selected images are not ready; inspect the Catalog image resolution conditions and correct the selection or import source"
 		if resolved.Status == metav1.ConditionFalse && resolved.Reason != "NoSuccessfulImport" {
@@ -85,7 +88,7 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 		return nil
 	}
 	currentReady := false
-	if failure != nil {
+	if failure != nil && a.State != "Failed" {
 		safe := safeCatalogActivationFailure(failure)
 		a.State, a.Stage, a.Reason, a.Message = "Failed", safe.Stage, safe.Reason, safe.Message
 	} else if a.State == "Failed" {

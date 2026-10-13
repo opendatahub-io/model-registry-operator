@@ -19,7 +19,10 @@ There is no companion runtime change or additional HTTP proxy to ship.
    preserve the attempt.
 3. Use a `Recreate` deployment so the old catalog writer stops before the new
    pair starts. Both copy init containers must succeed. Benchmark copy errors
-   are not suppressed.
+   are not suppressed. Older release images lack the serving-runtime catalog;
+   for an empty Catalog image selection, the copy init container supplies an
+   empty serving-runtime list when that file is absent. Explicitly selected
+   images must contain the file and fail preflight when it is missing.
 4. Run `/manager catalog-content-validate` from the operator image as a third init
    container. It reads shipped source YAML and benchmark files before the catalog
    process starts. It makes no database or Kubernetes API calls. On failure, it
@@ -48,8 +51,9 @@ empty types use the runtime's legacy model-artifact default and still require a
 valid URI. Unknown types and non-string values fail preflight with
 `CatalogContentInvalid`; metrics artifacts do not require a URI.
 
-Benchmark checks require metadata, unique case-insensitive model IDs, syntactically
-valid known NDJSON files, and record identities. This is a structural file check,
+Benchmark checks require metadata, unique case-insensitive model IDs, and JSON
+object records in known NDJSON files. Record fields are interpreted by the runtime
+using the adjacent model metadata. This is a structural file check,
 not a duplicate implementation of every catalog business rule or a PostgreSQL
 connectivity check. Existing runtime validation remains responsible for ingestion
 semantics.

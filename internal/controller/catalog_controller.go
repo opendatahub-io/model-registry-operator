@@ -135,6 +135,7 @@ type CatalogParams struct {
 	PostgresImage           string
 	CatalogDataImage        string
 	ActivationBlocked       bool
+	AllowLegacyRuntimeFile  bool
 	ActivationAttempt       string
 	OperatorImage           string
 	ImageImportEvidence     string
@@ -173,6 +174,7 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		Namespace:               catalog.Namespace,
 		Component:               catalogResourceName,
 		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		AllowLegacyRuntimeFile:  catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream == "",
 		BenchmarkDataImage:      config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresResources:       catalog.Spec.Resources.Postgres,
 		DatabaseVolumeSizeLimit: catalog.Spec.Database.Volume.SizeLimit,
@@ -298,6 +300,20 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 // Scale-down is asynchronous; availability follows ordinary Kubernetes endpoint
 // removal and pod termination, without a separate HTTP serving component.
 func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
+	// A status conflict means another reconcile may already own a newer
+	// attempt. Recheck the persisted attempt before changing its Deployment.
+	currentAttempt := func() (bool, error) {
+		current := &catalogv1alpha1.Catalog{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
+			return false, fmt.Errorf("reading Catalog attempt for temporary containment: %w", err)
+		}
+		return current.UID == catalog.UID && current.Status.Activation != nil && catalog.Status.Activation != nil &&
+			current.Status.Activation.AttemptID == catalog.Status.Activation.AttemptID &&
+			current.Status.Activation.RequestHash == catalog.Status.Activation.RequestHash, nil
+	}
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
+	}
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -307,6 +323,10 @@ func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, cata
 	}
 	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas == 0 {
 		return nil
+	}
+	// The Catalog may have advanced while the Deployment was being read.
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
 	}
 	before := deployment.DeepCopy()
 	zero := int32(0)
@@ -702,7 +722,7 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, "CatalogActivationFailed", "CatalogActivationFailed", "%s", eventMessage)
 		}
 	}
-	if catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" {
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" {
 		statusErr = errors.Join(statusErr, r.containCatalogImageFailure(ctx, catalog))
 	}
 	return apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable), statusErr
@@ -1463,6 +1483,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		Spec                    *v1beta1.ModelRegistrySpec
 		CatalogDataImage        string
 		ActivationBlocked       bool
+		AllowLegacyRuntimeFile  bool
 		ActivationAttempt       string
 		OperatorImage           string
 		BenchmarkDataImage      string
@@ -1488,6 +1509,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		Name:                    params.Name,
 		ActivationAttempt:       params.ActivationAttempt,
 		ActivationBlocked:       params.ActivationBlocked,
+		AllowLegacyRuntimeFile:  params.AllowLegacyRuntimeFile,
 		OperatorImage:           config.GetStringConfigWithDefault(config.ModelRegistryOperatorImage, config.DefaultOperatorImage),
 		Namespace:               params.Namespace,
 		Spec:                    defaultSpec,

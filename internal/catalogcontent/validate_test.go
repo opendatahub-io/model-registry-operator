@@ -107,8 +107,8 @@ func TestRejectMalformedShippedContent(t *testing.T) {
 		{"runtime version", "runtimes.yaml", "serving_runtimes: [{name: x, versions: [{image: test}]}]", "CatalogContentInvalid"},
 		{"invalid metadata", "benchmarks/metadata.json", `{"id":4}`, "BenchmarkContentInvalid"},
 		{"invalid NDJSON", "benchmarks/performance.ndjson", "{broken", "BenchmarkContentInvalid"},
-		{"missing metric identity", "benchmarks/performance.ndjson", `{"model_id":"model"}`, "BenchmarkContentInvalid"},
 		{"null metric", "benchmarks/performance.ndjson", "null", "BenchmarkContentInvalid"},
+		{"array metric", "benchmarks/performance.ndjson", "[]", "BenchmarkContentInvalid"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root, bench := fixture(t)
@@ -118,6 +118,37 @@ func TestRejectMalformedShippedContent(t *testing.T) {
 				t.Fatalf("failure=%v, want %s", failure, tc.reason)
 			}
 		})
+	}
+}
+
+func TestPublishedBenchmarkRecordFormats(t *testing.T) {
+	// Records from quay.io/opendatahub/odh-model-metadata-collection:latest
+	// (sha256:7fd50e85b668d54a20ea2b2fe6034bf059c3d5868cdf476a82ece346cb1b0bf9).
+	root, bench := fixture(t)
+	for _, model := range []struct {
+		dir, id, evaluations, performance string
+	}{
+		{
+			"testcorp/sample-model-1.0", "testcorp/sample-model",
+			`{"id": 1, "overall_average": 3.25, "arc_v1": 3.40, "mmlu_v1": 3.75, "gsm8k_v1": 2.60, "accelerator_type": "H100", "model_hf_repo_name": "testcorp/sample-model"}`,
+			`{"config_id": "abc123def456", "ttft_mean": 145.32, "ttft_p90": 168.75, "e2e_mean": 6850.42, "tps_mean": 3920.18, "hardware": "H100", "framework": "pytorch", "framework_version": "2.0.1", "docker_image": "testcorp/inference:2.0.1", "model_hf_repo_name": "testcorp/sample-model"}`,
+		},
+		{
+			"acmetech/text-analyzer-2.1", "acmetech/text-analyzer",
+			`{"metric": "accuracy", "value": 0.924, "dataset": "synthetic-text-v1", "evaluation_date": "2025-01-15T14:30:00Z"}`,
+			`{"config_id": "xyz789abc123", "ttft_mean": 98.65, "ttft_p90": 112.34, "e2e_mean": 4230.18, "tps_mean": 5847.92, "hardware": "V100", "framework": "tensorflow", "framework_version": "2.8.0", "docker_image": "acmetech/inference:2.8.0", "model_hf_repo_name": "acmetech/text-analyzer"}`,
+		},
+	} {
+		dir := filepath.Join(bench, model.dir)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, "metadata.json"), `{"id":"`+model.id+`"}`)
+		writeFile(t, filepath.Join(dir, "evaluations.ndjson"), model.evaluations)
+		writeFile(t, filepath.Join(dir, "performance.ndjson"), model.performance)
+	}
+	if failure := Validate(filepath.Join(root, "sources.yaml"), bench); failure != nil {
+		t.Fatalf("published benchmark records were rejected: %+v", failure)
 	}
 }
 func TestMissingFilesAndDisabledSources(t *testing.T) {

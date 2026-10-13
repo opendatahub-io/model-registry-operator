@@ -82,7 +82,11 @@ spec:
           command:
             - /bin/sh
             - -c
-            - cp /app/data/*.yaml /shared-data/
+            - >-
+              cp /app/data/*.yaml /shared-data/{{if .AllowLegacyRuntimeFile}} &&
+              if [ ! -e /shared-data/redhat-serving-runtimes-catalog.yaml ]; then
+                printf 'serving_runtimes: []\n' > /shared-data/redhat-serving-runtimes-catalog.yaml;
+              fi{{end}}
           terminationMessagePolicy: File
           volumeMounts:
             - name: catalog-data
