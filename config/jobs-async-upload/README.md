@@ -2,6 +2,8 @@
 
 This OpenShift Template generates the Job 'async-upload' developed in: https://github.com/opendatahub-io/model-registry/tree/main/jobs/async-upload
 
+Both OCI destination templates require `MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE` when processing the Template. Set it to a registry-qualified image that the Job pod can pull, such as `mirror.example.com/library/busybox:1.0`. This is separate from `JOB_IMAGE`, which is the async-upload Job container image. On disconnected clusters, mirror the base image into a registry reachable from the Job pod and supply that mirrored reference.
+
 ## Examples
 
 ### Example scripts
@@ -34,6 +36,7 @@ oc process --local -f jobs-async-upload-s3-to-oci-template.yaml \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_SOURCE_AWS_KEY=path/in/bucket \
   -p MODEL_SYNC_DESTINATION_OCI_URI="oci-route.openshiftapps.com/project/model:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -o yaml \
   > job.yaml
 
@@ -62,6 +65,7 @@ oc process --local -f jobs-async-upload-s3-to-oci-template.yaml \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_SOURCE_AWS_KEY=path/in/bucket \
   -p MODEL_SYNC_DESTINATION_OCI_URI="oci-route.openshiftapps.com/project/model:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -o yaml \
   > job.yaml
 
@@ -92,6 +96,7 @@ oc process --local -f jobs-async-upload-s3-to-oci-template.yaml \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_SOURCE_AWS_KEY=path/in/bucket \
   -p MODEL_SYNC_DESTINATION_OCI_URI="oci-route.openshiftapps.com/project/model:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -o yaml \
   > job.yaml
 
@@ -126,6 +131,7 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_SOURCE_URI="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/mnist/model/mnist-8.onnx" \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_DESTINATION_OCI_URI="oci-route.openshiftapps.com/project/model:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -o yaml \
   > job.yaml
 ```
@@ -141,6 +147,7 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_REGISTRY_PORT="443" \
   -p MODEL_SYNC_SOURCE_URI="hf://RedHatAI/granite-3.1-8b-instruct-quantized.w4a16" \
   -p MODEL_SYNC_DESTINATION_OCI_URI="oci-route.openshiftapps.com/project/granite:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -p DESTINATION_CONNECTION=oci-credentials \
   -o yaml \
   > job.yaml
@@ -164,6 +171,7 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_REGISTRY_PORT="443" \
   -p MODEL_SYNC_SOURCE_URI="https://..." \
   -p MODEL_SYNC_DESTINATION_OCI_URI="bastion-registry.example.com/project/model:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="mirror.example.com/library/busybox:1.0" \
   -p DESTINATION_CONNECTION=my-oci-credentials \
   -p MODEL_SYNC_DESTINATION_OCI_ENABLE_TLS_VERIFY=false \
   -o yaml \

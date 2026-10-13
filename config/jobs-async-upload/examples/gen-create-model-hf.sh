@@ -15,6 +15,7 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_REGISTRY_PORT="443" \
   -p MODEL_SYNC_SOURCE_URI="hf://RedHatAI/granite-3.1-8b-instruct-quantized.w4a16" \
   -p MODEL_SYNC_DESTINATION_OCI_URI="default-route-openshift-image-registry.apps.rosa.my-cluster.019m.p3.openshiftapps.com/project3/granite-v1:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="${MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE:?Set a registry-qualified base image reachable from the Job pod}" \
   -p DESTINATION_CONNECTION=oci-credentials \
   -p SOURCE_CONNECTION=hf-credentials \
   -o yaml > job.yaml
