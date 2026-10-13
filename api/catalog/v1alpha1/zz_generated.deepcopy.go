@@ -59,6 +59,10 @@ func (in *CatalogActivationStatus) DeepCopyInto(out *CatalogActivationStatus) {
 	out.RequestedImages = in.RequestedImages
 	out.Images = in.Images
 	in.StartedAt.DeepCopyInto(&out.StartedAt)
+	if in.RecoveredAt != nil {
+		in, out := &in.RecoveredAt, &out.RecoveredAt
+		*out = (*in).DeepCopy()
+	}
 	if in.LastSuccessful != nil {
 		in, out := &in.LastSuccessful, &out.LastSuccessful
 		*out = new(CatalogActivationSuccess)

@@ -175,6 +175,78 @@ func TestCatalogRestartCanRecover(t *testing.T) {
 	}
 }
 
+func TestCatalogRecoveryWindowAcrossRestarts(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		healthyFor time.Duration
+		wantFailed bool
+	}{
+		{name: "brief recovery keeps deadline", healthyFor: time.Minute, wantFailed: true},
+		{name: "sustained recovery resets deadline", healthyFor: 11 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			r, catalog := readyDataImageCatalog(t)
+			catalog.Status.Activation.StartedAt = metav1.NewTime(time.Now().Add(-time.Hour))
+			if err := r.Status().Update(ctx, catalog); err != nil {
+				t.Fatal(err)
+			}
+			pod := &corev1.Pod{}
+			key := client.ObjectKey{Name: "validated-" + catalog.Status.Activation.AttemptID, Namespace: catalog.Namespace}
+			if err := r.Get(ctx, key, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile := func() {
+				t.Helper()
+				if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+					t.Fatal(err)
+				}
+				if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "catalog", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}}}
+			if err := r.Status().Update(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile()
+			if a := catalog.Status.Activation; a.State != "Pending" || time.Since(a.StartedAt.Time) > time.Minute {
+				t.Fatalf("old successful attempt did not get an initial recovery window: %+v", a)
+			}
+			pod.Status = validatedPodStatus()
+			if err := r.Status().Update(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile()
+			if a := catalog.Status.Activation; a.State != "Succeeded" || a.RecoveredAt == nil {
+				t.Fatalf("recovery was not recorded: %+v", a)
+			}
+			catalog.Status.Activation.StartedAt = metav1.NewTime(time.Now().Add(-11 * time.Minute))
+			recoveredAt := metav1.NewTime(time.Now().Add(-tc.healthyFor))
+			catalog.Status.Activation.RecoveredAt = &recoveredAt
+			if err := r.Status().Update(ctx, catalog); err != nil {
+				t.Fatal(err)
+			}
+			pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "catalog", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}}}
+			if err := r.Status().Update(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile()
+			deployment := &appsv1.Deployment{}
+			if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantFailed {
+				if catalog.Status.Activation.State != "Failed" || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 {
+					t.Fatalf("repeated restart escaped the recovery deadline: activation=%+v replicas=%v", catalog.Status.Activation, deployment.Spec.Replicas)
+				}
+			} else if catalog.Status.Activation.State != "Pending" || time.Since(catalog.Status.Activation.StartedAt.Time) > time.Minute || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+				t.Fatalf("restart after sustained health did not get a new window: activation=%+v replicas=%v", catalog.Status.Activation, deployment.Spec.Replicas)
+			}
+		})
+	}
+}
+
 func TestCatalogActivationFailureStatusEventsAndPersistence(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)

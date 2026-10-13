@@ -72,11 +72,12 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 
 			catalogReconciler = &CatalogReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Recorder: &events.FakeRecorder{},
-				Log:      ctrl.Log.WithName("catalog-controller"),
-				Template: template,
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  &events.FakeRecorder{},
+				Log:       ctrl.Log.WithName("catalog-controller"),
+				Template:  template,
 				Capabilities: ClusterCapabilities{
 					IsOpenShift:  false,
 					HasUserAPI:   false,

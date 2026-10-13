@@ -92,7 +92,7 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 			// Persisted intent also protects against reusing old status after restart.
-			r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
+			r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
 			reconcile()
 			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			markCatalogValidationReady(t, r, catalog)

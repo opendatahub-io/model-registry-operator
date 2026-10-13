@@ -147,7 +147,7 @@ func TestCatalogClearingAfterImportFailureRecoversToDevelopmentDefaults(t *testi
 	}
 	// Clearing must recover after a controller restart without an import or
 	// an activation writer, even though the bundled references use tags.
-	r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
+	r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
 	if _, err := r.Reconcile(ctx, request); err != nil {
 		t.Fatal(err)
 	}

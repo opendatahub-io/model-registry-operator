@@ -76,9 +76,11 @@ fallback rollout.
 
 The shared readiness reducer propagates Catalog failure to AIHub and the existing
 parent DSC aggregation path. A pending attempt has a ten-minute validation/startup
-deadline. A previously successful attempt gets a new ten-minute recovery window
-if its pod encounters a retryable pull or process restart. Successful image import
-alone does not prove workload validation.
+deadline. A previously successful attempt gets a ten-minute recovery window
+when its pod encounters a retryable pull or process restart. Brief returns to
+Ready do not reset that deadline, so repeated restarts eventually fail. Ten
+uninterrupted healthy minutes reset the recovery window for a later fault.
+Successful image import alone does not prove workload validation.
 
 Correcting the selection, a new successful relevant import, or changing the retry
 annotation creates a new attempt. It must pass validation and workload readiness.

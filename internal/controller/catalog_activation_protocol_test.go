@@ -284,6 +284,38 @@ func TestSupersededFailureDoesNotContainNewAttempt(t *testing.T) {
 	}
 }
 
+func TestContainmentReadsCurrentAttemptPastStaleCache(t *testing.T) {
+	ctx := context.Background()
+	r, catalog := readyDataImageCatalog(t)
+	base := r.Client.(client.WithWatch)
+	stale := catalog.DeepCopy()
+	current := catalog.DeepCopy()
+	current.Status.Activation.AttemptID = "newer-attempt"
+	current.Status.Activation.State = "Pending"
+	if err := base.Status().Update(ctx, current); err != nil {
+		t.Fatal(err)
+	}
+	r.Client = interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if cached, ok := obj.(*catalogv1alpha1.Catalog); ok {
+				stale.DeepCopyInto(cached)
+				return nil
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	if err := r.containCatalogImageFailure(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+	deployment := &appsv1.Deployment{}
+	if err := base.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+		t.Fatal(err)
+	}
+	if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+		t.Fatal("stale cached attempt scaled down the deployment")
+	}
+}
+
 func TestFailedAttemptRemainsScaledDownUntilSelectionChanges(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)

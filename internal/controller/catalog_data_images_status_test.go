@@ -471,7 +471,7 @@ func TestCatalogPendingRetryDoesNotResumeAfterImportFailure(t *testing.T) {
 	assertDataImageCondition(t, catalog, conditionImageSelectionReady, metav1.ConditionUnknown, "AwaitingSuccessfulImport")
 	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
 	// Persisted conditions preserve this behavior over reconciler restarts.
-	r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
+	r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
 	checkReplicas(0)
 	if err := r.Get(ctx, streamKey, stream); err != nil {
 		t.Fatal(err)

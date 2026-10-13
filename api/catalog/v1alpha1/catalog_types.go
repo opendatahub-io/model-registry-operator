@@ -171,8 +171,13 @@ type CatalogActivationStatus struct {
 	// +kubebuilder:validation:MaxLength=128
 	Reason string `json:"reason"`
 	// +kubebuilder:validation:MaxLength=512
-	Message   string      `json:"message"`
+	Message string `json:"message"`
+	// StartedAt begins the current activation or recovery deadline.
 	StartedAt metav1.Time `json:"startedAt"`
+	// RecoveredAt records when a retrying workload most recently became ready.
+	// A recovery window resets only after ten uninterrupted healthy minutes.
+	// +optional
+	RecoveredAt *metav1.Time `json:"recoveredAt,omitempty"`
 	// +optional
 	LastSuccessful *CatalogActivationSuccess `json:"lastSuccessful,omitempty"`
 }

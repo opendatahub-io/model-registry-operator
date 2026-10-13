@@ -62,7 +62,7 @@ func newDataImageTestReconciler(t *testing.T, catalog *catalogv1alpha1.Catalog, 
 		},
 	})
 	return &CatalogReconciler{
-		Client: withGenerations,
+		Client: withGenerations, APIReader: withGenerations,
 		Scheme: scheme, Template: templates, Recorder: &events.FakeRecorder{}, Log: logr.Discard(),
 		Capabilities: ClusterCapabilities{IsOpenShift: openShift},
 	}
@@ -243,7 +243,7 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 			assertCondition(metav1.ConditionFalse, "InvalidDataImageSelection")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "InvalidDataImageSelection")
 			// Use a fresh reconciler with the same persisted resources.
-			r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
+			r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
 			next := importImage(dataTestDigest2, false, false)
 			assertImages(next, dataTestRepository+"@"+dataTestDigest1)
 			if !reflect.DeepEqual(previous.Spec.Template, next.Spec.Template) {

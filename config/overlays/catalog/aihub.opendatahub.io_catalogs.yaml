@@ -312,6 +312,12 @@ spec:
                   reason:
                     maxLength: 128
                     type: string
+                  recoveredAt:
+                    description: |-
+                      RecoveredAt records when a retrying workload most recently became ready.
+                      A recovery window resets only after ten uninterrupted healthy minutes.
+                    format: date-time
+                    type: string
                   requestHash:
                     maxLength: 64
                     type: string
@@ -346,6 +352,8 @@ spec:
                     maxLength: 32
                     type: string
                   startedAt:
+                    description: StartedAt begins the current activation or recovery
+                      deadline.
                     format: date-time
                     type: string
                   state:

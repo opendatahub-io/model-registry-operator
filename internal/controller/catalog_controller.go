@@ -112,6 +112,7 @@ type HFSource struct {
 // CatalogReconciler reconciles Catalog custom resources.
 type CatalogReconciler struct {
 	client.Client
+	APIReader             client.Reader
 	Scheme                *runtime.Scheme
 	Recorder              events.EventRecorder
 	Log                   logr.Logger
@@ -304,7 +305,7 @@ func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, cata
 	// attempt. Recheck the persisted attempt before changing its Deployment.
 	currentAttempt := func() (bool, error) {
 		current := &catalogv1alpha1.Catalog{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
 			return false, fmt.Errorf("reading Catalog attempt for temporary containment: %w", err)
 		}
 		return current.UID == catalog.UID && current.Status.Activation != nil && catalog.Status.Activation != nil &&
@@ -1704,6 +1705,7 @@ func (r *CatalogReconciler) discoverHFSecrets(ctx context.Context, namespace str
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.APIReader = mgr.GetAPIReader()
 	r.templateApplier = &TemplateApplier{
 		Template:    r.Template,
 		IsOpenShift: r.Capabilities.IsOpenShift,

@@ -106,14 +106,22 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 		}
 		currentReady = ready
 		if ready {
+			if a.State == "Pending" && a.LastSuccessful != nil && a.LastSuccessful.AttemptID == a.AttemptID {
+				recoveredAt := metav1.Now()
+				a.RecoveredAt = &recoveredAt
+			}
 			a.State, a.Stage, a.Reason, a.Message = "Succeeded", "Activation", "WorkloadValidated", "Selected images passed preflight and the catalog workload is ready"
 			if a.LastSuccessful == nil || a.LastSuccessful.AttemptID != a.AttemptID {
 				a.LastSuccessful = &catalogv1alpha1.CatalogActivationSuccess{CatalogUID: a.CatalogUID, AttemptID: a.AttemptID, Images: a.Images, ActivatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 			}
 		} else if retryableCatalogActivation(failure) {
 			if a.State == "Succeeded" {
-				// A previously healthy pod gets its own recovery window.
-				a.StartedAt = metav1.Now()
+				// Keep the first recovery deadline through brief ready periods.
+				// A sustained healthy period starts a fresh recovery window.
+				if a.RecoveredAt == nil || time.Since(a.RecoveredAt.Time) >= 10*time.Minute {
+					a.StartedAt = metav1.Now()
+				}
+				a.RecoveredAt = nil
 			}
 			a.State, a.Stage, a.Reason = "Pending", failure.Stage, failure.Reason
 			switch failure.Reason {
