@@ -13,6 +13,8 @@ import (
 )
 
 const conditionDataImageActivationFailed = "DataImageActivationFailed"
+const reasonDataImagePullRetrying = "DataImagePullRetrying"
+const reasonCatalogRestarting = "CatalogRestarting"
 
 // catalogActivationFailure is emitted by operator-owned validation components.
 type catalogActivationFailure struct {
@@ -65,16 +67,25 @@ func (r *CatalogReconciler) catalogActivationFailure(ctx context.Context, catalo
 	if err := r.List(ctx, &pods, client.InNamespace(catalog.Namespace), client.MatchingLabels(deployment.Spec.Selector.MatchLabels)); err != nil {
 		return nil, err
 	}
+	var retrying *catalogActivationFailure
 	for _, pod := range pods.Items {
 		if pod.DeletionTimestamp != nil || !matchesCatalogImages(pod.Spec, deployment.Spec.Template.Spec) ||
 			(catalog.Status.Activation != nil && pod.Annotations[activationAttemptAnnotation] != catalog.Status.Activation.AttemptID) {
 			continue
 		}
 		if failure := catalogPodFailure(&pod); failure != nil {
+			if retryableCatalogActivation(failure) {
+				retrying = failure
+				continue
+			}
 			return safeCatalogActivationFailure(failure), nil
 		}
 	}
-	return nil, nil
+	return retrying, nil
+}
+
+func retryableCatalogActivation(observation *catalogActivationFailure) bool {
+	return observation != nil && (observation.Reason == reasonDataImagePullRetrying || observation.Reason == reasonCatalogRestarting)
 }
 
 // Compare both data references and the runtime reference so an old rollout
@@ -108,16 +119,23 @@ func catalogPodFailure(pod *corev1.Pod) *catalogActivationFailure {
 			switch status.State.Waiting.Reason {
 			case "CreateContainerConfigError", "CreateContainerError", "RunContainerError":
 				return &catalogActivationFailure{Stage: "Initialization", Reason: "CatalogContainerFailed"}
-			case "ErrImagePull", "ImagePullBackOff", "InvalidImageName":
+			case "ErrImagePull", "ImagePullBackOff":
+				return &catalogActivationFailure{Stage: "Pull", Reason: reasonDataImagePullRetrying}
+			case "InvalidImageName":
 				return &catalogActivationFailure{Stage: "Pull", Reason: "DataImagePullFailed"}
 			}
 		}
 		terminated := status.State.Terminated
-		if terminated == nil {
+		if terminated == nil && status.State.Waiting != nil && status.State.Waiting.Reason == "CrashLoopBackOff" {
 			terminated = status.LastTerminationState.Terminated
 		}
 		if terminated == nil || terminated.ExitCode == 0 {
 			return nil
+		}
+		// The catalog process can restart after a probe failure or OOM. Give a
+		// current attempt time to recover rather than latching a prior exit.
+		if !init {
+			return &catalogActivationFailure{Stage: "Activation", Reason: reasonCatalogRestarting}
 		}
 		if init && status.Name != "catalog-content-validation" {
 			return &catalogActivationFailure{Stage: "Initialization", Reason: "DataImageInitializationFailed"}

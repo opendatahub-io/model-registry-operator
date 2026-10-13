@@ -18,8 +18,9 @@ There is no companion runtime change or additional HTTP proxy to ship.
    or explicit retry token change. Repeated imports of an unchanged healthy pair
    preserve the attempt.
 3. Use a `Recreate` deployment so the old catalog writer stops before the new
-   pair starts. Both copy init containers must succeed. Benchmark copy errors
-   are not suppressed. Older release images lack the serving-runtime catalog;
+   pair starts. Both copy init containers must succeed. The benchmark image must
+   contain `/app/benchmarks`, but that directory may be empty. Older release
+   images lack the serving-runtime catalog;
    for an empty Catalog image selection, the copy init container supplies an
    empty serving-runtime list when that file is absent. Explicitly selected
    images must contain the file and fail preflight when it is missing.
@@ -51,24 +52,33 @@ empty types use the runtime's legacy model-artifact default and still require a
 valid URI. Unknown types and non-string values fail preflight with
 `CatalogContentInvalid`; metrics artifacts do not require a URI.
 
-Benchmark checks require metadata, unique case-insensitive model IDs, and JSON
-object records in known NDJSON files. Record fields are interpreted by the runtime
-using the adjacent model metadata. This is a structural file check,
+An empty benchmark directory is valid, and individual models may have no
+benchmark records. When present, benchmark checks require unique
+case-insensitive model IDs in metadata and JSON object records in known NDJSON
+files. Records require adjacent model metadata and are interpreted by the runtime
+using it. This is a structural file check,
 not a duplicate implementation of every catalog business rule or a PostgreSQL
 connectivity check. Existing runtime validation remains responsible for ingestion
 semantics.
 
 ## Failure and recovery
 
-The controller observes pull, copy, validator, and catalog startup failures. It
-persists failure, emits a deduplicated Warning, makes Catalog unready, and scales
-the deployment to zero. A recorded failure is not cleared by deletion of its pod,
-replacement containers, old ready endpoints, or controller restart. Failed attempts
-remain scaled down across reconciliation; there is no automatic fallback rollout.
+The controller observes pull, copy, validator, and catalog startup failures.
+Kubernetes keeps retrying `ErrImagePull` and `ImagePullBackOff` during the
+activation deadline. A catalog process restart can also recover; a prior
+termination does not fail a running, ready container. An invalid image name,
+copy or validation error, failed pod, or exhausted retry deadline records a
+failure, emits a deduplicated Warning, makes Catalog unready, and scales the
+deployment to zero. A recorded failure is not cleared by deletion of its pod,
+replacement containers, old ready endpoints, or controller restart. Failed
+attempts remain scaled down across reconciliation; there is no automatic
+fallback rollout.
 
 The shared readiness reducer propagates Catalog failure to AIHub and the existing
 parent DSC aggregation path. A pending attempt has a ten-minute validation/startup
-deadline. Successful image import alone does not prove workload validation.
+deadline. A previously successful attempt gets a new ten-minute recovery window
+if its pod encounters a retryable pull or process restart. Successful image import
+alone does not prove workload validation.
 
 Correcting the selection, a new successful relevant import, or changing the retry
 annotation creates a new attempt. It must pass validation and workload readiness.

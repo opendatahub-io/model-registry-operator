@@ -88,10 +88,7 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 		return nil
 	}
 	currentReady := false
-	if failure != nil && a.State != "Failed" {
-		safe := safeCatalogActivationFailure(failure)
-		a.State, a.Stage, a.Reason, a.Message = "Failed", safe.Stage, safe.Reason, safe.Message
-	} else if a.State == "Failed" {
+	if a.State == "Failed" {
 		// Normalize persisted failures from earlier operator versions as well.
 		if a.Stage == "Import" || a.Stage == "Selection" {
 			a.Message = "Selected images could not be resolved; inspect the Catalog image resolution conditions and correct the selection or import source"
@@ -99,7 +96,10 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 			safe := safeCatalogActivationFailure(&catalogActivationFailure{Reason: a.Reason})
 			a.Stage, a.Reason, a.Message = safe.Stage, safe.Reason, safe.Message
 		}
-	} else if a.State != "Failed" {
+	} else if failure != nil && !retryableCatalogActivation(failure) {
+		safe := safeCatalogActivationFailure(failure)
+		a.State, a.Stage, a.Reason, a.Message = "Failed", safe.Stage, safe.Reason, safe.Message
+	} else {
 		ready, err := r.validatedCatalogWorkload(ctx, catalog)
 		if err != nil {
 			return err
@@ -109,6 +109,26 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 			a.State, a.Stage, a.Reason, a.Message = "Succeeded", "Activation", "WorkloadValidated", "Selected images passed preflight and the catalog workload is ready"
 			if a.LastSuccessful == nil || a.LastSuccessful.AttemptID != a.AttemptID {
 				a.LastSuccessful = &catalogv1alpha1.CatalogActivationSuccess{CatalogUID: a.CatalogUID, AttemptID: a.AttemptID, Images: a.Images, ActivatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+			}
+		} else if retryableCatalogActivation(failure) {
+			if a.State == "Succeeded" {
+				// A previously healthy pod gets its own recovery window.
+				a.StartedAt = metav1.Now()
+			}
+			a.State, a.Stage, a.Reason = "Pending", failure.Stage, failure.Reason
+			switch failure.Reason {
+			case reasonDataImagePullRetrying:
+				a.Message = "Kubernetes is retrying a selected image pull"
+			case reasonCatalogRestarting:
+				a.Message = "Catalog process restarted; waiting for a ready workload"
+			}
+			if time.Since(a.StartedAt.Time) > 10*time.Minute {
+				reason := "CatalogStartupFailed"
+				if failure.Reason == reasonDataImagePullRetrying {
+					reason = "DataImagePullFailed"
+				}
+				safe := safeCatalogActivationFailure(&catalogActivationFailure{Reason: reason})
+				a.State, a.Stage, a.Reason, a.Message = "Failed", safe.Stage, safe.Reason, safe.Message
 			}
 		} else if time.Since(a.StartedAt.Time) > 10*time.Minute && a.State == "Pending" {
 			a.State, a.Stage, a.Reason, a.Message = "Failed", "Activation", "ActivationTimedOut", "Catalog validation/startup did not complete within ten minutes; correct spec.catalogDataImageStream or spec.benchmarkDataImageStream, or change aihub.opendatahub.io/retry-activation"

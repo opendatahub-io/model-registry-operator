@@ -367,9 +367,6 @@ func validateBenchmarks(root string) error {
 	if err != nil {
 		return err
 	}
-	if len(ids) == 0 {
-		return fmt.Errorf("no benchmark metadata in %s", root)
-	}
 	return nil
 }
 func validateNDJSON(path string) error {

@@ -162,8 +162,28 @@ func TestMissingFilesAndDisabledSources(t *testing.T) {
 	if failure := Validate(path, bench); failure != nil {
 		t.Fatal(failure)
 	}
-	if failure := Validate(path, t.TempDir()); failure == nil || failure.Reason != "BenchmarkContentInvalid" {
-		t.Fatal("accepted empty benchmarks")
+}
+func TestOptionalBenchmarkData(t *testing.T) {
+	root, _ := fixture(t)
+	bench := t.TempDir()
+	sources := filepath.Join(root, "sources.yaml")
+	if failure := Validate(sources, bench); failure != nil {
+		t.Fatalf("rejected image without benchmark data: %+v", failure)
+	}
+	model := filepath.Join(bench, "model-without-metrics")
+	if err := os.Mkdir(model, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(model, "performance.ndjson"), `{}`)
+	if failure := Validate(sources, bench); failure == nil || failure.Reason != "BenchmarkContentInvalid" {
+		t.Fatalf("accepted benchmark records without adjacent metadata: %+v", failure)
+	}
+	if err := os.Remove(filepath.Join(model, "performance.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(model, "metadata.json"), `{"id":"model-without-metrics"}`)
+	if failure := Validate(sources, bench); failure != nil {
+		t.Fatalf("rejected model without metric records: %+v", failure)
 	}
 }
 func TestTerminationMessageIsBounded(t *testing.T) {

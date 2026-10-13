@@ -710,7 +710,7 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 	if a := catalog.Status.Activation; a != nil && a.State == "Failed" {
 		failure = &catalogActivationFailure{Stage: a.Stage, Reason: a.Reason, Message: a.Message}
 	}
-	if statusErr == nil && failure != nil && r.Recorder != nil {
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" && failure != nil && r.Recorder != nil {
 		previous := apimeta.FindStatusCondition(before.Status.Conditions, conditionDataImageActivationFailed)
 		if previous == nil || previous.Status != metav1.ConditionTrue || previous.Reason != failure.Reason || previous.Message != failure.Message {
 			var eventMessage string

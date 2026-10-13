@@ -2,8 +2,12 @@ package controller
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	aihubv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/aihub/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,15 +24,18 @@ func TestCatalogPodFailureStages(t *testing.T) {
 		init                bool
 		status              corev1.ContainerStatus
 	}{
-		{name: "init pull", stage: "Pull", reason: "DataImagePullFailed", init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff", Message: "denied"}}}},
+		{name: "init pull retry", stage: "Pull", reason: reasonDataImagePullRetrying, init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff", Message: "denied"}}}},
+		{name: "initial pull retry", stage: "Pull", reason: reasonDataImagePullRetrying, init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ErrImagePull"}}}},
+		{name: "invalid image name", stage: "Pull", reason: "DataImagePullFailed", init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "InvalidImageName"}}}},
 		{name: "benchmark copy", stage: "Initialization", reason: "DataImageInitializationFailed", init: true, status: corev1.ContainerStatus{Name: "benchmark-data-init", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: "missing benchmarks"}}}},
 		{name: "init crash loop", stage: "Initialization", reason: "DataImageInitializationFailed", init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}}},
 		{name: "required benchmark", init: true, stage: "Loading", reason: "BenchmarkContentInvalid", status: corev1.ContainerStatus{Name: "catalog-content-validation", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: `{"stage":"Loading","reason":"BenchmarkContentInvalid","message":"performance.ndjson line 2: invalid JSON"}`}}}},
 		{name: "required yaml", init: true, stage: "Loading", reason: "CatalogContentInvalid", status: corev1.ContainerStatus{Name: "catalog-content-validation", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: `{"stage":"Loading","reason":"CatalogContentInvalid","message":"missing catalog"}`}}}},
-		{name: "unstructured startup error", stage: "Activation", reason: "CatalogStartupFailed", status: corev1.ContainerStatus{Name: "catalog", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error", Message: "not JSON"}}}},
+		{name: "catalog restarting", stage: "Activation", reason: reasonCatalogRestarting, status: corev1.ContainerStatus{Name: "catalog", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Reason: "Error", Message: "not JSON"}}}},
+		{name: "catalog crash loop", stage: "Activation", reason: reasonCatalogRestarting, status: corev1.ContainerStatus{Name: "catalog", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}}},
 		{name: "creating", init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}}}},
 		{name: "completed init", init: true, status: corev1.ContainerStatus{Name: "catalog-data-init", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}},
-		{name: "running replacement retains previous crash", stage: "Activation", reason: "CatalogStartupFailed", status: corev1.ContainerStatus{Name: "catalog", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}}},
+		{name: "running replacement retains previous crash", status: corev1.ContainerStatus{Name: "catalog", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pod := &corev1.Pod{}
@@ -55,12 +62,116 @@ func TestCatalogPodFailureDoesNotExposeContainerText(t *testing.T) {
 	pod := &corev1.Pod{Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{
 		Name: "catalog-data-init",
 		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
-			Reason: "ImagePullBackOff", Message: "https://user:secret@example.com/data?token=secret",
+			Reason: "InvalidImageName", Message: "https://user:secret@example.com/data?token=secret",
 		}},
 	}}}}
 	failure := safeCatalogActivationFailure(catalogPodFailure(pod))
 	if failure == nil || failure.Reason != "DataImagePullFailed" || strings.Contains(failure.Message, "secret") || len(failure.Message) > 512 {
 		t.Fatalf("unsafe pull failure: %+v", failure)
+	}
+}
+
+func TestCatalogPullRetryRecoveryAndDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		timeout bool
+	}{{name: "recovers"}, {name: "times out", timeout: true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			r, catalog := readyDataImageCatalog(t)
+			attempt := catalog.Status.Activation.AttemptID
+			pod := &corev1.Pod{}
+			key := client.ObjectKey{Name: "validated-" + attempt, Namespace: catalog.Namespace}
+			if err := r.Get(ctx, key, pod); err != nil {
+				t.Fatal(err)
+			}
+			pod.Status.InitContainerStatuses = []corev1.ContainerStatus{{Name: "catalog-data-init", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+			pod.Status.ContainerStatuses = nil
+			if err := r.Status().Update(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile := func() {
+				t.Helper()
+				if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+					t.Fatal(err)
+				}
+				if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reconcile()
+			if a := catalog.Status.Activation; a.State != "Pending" || a.Stage != "Pull" || a.Reason != reasonDataImagePullRetrying || a.AttemptID != attempt || time.Since(a.StartedAt.Time) > time.Minute {
+				t.Fatalf("pull retry was not kept pending: %+v", a)
+			}
+			deployment := &appsv1.Deployment{}
+			if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+				t.Fatal(err)
+			}
+			if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+				t.Fatal("transient pull failure scaled down the workload")
+			}
+			if tc.timeout {
+				catalog.Status.Activation.StartedAt = metav1.NewTime(time.Now().Add(-11 * time.Minute))
+				if err := r.Status().Update(ctx, catalog); err != nil {
+					t.Fatal(err)
+				}
+				reconcile()
+				if a := catalog.Status.Activation; a.State != "Failed" || a.Stage != "Pull" || a.Reason != "DataImagePullFailed" {
+					t.Fatalf("persistent pull failure did not fail after the deadline: %+v", a)
+				}
+				if err := r.Get(ctx, client.ObjectKeyFromObject(deployment), deployment); err != nil {
+					t.Fatal(err)
+				}
+				if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 {
+					t.Fatal("timed-out pull did not scale down the workload")
+				}
+				return
+			}
+			pod.Status = validatedPodStatus()
+			if err := r.Status().Update(ctx, pod); err != nil {
+				t.Fatal(err)
+			}
+			reconcile()
+			if a := catalog.Status.Activation; a.State != "Succeeded" || a.Reason != "WorkloadValidated" || a.AttemptID != attempt {
+				t.Fatalf("recovered pull did not restore activation: %+v", a)
+			}
+		})
+	}
+}
+
+func TestCatalogRestartCanRecover(t *testing.T) {
+	ctx := context.Background()
+	r, catalog := readyDataImageCatalog(t)
+	attempt := catalog.Status.Activation.AttemptID
+	pod := &corev1.Pod{}
+	key := client.ObjectKey{Name: "validated-" + attempt, Namespace: catalog.Namespace}
+	if err := r.Get(ctx, key, pod); err != nil {
+		t.Fatal(err)
+	}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "catalog", State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}}}
+	if err := r.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	reconcile := func() {
+		t.Helper()
+		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reconcile()
+	if a := catalog.Status.Activation; a.State != "Pending" || a.Reason != reasonCatalogRestarting || a.AttemptID != attempt {
+		t.Fatalf("catalog restart was not given time to recover: %+v", a)
+	}
+	pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: "catalog", Ready: true, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}, LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 137}}}}
+	if err := r.Status().Update(ctx, pod); err != nil {
+		t.Fatal(err)
+	}
+	reconcile()
+	if a := catalog.Status.Activation; a.State != "Succeeded" || a.Reason != "WorkloadValidated" || a.AttemptID != attempt {
+		t.Fatalf("ready catalog was failed for an earlier termination: %+v", a)
 	}
 }
 
@@ -207,7 +318,7 @@ func TestCatalogDeploymentRequiresContentValidation(t *testing.T) {
 	}
 	for _, container := range deployment.Spec.Template.Spec.InitContainers {
 		if container.Name == "benchmark-data-init" && strings.Contains(strings.Join(container.Command, " "), "|| true") {
-			t.Fatal("required benchmark copy suppresses errors")
+			t.Fatal("benchmark copy suppresses errors")
 		}
 		if container.TerminationMessagePolicy != corev1.TerminationMessageReadFile {
 			t.Fatalf("init container %s could expose logs in Pod status", container.Name)
@@ -245,6 +356,76 @@ func TestCatalogDeploymentRequiresContentValidation(t *testing.T) {
 				t.Fatal("runtime must be operator agnostic")
 			}
 		}
+	}
+}
+
+func TestBenchmarkCopyRequiresDirectoryButAllowsEmptyData(t *testing.T) {
+	r, catalog := readyDataImageCatalog(t)
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+		t.Fatal(err)
+	}
+	command := ""
+	for _, container := range deployment.Spec.Template.Spec.InitContainers {
+		if container.Name == "benchmark-data-init" {
+			if len(container.Command) != 3 || container.Command[0] != "/bin/sh" || container.Command[1] != "-c" {
+				t.Fatalf("unexpected benchmark copy command: %v", container.Command)
+			}
+			command = container.Command[2]
+		}
+	}
+	if command == "" {
+		t.Fatal("missing benchmark copy command")
+	}
+	for _, tc := range []struct {
+		name       string
+		prepare    func(t *testing.T, source string)
+		wantError  bool
+		wantCopied bool
+	}{
+		{name: "no benchmark directory", wantError: true},
+		{name: "empty benchmark directory", prepare: func(t *testing.T, source string) {
+			if err := os.Mkdir(source, 0700); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "benchmark content", prepare: func(t *testing.T, source string) {
+			if err := os.Mkdir(source, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "metadata.json"), []byte(`{"id":"model"}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}, wantCopied: true},
+		{name: "invalid benchmark path", prepare: func(t *testing.T, source string) {
+			if err := os.WriteFile(source, []byte("not a directory"), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "benchmarks")
+			destination := filepath.Join(root, "shared")
+			if err := os.Mkdir(destination, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if tc.prepare != nil {
+				tc.prepare(t, source)
+			}
+			script := strings.ReplaceAll(command, "/app/benchmarks", `"${BENCHMARK_SOURCE}"`)
+			script = strings.ReplaceAll(script, "/shared-benchmark-data", `"${BENCHMARK_DESTINATION}"`)
+			cmd := exec.Command("/bin/sh", "-c", script)
+			cmd.Env = append(os.Environ(), "BENCHMARK_SOURCE="+source, "BENCHMARK_DESTINATION="+destination)
+			output, err := cmd.CombinedOutput()
+			if (err != nil) != tc.wantError {
+				t.Fatalf("copy error = %v, output = %q, want error = %t", err, output, tc.wantError)
+			}
+			_, err = os.Stat(filepath.Join(destination, "metadata.json"))
+			if (err == nil) != tc.wantCopied {
+				t.Fatalf("metadata copied = %t, want %t", err == nil, tc.wantCopied)
+			}
+		})
 	}
 }
 
