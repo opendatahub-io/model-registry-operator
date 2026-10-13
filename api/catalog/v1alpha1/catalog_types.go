@@ -120,8 +120,11 @@ type CatalogDataImages struct {
 
 // CatalogStatus defines the observed state of Catalog.
 type CatalogStatus struct {
+	// Activation persists the current attempt and the last successfully validated workload.
+	// +optional
+	Activation *CatalogActivationStatus `json:"activation,omitempty"`
 	// Conditions represent the latest available observations of the Catalog's state.
-	// Ready and Available require current image resolution and workload health.
+	// Ready and Available require current image resolution, validated workload, and workload health.
 	// WorkloadAvailable tracks deployment health independently of image selection.
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
@@ -135,6 +138,29 @@ type CatalogStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// CatalogActivationSuccess is recovery metadata, never serving authorization.
+type CatalogActivationSuccess struct {
+	CatalogUID  string            `json:"catalogUID"`
+	AttemptID   string            `json:"attemptID"`
+	Images      CatalogDataImages `json:"images"`
+	ActivatedAt string            `json:"activatedAt"`
+}
+
+type CatalogActivationStatus struct {
+	CatalogUID      string            `json:"catalogUID"`
+	AttemptID       string            `json:"attemptID"`
+	RequestHash     string            `json:"requestHash"`
+	RequestedImages CatalogDataImages `json:"requestedImages"`
+	Images          CatalogDataImages `json:"images"`
+	State           string            `json:"state"`
+	Stage           string            `json:"stage"`
+	Reason          string            `json:"reason"`
+	Message         string            `json:"message"`
+	StartedAt       metav1.Time       `json:"startedAt"`
+	// +optional
+	LastSuccessful *CatalogActivationSuccess `json:"lastSuccessful,omitempty"`
 }
 
 //+kubebuilder:object:root=true

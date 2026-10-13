@@ -12,8 +12,10 @@ metadata:
     app.kubernetes.io/part-of: model-catalog
     app.kubernetes.io/managed-by: model-registry-operator
 spec:
-  replicas: 1
+  replicas: {{if .ActivationBlocked}}0{{else}}1{{end}}
   revisionHistoryLimit: 0
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{.Name}}
@@ -26,6 +28,7 @@ spec:
         component: model-catalog
         app.kubernetes.io/name: {{.Name}}
       annotations:
+        aihub.opendatahub.io/activation-attempt: "{{.ActivationAttempt}}"
         openshift.io/required-scc: restricted-v2
         {{- if .PostgresSecretHash}}
         modelregistry.opendatahub.io/postgres-secret-hash: "{{.PostgresSecretHash}}"
@@ -80,6 +83,7 @@ spec:
             - /bin/sh
             - -c
             - cp /app/data/*.yaml /shared-data/
+          terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data
@@ -93,7 +97,8 @@ spec:
           command:
             - /bin/sh
             - -c
-            - cp -r /app/benchmarks/* /shared-benchmark-data/ || true
+            - cp -r /app/benchmarks/. /shared-benchmark-data/
+          terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
             - name: benchmark-data
               mountPath: /shared-benchmark-data
@@ -102,6 +107,24 @@ spec:
             capabilities:
               drop:
                 - ALL
+        - name: catalog-content-validation
+          image: {{.OperatorImage}}
+          command: [/manager, catalog-content-validate]
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+          - name: default-sources
+            mountPath: /data/default-sources
+            readOnly: true
+          - name: catalog-data
+            mountPath: /shared-data
+            readOnly: true
+          - name: benchmark-data
+            mountPath: /shared-benchmark-data
+            readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
       containers:
         - name: catalog
           command:

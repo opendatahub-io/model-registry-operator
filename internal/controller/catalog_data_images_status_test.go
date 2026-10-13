@@ -30,6 +30,27 @@ func assertDataImageCondition(t *testing.T, catalog *catalogv1alpha1.Catalog, co
 	}
 }
 
+// markCatalogValidationReady supplies Kubernetes validator/workload evidence.
+func markCatalogValidationReady(t *testing.T, r *CatalogReconciler, catalog *catalogv1alpha1.Catalog) {
+	t.Helper()
+	ctx := context.Background()
+	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+		t.Fatal(err)
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "validated-" + catalog.Status.Activation.AttemptID, Namespace: catalog.Namespace, Labels: deployment.Spec.Template.Labels, Annotations: deployment.Spec.Template.Annotations}, Spec: deployment.Spec.Template.Spec}
+	pod.Status = validatedPodStatus()
+	if err := r.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
+		t.Fatal(err)
+	}
+}
+func validatedPodStatus() corev1.PodStatus {
+	return corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{Name: "catalog-content-validation", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}}, ContainerStatuses: []corev1.ContainerStatus{{Name: "catalog", Ready: true}}}
+}
+
 // Seed a ready Catalog so image import faults can be tested independently of
 // workload readiness. The fake API does not run a Deployment or image importer.
 func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.Catalog) {
@@ -68,6 +89,13 @@ func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.C
 		AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}}}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
+	markCatalogValidationReady(t, r, catalog)
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +268,7 @@ func TestCatalogDataImageAPIFailureStatusAndRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, container := range after.Spec.Template.Spec.InitContainers {
-				if container.Image != dataTestRepository+"@"+dataTestDigest2 {
+				if container.Name != "catalog-content-validation" && container.Image != dataTestRepository+"@"+dataTestDigest2 {
 					t.Fatal("recovery must apply the new successful digest")
 				}
 			}

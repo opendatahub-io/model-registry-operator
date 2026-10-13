@@ -144,9 +144,9 @@ is still required to guarantee that old content cannot be served during this per
 | `DataImageResolved`, `DataImageImportHealthy` | Aggregate observations of both images. |
 | `ImageSelectionReady` | Current selection/import outcome. Pending imports are Unknown. |
 | `DataImageUpdateBlocked` | Confirmed selection/import failure or pending retry after failure prevents rollout. |
-| `Degraded` | Confirmed data failure, retained during a pending import retry; cleared by successful resolution. |
+| `Degraded` | Confirmed data failure, retained during a pending import retry; cleared by successful resolution and validation. |
 | `WorkloadAvailable` | Completed rollout for the current image pair plus resource health; it does not establish data activation. |
-| `Ready`, `Available` | Require current successful image resolution and healthy Catalog resources. |
+| `Ready`, `Available` | Require image resolution, current-attempt validation, and healthy Catalog resources. |
 
 A warning Event surfaces new failures. AIHub watches its owned Catalog and includes
 its current readiness in `CatalogDataReady`, alongside child operator availability.
@@ -155,12 +155,13 @@ existing module readiness aggregation propagates this to DSC. A pending first
 import is unready without being treated as a confirmed failure. Once the workload
 is healthy, import changes are handled by watches rather than continuous polling.
 
-Activation-dependent readiness, persisted activation attempts/outcomes, and the
-backend availability gate are deferred until RHOAIENG-97414 supplies the runtime
-integration. This change neither requires a nonexistent activation reporter nor
-fabricates activation success from an import or healthy deployment. The complete
-failure/activation contract still requires content validation, atomic activation,
-and runtime gate enforcement.
+The operator validates shipped YAML and benchmark files in an init container
+before starting the stock catalog server. Persisted attempts, current-pod validation,
+and completed rollout observations control readiness. Confirmed failures scale
+the workload down and remain recorded until a new attempt succeeds. No additional
+HTTP proxy, model-registry flags, report ConfigMaps, or PostgreSQL extensions are
+required. Workload readiness is not a database transaction acknowledgement. See
+[image validation](docs/catalog-image-activation.md) for recovery and scope limits.
 
 Failures from an older ImageStream source generation are ignored after a new
 import has been requested. Manually selected ImageStream sources, import history,

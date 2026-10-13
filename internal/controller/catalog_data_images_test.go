@@ -96,11 +96,11 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 	}
 	assertImages := func(deployment *appsv1.Deployment, want string) {
 		t.Helper()
-		if len(deployment.Spec.Template.Spec.InitContainers) != 2 {
-			t.Fatal("expected both data init containers")
+		if len(deployment.Spec.Template.Spec.InitContainers) != 3 {
+			t.Fatal("expected both data init containers and the validator")
 		}
 		for _, container := range deployment.Spec.Template.Spec.InitContainers {
-			if container.Image != want {
+			if container.Name != "catalog-content-validation" && container.Image != want {
 				t.Fatalf("%s image = %q, want %q", container.Name, container.Image, want)
 			}
 		}

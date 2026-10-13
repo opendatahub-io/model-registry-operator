@@ -79,7 +79,7 @@ func (e *catalogDataImagesUnavailable) Unwrap() error { return e.cause }
 
 // Resolve selections independently. A fault requests deployment containment
 // rather than silently choosing historical imports. Successful resolution
-// permits rollout; runtime activation enforcement is deferred to RHOAIENG-97414.
+// permits candidate rollout; required-content validation precedes workload readiness.
 func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalog *catalogv1alpha1.Catalog, params *CatalogParams) error {
 	sources := catalogDataImageSources()
 	targets := []struct {
@@ -137,6 +137,13 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			streams[target.streamName] = stream
 		}
 		importHealth := catalogDataImageImportHealth(stream)
+		params.ImageImportEvidence += string(stream.UID) + ":" + target.name + ":" + string(importHealth.Status)
+		for _, tag := range stream.Spec.Tags {
+			if tag.Name == catalogDataImageStreamTag && tag.Generation != nil {
+				params.ImageImportEvidence += fmt.Sprint(*tag.Generation)
+			}
+		}
+
 		health(importHealth.Status, importHealth.Reason, importHealth.Message)
 		if importHealth.Status == metav1.ConditionFalse {
 			resolved(metav1.ConditionFalse, importHealth.Reason, "The requested import is unusable; Catalog readiness is false and deployment containment is requested. "+importHealth.Message)
@@ -172,6 +179,12 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 	var images *catalogv1alpha1.CatalogDataImages
 	if apimeta.IsStatusConditionTrue(catalog.Status.Conditions, conditionDataImageResolved) {
 		images = &catalogv1alpha1.CatalogDataImages{Catalog: params.CatalogDataImage, Benchmark: params.BenchmarkDataImage}
+		if a := catalog.Status.Activation; a != nil && a.RequestedImages == *images {
+			// Preserve pull-resolved release digests without rewriting the raw
+			// request fingerprint or invalidating unchanged workload readiness.
+			pinned := a.Images
+			images = &pinned
+		}
 	}
 	if !reflect.DeepEqual(catalog.Status.ResolvedImages, images) {
 		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionFalse, "ImagesUpdating", "Waiting for the workload rollout for the current catalog and benchmark images")

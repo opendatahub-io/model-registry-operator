@@ -52,6 +52,7 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 			importImage(BenchmarkDataImageStreamName, benchmarkRepository, dataTestDigest1)
 			reconcile()
 			markDataImageWorkloadReady(t, r, catalog)
+			markCatalogValidationReady(t, r, catalog)
 			reconcile()
 			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionTrue, ReasonDeploymentAvailable)
 			generation := catalog.Generation
@@ -74,7 +75,7 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 						if err := c.Get(ctx, request.NamespacedName, current); err != nil {
 							return err
 						}
-						assertDataImageCondition(t, current, conditionCatalogReady, metav1.ConditionFalse, "ImagesUpdating")
+						assertDataImageCondition(t, current, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 						if current.Status.ResolvedImages == nil || *current.Status.ResolvedImages != want {
 							t.Fatal("current image pair was not persisted before applying the deployment")
 						}
@@ -88,12 +89,13 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 			if !checkedBeforeApply || catalog.Generation != generation {
 				t.Fatal("scheduled import did not invalidate readiness independently of the Catalog generation")
 			}
-			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, ReasonDeploymentUnavailable)
+			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 			// Persisted intent also protects against reusing old status after restart.
 			r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
 			reconcile()
-			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, ReasonDeploymentUnavailable)
+			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
+			markCatalogValidationReady(t, r, catalog)
 			deployment := &appsv1.Deployment{}
 			deploymentKey := client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}
 			for _, incomplete := range []string{"not updated", "not ready", "not available", "old replicas remain", "complete"} {
@@ -115,7 +117,7 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 					t.Fatal(err)
 				}
 				reconcile()
-				status, reason := metav1.ConditionFalse, ReasonDeploymentUnavailable
+				status, reason := metav1.ConditionFalse, "ActivationPending"
 				if incomplete == "complete" {
 					status, reason = metav1.ConditionTrue, ReasonDeploymentAvailable
 				}
