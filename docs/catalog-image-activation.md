@@ -23,7 +23,9 @@ There is no companion runtime change or additional HTTP proxy to ship.
 4. Run `/manager catalog-content-validate` from the operator image as a third init
    container. It reads shipped source YAML and benchmark files before the catalog
    process starts. It makes no database or Kubernetes API calls. On failure, it
-   writes a bounded JSON termination message for controller diagnostics.
+   writes a bounded JSON termination message with a stage, reason, and safe
+   summary. Raw source data and container output are not copied into Catalog
+   status or Warning events.
 5. Start the unchanged catalog with its existing listener, catalogs-path,
    performance-metrics, PostgreSQL settings, and readiness probe. Administrator
    source ConfigMaps remain mounted and preserved.

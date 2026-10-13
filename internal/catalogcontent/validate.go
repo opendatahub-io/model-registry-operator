@@ -25,12 +25,20 @@ type Failure struct {
 	Message string `json:"message"`
 }
 
-func (f *Failure) Error() string { return f.Stage + ": " + f.Reason + ": " + f.Message }
+func (f *Failure) Error() string { return f.Stage + ": " + f.Reason + ": " + f.publicMessage() }
+
+// Shipped content and container output can contain credentials. Keep detailed
+// validation errors in process memory, not in pod logs or termination status.
+func (f *Failure) publicMessage() string {
+	if f.Reason == "BenchmarkContentInvalid" {
+		return "Shipped benchmark content failed validation"
+	}
+	return "Shipped catalog content failed validation"
+}
+
 func (f *Failure) Write(path string) error {
 	bounded := *f
-	if text := []rune(bounded.Message); len(text) > 512 {
-		bounded.Message = string(text[:512])
-	}
+	bounded.Message = f.publicMessage()
 	data, err := json.Marshal(bounded)
 	if err != nil {
 		return err
@@ -74,20 +82,31 @@ func (c Config) groups() []sourceGroup {
 	return []sourceGroup{{"models", models}, {"mcp_servers", c.MCP}, {"agents", c.Agents}, {"serving_runtimes", c.Runtimes}, {"skills", c.Skills}}
 }
 
-const maxYAMLBytes = 32 << 20
+const (
+	maxYAMLBytes         = 32 << 20
+	maxNDJSONRecordBytes = 16 << 20
+)
 
-func readYAML(path string, target any) error {
+func readBoundedFile(path string, maxBytes int64) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, maxYAMLBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+	}
+	return data, nil
+}
+
+func readYAML(path string, target any) error {
+	data, err := readBoundedFile(path, maxYAMLBytes)
 	if err != nil {
 		return err
-	}
-	if len(data) > maxYAMLBytes {
-		return fmt.Errorf("%s exceeds %d bytes", path, maxYAMLBytes)
 	}
 	reader := yamlutil.NewYAMLReader(bufio.NewReader(bytes.NewReader(data)))
 	if _, err := reader.Read(); err != nil {
@@ -244,7 +263,7 @@ func validateEntry(kind string, entry map[string]json.RawMessage, seen map[strin
 			uri := stringField(artifact, "uri")
 			parsed, err := url.Parse(uri)
 			if err != nil || parsed == nil || !slices.Contains([]string{"oci", "http", "https", "s3", "gs", "az", "file"}, parsed.Scheme) {
-				return fmt.Errorf("invalid artifact URI %q", uri)
+				return fmt.Errorf("invalid artifact URI")
 			}
 		}
 	}
@@ -322,7 +341,7 @@ func validateBenchmarks(root string) error {
 		}
 		switch entry.Name() {
 		case "metadata.json":
-			data, err := os.ReadFile(path)
+			data, err := readBoundedFile(path, maxYAMLBytes)
 			if err != nil {
 				return err
 			}
@@ -360,6 +379,7 @@ func validateNDJSON(path string) error {
 	}
 	defer func() { _ = f.Close() }()
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxNDJSONRecordBytes)
 	for line := 1; scanner.Scan(); line++ {
 		if strings.TrimSpace(scanner.Text()) == "" {
 			continue

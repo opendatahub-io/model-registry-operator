@@ -396,3 +396,18 @@ func TestLastImportedCatalogDataImage(t *testing.T) {
 		})
 	}
 }
+
+func TestCatalogImageImportEvidenceSeparatesTargets(t *testing.T) {
+	evidence := func(generation int64, nextUID string) string {
+		first := &imagev1.ImageStream{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID("ab")},
+			Spec:       imagev1.ImageStreamSpec{Tags: []imagev1.TagReference{{Name: catalogDataImageStreamTag, Generation: &generation}}},
+		}
+		second := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{UID: types.UID(nextUID)}}
+		return catalogImageImportEvidence(first, "catalog", metav1.ConditionTrue) +
+			catalogImageImportEvidence(second, "benchmark", metav1.ConditionTrue)
+	}
+	if evidence(12, "3") == evidence(1, "23") {
+		t.Fatal("different import evidence tuples produced the same fingerprint input")
+	}
+}

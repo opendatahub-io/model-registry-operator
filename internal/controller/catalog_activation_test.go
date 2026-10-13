@@ -51,6 +51,19 @@ func TestCatalogPodFailureStages(t *testing.T) {
 	}
 }
 
+func TestCatalogPodFailureDoesNotExposeContainerText(t *testing.T) {
+	pod := &corev1.Pod{Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{
+		Name: "catalog-data-init",
+		State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+			Reason: "ImagePullBackOff", Message: "https://user:secret@example.com/data?token=secret",
+		}},
+	}}}}
+	failure := safeCatalogActivationFailure(catalogPodFailure(pod))
+	if failure == nil || failure.Reason != "DataImagePullFailed" || strings.Contains(failure.Message, "secret") || len(failure.Message) > 512 {
+		t.Fatalf("unsafe pull failure: %+v", failure)
+	}
+}
+
 func TestCatalogActivationFailureStatusEventsAndPersistence(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)
@@ -61,7 +74,7 @@ func TestCatalogActivationFailureStatusEventsAndPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "candidate", Namespace: catalog.Namespace, Labels: deployment.Spec.Template.Labels, Annotations: deployment.Spec.Template.Annotations}, Spec: deployment.Spec.Template.Spec,
-		Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{Name: "catalog-content-validation", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: `{"stage":"Loading","reason":"BenchmarkContentInvalid","message":"broken benchmark content"}`}}}}}}
+		Status: corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{Name: "catalog-content-validation", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 1, Message: `{"stage":"Loading","reason":"BenchmarkContentInvalid","message":"https://user:secret@example.com/data?token=secret"}`}}}}}}
 	if err := r.Create(ctx, pod); err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +93,17 @@ func TestCatalogActivationFailureStatusEventsAndPersistence(t *testing.T) {
 	assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "BenchmarkContentInvalid")
 	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "BenchmarkContentInvalid")
 	assertDataImageCondition(t, catalog, conditionDataImageActivationFailed, metav1.ConditionTrue, "BenchmarkContentInvalid")
+	if catalog.Status.Activation == nil || strings.Contains(catalog.Status.Activation.Message, "secret") {
+		t.Fatalf("activation status exposed validator input: %+v", catalog.Status.Activation)
+	}
+	for _, condition := range catalog.Status.Conditions {
+		if strings.Contains(condition.Message, "secret") {
+			t.Fatalf("Catalog condition %s exposed validator input", condition.Type)
+		}
+	}
 	select {
 	case event := <-recorder.Events:
-		if !strings.Contains(event, "BenchmarkContentInvalid") || !strings.Contains(event, "Loading") {
+		if !strings.Contains(event, "BenchmarkContentInvalid") || !strings.Contains(event, "Loading") || strings.Contains(event, "secret") {
 			t.Fatalf("unexpected event: %s", event)
 		}
 	default:
@@ -188,6 +209,9 @@ func TestCatalogDeploymentRequiresContentValidation(t *testing.T) {
 		if container.Name == "benchmark-data-init" && strings.Contains(strings.Join(container.Command, " "), "|| true") {
 			t.Fatal("required benchmark copy suppresses errors")
 		}
+		if container.TerminationMessagePolicy != corev1.TerminationMessageReadFile {
+			t.Fatalf("init container %s could expose logs in Pod status", container.Name)
+		}
 	}
 	if deployment.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
 		t.Fatal("image updates must drain the old writer")
@@ -196,6 +220,10 @@ func TestCatalogDeploymentRequiresContentValidation(t *testing.T) {
 	for _, container := range deployment.Spec.Template.Spec.InitContainers {
 		if container.Name == "catalog-content-validation" {
 			found = true
+			if container.Resources.Requests.Cpu().Sign() <= 0 || container.Resources.Requests.Memory().Sign() <= 0 ||
+				container.Resources.Limits.Cpu().Sign() <= 0 || container.Resources.Limits.Memory().Sign() <= 0 {
+				t.Fatal("preflight init container needs CPU and memory requests and limits")
+			}
 		}
 	}
 	if !found {

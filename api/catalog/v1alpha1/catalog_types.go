@@ -112,9 +112,11 @@ type CatalogSpec struct {
 type CatalogDataImages struct {
 	// Catalog is the resolved catalog data image reference.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
 	Catalog string `json:"catalog"`
 	// Benchmark is the resolved benchmark data image reference.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
 	Benchmark string `json:"benchmark"`
 }
 
@@ -142,23 +144,35 @@ type CatalogStatus struct {
 
 // CatalogActivationSuccess is recovery metadata, never serving authorization.
 type CatalogActivationSuccess struct {
-	CatalogUID  string            `json:"catalogUID"`
-	AttemptID   string            `json:"attemptID"`
-	Images      CatalogDataImages `json:"images"`
-	ActivatedAt string            `json:"activatedAt"`
+	// +kubebuilder:validation:MaxLength=64
+	CatalogUID string `json:"catalogUID"`
+	// +kubebuilder:validation:MaxLength=64
+	AttemptID string            `json:"attemptID"`
+	Images    CatalogDataImages `json:"images"`
+	// +kubebuilder:validation:MaxLength=64
+	ActivatedAt string `json:"activatedAt"`
 }
 
 type CatalogActivationStatus struct {
-	CatalogUID      string            `json:"catalogUID"`
-	AttemptID       string            `json:"attemptID"`
+	// +kubebuilder:validation:MaxLength=64
+	CatalogUID string `json:"catalogUID"`
+	// +kubebuilder:validation:MaxLength=64
+	AttemptID string `json:"attemptID"`
+	// +kubebuilder:validation:MaxLength=64
 	RequestHash     string            `json:"requestHash"`
 	RequestedImages CatalogDataImages `json:"requestedImages"`
 	Images          CatalogDataImages `json:"images"`
-	State           string            `json:"state"`
-	Stage           string            `json:"stage"`
-	Reason          string            `json:"reason"`
-	Message         string            `json:"message"`
-	StartedAt       metav1.Time       `json:"startedAt"`
+	// +kubebuilder:validation:Enum=Pending;Failed;Succeeded
+	// +kubebuilder:validation:MaxLength=16
+	State string `json:"state"`
+	// +kubebuilder:validation:Enum=Activation;Import;Selection;Loading;Initialization;Pull
+	// +kubebuilder:validation:MaxLength=32
+	Stage string `json:"stage"`
+	// +kubebuilder:validation:MaxLength=128
+	Reason string `json:"reason"`
+	// +kubebuilder:validation:MaxLength=512
+	Message   string      `json:"message"`
+	StartedAt metav1.Time `json:"startedAt"`
 	// +optional
 	LastSuccessful *CatalogActivationSuccess `json:"lastSuccessful,omitempty"`
 }

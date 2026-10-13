@@ -693,7 +693,13 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 	if statusErr == nil && failure != nil && r.Recorder != nil {
 		previous := apimeta.FindStatusCondition(before.Status.Conditions, conditionDataImageActivationFailed)
 		if previous == nil || previous.Status != metav1.ConditionTrue || previous.Reason != failure.Reason || previous.Message != failure.Message {
-			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, failure.Reason, "CatalogActivationFailed", "%s", failure.Message)
+			var eventMessage string
+			if failure.Stage == "Import" || failure.Stage == "Selection" {
+				eventMessage = "Selected images could not be resolved; inspect Catalog image resolution conditions and correct the selection or import source"
+			} else {
+				eventMessage = safeCatalogActivationFailure(failure).Message
+			}
+			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, "CatalogActivationFailed", "CatalogActivationFailed", "%s", eventMessage)
 		}
 	}
 	if catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" {
@@ -1695,7 +1701,8 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
-	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod))
+	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod),
+		builder.WithPredicates(predicate.NewPredicateFuncs(isCatalogPod)))
 
 	if r.Capabilities.IsOpenShift {
 		b = b.Owns(&routev1.Route{})

@@ -137,12 +137,7 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			streams[target.streamName] = stream
 		}
 		importHealth := catalogDataImageImportHealth(stream)
-		params.ImageImportEvidence += string(stream.UID) + ":" + target.name + ":" + string(importHealth.Status)
-		for _, tag := range stream.Spec.Tags {
-			if tag.Name == catalogDataImageStreamTag && tag.Generation != nil {
-				params.ImageImportEvidence += fmt.Sprint(*tag.Generation)
-			}
-		}
+		params.ImageImportEvidence += catalogImageImportEvidence(stream, target.name, importHealth.Status)
 
 		health(importHealth.Status, importHealth.Reason, importHealth.Message)
 		if importHealth.Status == metav1.ConditionFalse {
@@ -214,6 +209,18 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 	setCatalogDataImageCondition(catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed", "Data image updates are allowed")
 	reduceCatalogImageReadiness(catalog)
 	return nil
+}
+
+func catalogImageImportEvidence(stream *imagev1.ImageStream, target string, status metav1.ConditionStatus) string {
+	generation := ""
+	for _, tag := range stream.Spec.Tags {
+		if tag.Name == catalogDataImageStreamTag && tag.Generation != nil {
+			generation = fmt.Sprint(*tag.Generation)
+			break
+		}
+	}
+	// Quoted, terminated fields keep adjacent targets and generations distinct.
+	return fmt.Sprintf("%q:%q:%q:%q;", string(stream.UID), target, string(status), generation)
 }
 
 func aggregateDataImageConditions(catalog *catalogv1alpha1.Catalog, aggregateType, catalogType, benchmarkType string) {

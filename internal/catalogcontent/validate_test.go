@@ -137,7 +137,7 @@ func TestMissingFilesAndDisabledSources(t *testing.T) {
 }
 func TestTerminationMessageIsBounded(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "termination")
-	failure := &Failure{"Loading", "CatalogContentInvalid", strings.Repeat("\x00", 2000)}
+	failure := &Failure{"Loading", "CatalogContentInvalid", "https://user:secret@example.com/model?token=secret" + strings.Repeat("\x00", 2000)}
 	if err := failure.Write(path); err != nil {
 		t.Fatal(err)
 	}
@@ -147,5 +147,34 @@ func TestTerminationMessageIsBounded(t *testing.T) {
 	}
 	if len(data) > 4096 || !json.Valid(data) {
 		t.Fatal("invalid termination message")
+	}
+	if strings.Contains(string(data), "secret") || strings.Contains(failure.Error(), "secret") {
+		t.Fatal("raw validation detail leaked into termination status or process error")
+	}
+}
+
+func TestBenchmarkMetadataReadIsBounded(t *testing.T) {
+	root, bench := fixture(t)
+	if err := os.Truncate(filepath.Join(bench, "metadata.json"), maxYAMLBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	failure := Validate(filepath.Join(root, "sources.yaml"), bench)
+	if failure == nil || failure.Reason != "BenchmarkContentInvalid" || !strings.Contains(failure.Message, "exceeds") {
+		t.Fatalf("oversized metadata was not rejected: %+v", failure)
+	}
+}
+
+func TestBenchmarkNDJSONRecordLimit(t *testing.T) {
+	root, bench := fixture(t)
+	path := filepath.Join(bench, "performance.ndjson")
+	writeFile(t, path, `{"model_id":"model","config_id":"config","details":"`+strings.Repeat("x", 70<<10)+`"}`)
+	if failure := Validate(filepath.Join(root, "sources.yaml"), bench); failure != nil {
+		t.Fatalf("valid record larger than 64 KiB was rejected: %+v", failure)
+	}
+	if err := os.Truncate(path, maxNDJSONRecordBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	if failure := Validate(filepath.Join(root, "sources.yaml"), bench); failure == nil || failure.Reason != "BenchmarkContentInvalid" {
+		t.Fatalf("oversized record was accepted: %+v", failure)
 	}
 }

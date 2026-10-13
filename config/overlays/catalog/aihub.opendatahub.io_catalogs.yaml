@@ -241,8 +241,10 @@ spec:
                   successfully validated workload.
                 properties:
                   attemptID:
+                    maxLength: 64
                     type: string
                   catalogUID:
+                    maxLength: 64
                     type: string
                   images:
                     description: |-
@@ -252,10 +254,12 @@ spec:
                       benchmark:
                         description: Benchmark is the resolved benchmark data image
                           reference.
+                        maxLength: 2048
                         minLength: 1
                         type: string
                       catalog:
                         description: Catalog is the resolved catalog data image reference.
+                        maxLength: 2048
                         minLength: 1
                         type: string
                     required:
@@ -267,10 +271,13 @@ spec:
                       serving authorization.
                     properties:
                       activatedAt:
+                        maxLength: 64
                         type: string
                       attemptID:
+                        maxLength: 64
                         type: string
                       catalogUID:
+                        maxLength: 64
                         type: string
                       images:
                         description: |-
@@ -280,11 +287,13 @@ spec:
                           benchmark:
                             description: Benchmark is the resolved benchmark data
                               image reference.
+                            maxLength: 2048
                             minLength: 1
                             type: string
                           catalog:
                             description: Catalog is the resolved catalog data image
                               reference.
+                            maxLength: 2048
                             minLength: 1
                             type: string
                         required:
@@ -298,10 +307,13 @@ spec:
                     - images
                     type: object
                   message:
+                    maxLength: 512
                     type: string
                   reason:
+                    maxLength: 128
                     type: string
                   requestHash:
+                    maxLength: 64
                     type: string
                   requestedImages:
                     description: |-
@@ -311,10 +323,12 @@ spec:
                       benchmark:
                         description: Benchmark is the resolved benchmark data image
                           reference.
+                        maxLength: 2048
                         minLength: 1
                         type: string
                       catalog:
                         description: Catalog is the resolved catalog data image reference.
+                        maxLength: 2048
                         minLength: 1
                         type: string
                     required:
@@ -322,11 +336,24 @@ spec:
                     - catalog
                     type: object
                   stage:
+                    enum:
+                    - Activation
+                    - Import
+                    - Selection
+                    - Loading
+                    - Initialization
+                    - Pull
+                    maxLength: 32
                     type: string
                   startedAt:
                     format: date-time
                     type: string
                   state:
+                    enum:
+                    - Pending
+                    - Failed
+                    - Succeeded
+                    maxLength: 16
                     type: string
                 required:
                 - attemptID
@@ -413,10 +440,12 @@ spec:
                 properties:
                   benchmark:
                     description: Benchmark is the resolved benchmark data image reference.
+                    maxLength: 2048
                     minLength: 1
                     type: string
                   catalog:
                     description: Catalog is the resolved catalog data image reference.
+                    maxLength: 2048
                     minLength: 1
                     type: string
                 required:

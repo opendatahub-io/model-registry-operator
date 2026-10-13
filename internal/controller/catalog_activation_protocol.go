@@ -56,7 +56,8 @@ func (r *CatalogReconciler) prepareActivation(ctx context.Context, catalog *cata
 		catalog.Status.Activation = a
 	}
 	if resolved.Status != metav1.ConditionTrue {
-		a.State, a.Stage, a.Reason, a.Message = "Pending", "Import", resolved.Reason, resolved.Message
+		a.State, a.Stage, a.Reason, a.Message = "Pending", "Import", resolved.Reason,
+			"Selected images are not ready; inspect the Catalog image resolution conditions and correct the selection or import source"
 		if resolved.Status == metav1.ConditionFalse && resolved.Reason != "NoSuccessfulImport" {
 			a.State = "Failed"
 		}
@@ -85,7 +86,16 @@ func (r *CatalogReconciler) observeActivation(ctx context.Context, catalog *cata
 	}
 	currentReady := false
 	if failure != nil {
-		a.State, a.Stage, a.Reason, a.Message = "Failed", failure.Stage, failure.Reason, failure.Message
+		safe := safeCatalogActivationFailure(failure)
+		a.State, a.Stage, a.Reason, a.Message = "Failed", safe.Stage, safe.Reason, safe.Message
+	} else if a.State == "Failed" {
+		// Normalize persisted failures from earlier operator versions as well.
+		if a.Stage == "Import" || a.Stage == "Selection" {
+			a.Message = "Selected images could not be resolved; inspect the Catalog image resolution conditions and correct the selection or import source"
+		} else {
+			safe := safeCatalogActivationFailure(&catalogActivationFailure{Reason: a.Reason})
+			a.Stage, a.Reason, a.Message = safe.Stage, safe.Reason, safe.Message
+		}
 	} else if a.State != "Failed" {
 		ready, err := r.validatedCatalogWorkload(ctx, catalog)
 		if err != nil {

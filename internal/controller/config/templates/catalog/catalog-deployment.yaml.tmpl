@@ -83,7 +83,7 @@ spec:
             - /bin/sh
             - -c
             - cp /app/data/*.yaml /shared-data/
-          terminationMessagePolicy: FallbackToLogsOnError
+          terminationMessagePolicy: File
           volumeMounts:
             - name: catalog-data
               mountPath: /shared-data
@@ -98,7 +98,7 @@ spec:
             - /bin/sh
             - -c
             - cp -r /app/benchmarks/. /shared-benchmark-data/
-          terminationMessagePolicy: FallbackToLogsOnError
+          terminationMessagePolicy: File
           volumeMounts:
             - name: benchmark-data
               mountPath: /shared-benchmark-data
@@ -110,7 +110,14 @@ spec:
         - name: catalog-content-validation
           image: {{.OperatorImage}}
           command: [/manager, catalog-content-validate]
-          terminationMessagePolicy: FallbackToLogsOnError
+          terminationMessagePolicy: File
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
           volumeMounts:
           - name: default-sources
             mountPath: /data/default-sources

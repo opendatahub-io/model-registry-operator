@@ -21,6 +21,39 @@ type catalogActivationFailure struct {
 	Message string `json:"message"`
 }
 
+// Kubernetes status and termination messages may contain arbitrary container
+// output. Persist and emit only descriptions derived from known failure codes.
+func safeCatalogActivationFailure(failure *catalogActivationFailure) *catalogActivationFailure {
+	if failure == nil {
+		return nil
+	}
+	stage, reason, summary := "Activation", failure.Reason, "Catalog activation failed"
+	switch reason {
+	case "CatalogPodFailed":
+		summary = "Catalog pod failed"
+	case "CatalogContainerFailed":
+		stage, summary = "Initialization", "Catalog container could not start"
+	case "DataImagePullFailed":
+		stage, summary = "Pull", "Selected image could not be pulled"
+	case "DataImageInitializationFailed":
+		stage, summary = "Initialization", "Required data image files could not be copied"
+	case "CatalogContentInvalid":
+		stage, summary = "Loading", "Shipped catalog content failed validation"
+	case "BenchmarkContentInvalid":
+		stage, summary = "Loading", "Shipped benchmark content failed validation"
+	case "ActivationFailed":
+		summary = "Catalog validation failed"
+	case "CatalogStartupFailed":
+		summary = "Catalog process did not start"
+	default:
+		reason = "CatalogStartupFailed"
+	}
+	return &catalogActivationFailure{
+		Stage: stage, Reason: reason,
+		Message: fmt.Sprintf("[%s] %s: %s. Correct spec.catalogDataImageStream or spec.benchmarkDataImageStream and retry the selected images", stage, reason, summary),
+	}
+}
+
 func (r *CatalogReconciler) catalogActivationFailure(ctx context.Context, catalog *catalogv1alpha1.Catalog) (*catalogActivationFailure, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
@@ -36,8 +69,7 @@ func (r *CatalogReconciler) catalogActivationFailure(ctx context.Context, catalo
 			continue
 		}
 		if failure := catalogPodFailure(&pod); failure != nil {
-			failure.Message = fmt.Sprintf("[%s] pod %s: %s. Correct spec.catalogDataImageStream or spec.benchmarkDataImageStream and retry the selected images", failure.Stage, pod.Name, failure.Message)
-			return failure, nil
+			return safeCatalogActivationFailure(failure), nil
 		}
 	}
 	return nil, nil
@@ -67,15 +99,15 @@ func matchesCatalogImages(pod, desired corev1.PodSpec) bool {
 
 func catalogPodFailure(pod *corev1.Pod) *catalogActivationFailure {
 	if pod.Status.Phase == corev1.PodFailed {
-		return &catalogActivationFailure{Stage: "Activation", Reason: "CatalogPodFailed", Message: pod.Status.Reason + ": " + pod.Status.Message}
+		return &catalogActivationFailure{Stage: "Activation", Reason: "CatalogPodFailed"}
 	}
 	check := func(status corev1.ContainerStatus, init bool) *catalogActivationFailure {
 		if status.State.Waiting != nil {
 			switch status.State.Waiting.Reason {
 			case "CreateContainerConfigError", "CreateContainerError", "RunContainerError":
-				return &catalogActivationFailure{Stage: "Initialization", Reason: "CatalogContainerFailed", Message: status.Name + ": " + status.State.Waiting.Reason + ": " + status.State.Waiting.Message}
+				return &catalogActivationFailure{Stage: "Initialization", Reason: "CatalogContainerFailed"}
 			case "ErrImagePull", "ImagePullBackOff", "InvalidImageName":
-				return &catalogActivationFailure{Stage: "Pull", Reason: "DataImagePullFailed", Message: status.Name + ": " + status.State.Waiting.Reason + ": " + status.State.Waiting.Message}
+				return &catalogActivationFailure{Stage: "Pull", Reason: "DataImagePullFailed"}
 			}
 		}
 		terminated := status.State.Terminated
@@ -86,14 +118,14 @@ func catalogPodFailure(pod *corev1.Pod) *catalogActivationFailure {
 			return nil
 		}
 		if init && status.Name != "catalog-content-validation" {
-			return &catalogActivationFailure{Stage: "Initialization", Reason: "DataImageInitializationFailed", Message: fmt.Sprintf("%s exited with code %d: %s", status.Name, terminated.ExitCode, terminated.Message)}
+			return &catalogActivationFailure{Stage: "Initialization", Reason: "DataImageInitializationFailed"}
 		}
 		var report catalogActivationFailure
-		if status.Name == "catalog-content-validation" && json.Unmarshal([]byte(terminated.Message), &report) == nil && (report.Stage == "Loading" || report.Stage == "Activation") && report.Message != "" &&
+		if status.Name == "catalog-content-validation" && json.Unmarshal([]byte(terminated.Message), &report) == nil && (report.Stage == "Loading" || report.Stage == "Activation") &&
 			(report.Reason == "CatalogContentInvalid" || report.Reason == "BenchmarkContentInvalid" || report.Reason == "ActivationFailed") {
-			return &report
+			return &catalogActivationFailure{Stage: report.Stage, Reason: report.Reason}
 		}
-		return &catalogActivationFailure{Stage: "Activation", Reason: "CatalogStartupFailed", Message: fmt.Sprintf("%s exited with code %d: %s", status.Name, terminated.ExitCode, terminated.Reason)}
+		return &catalogActivationFailure{Stage: "Activation", Reason: "CatalogStartupFailed"}
 	}
 	for _, status := range pod.Status.InitContainerStatuses {
 		if status.Name == "catalog-data-init" || status.Name == "benchmark-data-init" || status.Name == "catalog-content-validation" {
@@ -113,7 +145,7 @@ func catalogPodFailure(pod *corev1.Pod) *catalogActivationFailure {
 }
 
 func (r *CatalogReconciler) getCatalogsForPod(ctx context.Context, pod client.Object) []reconcile.Request {
-	if pod.GetLabels()["app"] != catalogResourceName || pod.GetLabels()["component"] != "model-catalog" {
+	if !isCatalogPod(pod) {
 		return nil
 	}
 	var catalogs catalogv1alpha1.CatalogList
@@ -125,4 +157,8 @@ func (r *CatalogReconciler) getCatalogsForPod(ctx context.Context, pod client.Ob
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&catalog)})
 	}
 	return requests
+}
+
+func isCatalogPod(pod client.Object) bool {
+	return pod.GetLabels()["app"] == catalogResourceName && pod.GetLabels()["component"] == catalogResourceName
 }
