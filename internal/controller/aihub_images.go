@@ -31,12 +31,15 @@ var operandImageEnvNames = []string{
 	config.KubeRBACProxyImage,
 	config.CatalogDataImage,
 	config.BenchmarkDataImage,
+	config.CatalogDataImageStreamSource,
+	config.BenchmarkDataImageStreamSource,
 }
 
 // ChildImages holds the images AIHub projects onto its child operator Deployments.
 type ChildImages struct {
 	// OperatorImage is the shared operator image stamped onto each child operator
-	// Deployment's container image field. Empty means "leave the manifest default".
+	// Deployment's container image and self-image environment variable. Empty
+	// uses the rendered manifest's container image for both.
 	OperatorImage string
 
 	// OperandEnv are the env vars stamped on both child operator Deployments.
@@ -54,7 +57,7 @@ type ChildImages struct {
 // ResolveChildImages reads AIHub's own environment via getenv and projects the images
 // and env vars to forward to the child operators. getenv is injected for testability;
 // pass os.Getenv in production. Operand images are an identity passthrough; the shared
-// operator image is the only special case (it targets the child container image field).
+// operator image is the only special case (it targets the child container and self-image environment variable).
 func ResolveChildImages(getenv func(string) string) ChildImages {
 	result := ChildImages{
 		OperatorImage:    getenv(config.ModelRegistryOperatorImage),

@@ -54,6 +54,7 @@ const (
 	ModelRegistryOperatorImage = "RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE"
 	AsyncUploadImage           = "RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE"
 	DefaultAsyncUploadImage    = "quay.io/opendatahub/model-registry-job-async-upload:latest"
+	DefaultOperatorImage       = "quay.io/opendatahub/model-registry-operator:latest"
 	DefaultRestImage           = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage     = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage  = "quay.io/openshift/origin-kube-rbac-proxy:latest"
@@ -65,6 +66,10 @@ const (
 	DefaultIstioIngressName    = "ingressgateway"
 
 	// config env variables
+	// Import sources are independent of the release-pinned bootstrap images.
+	CatalogDataImageStreamSource   = "CATALOG_DATA_IMAGE_STREAM_SOURCE"
+	BenchmarkDataImageStreamSource = "BENCHMARK_DATA_IMAGE_STREAM_SOURCE"
+
 	RegistriesNamespace        = "REGISTRIES_NAMESPACE"
 	EnableWebhooks             = "ENABLE_WEBHOOKS"
 	DefaultDomain              = "DEFAULT_DOMAIN"

@@ -25,6 +25,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 	oapiconfig "github.com/openshift/api/config/v1"
+	imagev1 "github.com/openshift/api/image/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	"github.com/spf13/cobra"
@@ -67,6 +68,13 @@ func catalogCacheOptions(registriesNamespace string) cache.Options {
 			discoveryv1.LabelServiceName: catalogServiceName,
 		}),
 	}
+	podOptions := cache.ByObject{
+		Namespaces: map[string]cache.Config{registriesNamespace: {}},
+		Label: labels.SelectorFromSet(labels.Set{
+			"app":       catalogServiceName,
+			"component": catalogServiceName,
+		}),
+	}
 
 	return cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
@@ -87,6 +95,7 @@ func catalogCacheOptions(registriesNamespace string) cache.Options {
 					registriesNamespace: {},
 				},
 			},
+			&corev1.Pod{}: podOptions,
 		},
 	}
 }
@@ -133,6 +142,12 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 	cacheOptions := catalogCacheOptions(registriesNamespace)
 
 	if capabilities.IsOpenShift {
+		cacheOptions.ByObject[&imagev1.ImageStream{}] = cache.ByObject{
+			Namespaces: map[string]cache.Config{registriesNamespace: {}},
+			Label: labels.SelectorFromSet(labels.Set{
+				"app.kubernetes.io/created-by": "model-registry-operator",
+			}),
+		}
 		cacheOptions.ByObject[&routev1.Route{}] = cache.ByObject{
 			Label: labels.SelectorFromSet(labels.Set{
 				"app.kubernetes.io/created-by": "model-registry-operator",

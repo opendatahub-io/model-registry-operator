@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
+	imagev1 "github.com/openshift/api/image/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -110,6 +112,7 @@ type HFSource struct {
 // CatalogReconciler reconciles Catalog custom resources.
 type CatalogReconciler struct {
 	client.Client
+	APIReader             client.Reader
 	Scheme                *runtime.Scheme
 	Recorder              events.EventRecorder
 	Log                   logr.Logger
@@ -131,6 +134,15 @@ type CatalogParams struct {
 	Namespace               string
 	Component               string
 	PostgresImage           string
+	CatalogDataImage        string
+	ActivationBlocked       bool
+	AllowLegacyRuntimeFile  bool
+	ActivationAttempt       string
+	OperatorImage           string
+	ImageImportEvidence     string
+	BenchmarkDataImage      string
+	DataImageStreamName     string
+	DataImageStreamSource   string
 	PostgresResources       *corev1.ResourceRequirements
 	DatabaseVolumeSizeLimit *resource.Quantity
 	CatalogResources        *corev1.ResourceRequirements
@@ -162,6 +174,9 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		Name:                    catalogResourceName,
 		Namespace:               catalog.Namespace,
 		Component:               catalogResourceName,
+		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		AllowLegacyRuntimeFile:  catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream == "",
+		BenchmarkDataImage:      config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresResources:       catalog.Spec.Resources.Postgres,
 		DatabaseVolumeSizeLimit: catalog.Spec.Database.Volume.SizeLimit,
 		CatalogResources:        catalog.Spec.Resources.Catalog,
@@ -230,18 +245,41 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	statusBefore := catalog.DeepCopy()
 	res, err := r.ensureCatalogResources(ctx, catalog)
+	// ensureCatalogResources persists image observations before changing a workload.
+	// Use that updated resource version for the final optimistic status patch.
+	statusBefore.ResourceVersion = catalog.ResourceVersion
+	var imagesUnavailable *catalogDataImagesUnavailable
+	if errors.As(err, &imagesUnavailable) {
+		blocked := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageUpdateBlocked)
+		stopErr := r.containCatalogImageFailure(ctx, catalog)
+		if stopErr != nil {
+			setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionUnknown, "CatalogContainmentFailed", stopErr.Error())
+		}
+		reduceCatalogImageReadiness(catalog)
+		statusErr := r.patchCatalogStatus(ctx, catalog, statusBefore)
+		resolved := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
+		confirmedFailure := resolved != nil && resolved.Status == metav1.ConditionFalse && resolved.Reason != "NoSuccessfulImport"
+		if statusErr == nil && r.Recorder != nil && confirmedFailure {
+			previous := apimeta.FindStatusCondition(statusBefore.Status.Conditions, conditionDataImageUpdateBlocked)
+			if previous == nil || previous.Status != blocked.Status || previous.Reason != blocked.Reason || previous.Message != blocked.Message {
+				r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, blocked.Reason, "ContainCatalogImageFailure", "%s", blocked.Message)
+			}
+		}
+		return res, errors.Join(imagesUnavailable.cause, stopErr, statusErr)
+	}
 	if err != nil {
-		return r.handleReconcileErrors(ctx, catalog, res, err)
+		return r.handleReconcileErrors(ctx, catalog, statusBefore, res, err)
 	}
 
-	condition, statusErr := r.updateStatus(ctx, catalog)
+	_, statusErr := r.updateStatus(ctx, catalog, statusBefore)
 	if statusErr != nil {
 		log.Error(statusErr, "Failed to update catalog status")
 		return res, statusErr
 	}
 
-	if condition != nil {
+	if condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionWorkloadAvailable); condition != nil {
 		if condition.Reason == ReasonDeploymentCooldown {
 			// Requeue after a fixed delay to avoid exponential backoff.
 			return ctrl.Result{RequeueAfter: time.Second}, nil
@@ -249,11 +287,55 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if condition.Status != metav1.ConditionTrue {
 			// Not yet available for another reason (e.g. deployment still rolling
 			// out) - keep polling until it settles.
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 		}
 	}
 
+	if catalog.Status.Activation != nil && catalog.Status.Activation.State == "Pending" {
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
 	return res, nil
+}
+
+// containCatalogImageFailure requests scale-down as temporary containment.
+// Scale-down is asynchronous; availability follows ordinary Kubernetes endpoint
+// removal and pod termination, without a separate HTTP serving component.
+func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
+	// A status conflict means another reconcile may already own a newer
+	// attempt. Recheck the persisted attempt before changing its Deployment.
+	currentAttempt := func() (bool, error) {
+		current := &catalogv1alpha1.Catalog{}
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
+			return false, fmt.Errorf("reading Catalog attempt for temporary containment: %w", err)
+		}
+		return current.UID == catalog.UID && current.Status.Activation != nil && catalog.Status.Activation != nil &&
+			current.Status.Activation.AttemptID == catalog.Status.Activation.AttemptID &&
+			current.Status.Activation.RequestHash == catalog.Status.Activation.RequestHash, nil
+	}
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
+	}
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("reading Catalog deployment for temporary containment: %w", err)
+	}
+	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas == 0 {
+		return nil
+	}
+	// The Catalog may have advanced while the Deployment was being read.
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
+	}
+	before := deployment.DeepCopy()
+	zero := int32(0)
+	deployment.Spec.Replicas = &zero
+	if err := r.Patch(ctx, deployment, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("requesting Catalog deployment scale-down for temporary containment: %w", err)
+	}
+	return nil
 }
 
 func (r *CatalogReconciler) finalizeCatalog(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
@@ -314,6 +396,19 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	postgresParams := r.createPostgresParams(catalog)
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
+	beforeResolution := catalog.DeepCopy()
+	resolutionErr := r.resolveCatalogDataImages(ctx, catalog, catalogParams)
+	if err := r.prepareActivation(ctx, catalog, catalogParams); err != nil {
+		return ctrl.Result{}, err
+	}
+	// Publish current image observations before applying the workload. A conflict
+	// prevents applying stale selections; reconciliation rereads current intent.
+	if err := r.patchCatalogStatus(ctx, catalog, beforeResolution); err != nil {
+		return ctrl.Result{}, errors.Join(resolutionErr, err)
+	}
+	if resolutionErr != nil {
+		return ctrl.Result{}, resolutionErr
+	}
 
 	result := ResourceUnchanged
 
@@ -561,20 +656,19 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 // handleReconcileErrors marks the Catalog unavailable when its resources, including required
 // NetworkPolicies, fail to reconcile, and returns the original error so the request is retried.
 // The condition clears on the next successful reconcile, when updateStatus runs again.
-func (r *CatalogReconciler) handleReconcileErrors(ctx context.Context, catalog *catalogv1alpha1.Catalog, result ctrl.Result, err error) (ctrl.Result, error) {
+func (r *CatalogReconciler) handleReconcileErrors(ctx context.Context, catalog, before *catalogv1alpha1.Catalog, result ctrl.Result, err error) (ctrl.Result, error) {
 	apimeta.SetStatusCondition(&catalog.Status.Conditions, metav1.Condition{
-		Type:    ConditionTypeAvailable,
-		Status:  metav1.ConditionFalse,
-		Reason:  ReasonResourcesUnavailable,
-		Message: fmt.Sprintf("failed to reconcile catalog resources: %v", err),
+		Type:               conditionWorkloadAvailable,
+		Status:             metav1.ConditionFalse,
+		Reason:             ReasonResourcesUnavailable,
+		Message:            fmt.Sprintf("failed to reconcile catalog resources: %v", err),
+		ObservedGeneration: catalog.Generation,
 	})
-	if statusErr := r.Status().Update(ctx, catalog); statusErr != nil {
-		klog.FromContext(ctx).Error(statusErr, "Failed to update catalog status")
-	}
-	return result, err
+	reduceCatalogImageReadiness(catalog)
+	return result, errors.Join(err, r.patchCatalogStatus(ctx, catalog, before))
 }
 
-func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog *catalogv1alpha1.Catalog) (*metav1.Condition, error) {
+func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *catalogv1alpha1.Catalog) (*metav1.Condition, error) {
 	catalog.Status.ObservedGeneration = catalog.Generation
 
 	depKey := types.NamespacedName{
@@ -582,9 +676,11 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog *catalogv1
 		Namespace: catalog.Namespace,
 	}
 
-	cond, err := r.checkDeploymentAvailability(ctx, depKey, catalogResourceName, catalogResourceName)
+	cond, err := r.checkDeploymentAvailability(ctx, depKey, catalogResourceName, catalogResourceName, catalog.Status.ResolvedImages)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, err
+		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionUnknown, "WorkloadStatusUnknown", err.Error())
+		reduceCatalogImageReadiness(catalog)
+		return nil, errors.Join(err, r.patchCatalogStatus(ctx, catalog, before))
 	}
 	if apierrors.IsNotFound(err) {
 		cond = metav1.Condition{
@@ -595,11 +691,57 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog *catalogv1
 		}
 	}
 
+	cond.ObservedGeneration = catalog.Generation
+	failure, activationErr := r.catalogActivationFailure(ctx, catalog)
+	if activationErr != nil && !apierrors.IsNotFound(activationErr) {
+		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionUnknown, "ActivationStatusUnknown", activationErr.Error())
+		reduceCatalogImageReadiness(catalog)
+		return nil, errors.Join(activationErr, r.patchCatalogStatus(ctx, catalog, before))
+	}
+	if err := r.observeActivation(ctx, catalog, failure); err != nil {
+		setCatalogDataImageCondition(catalog, conditionDataActivationReady, metav1.ConditionFalse, "ActivationStatusUnknown", err.Error())
+		reduceCatalogImageReadiness(catalog)
+		return nil, errors.Join(err, r.patchCatalogStatus(ctx, catalog, before))
+	}
+
+	cond.Type = conditionWorkloadAvailable
 	apimeta.SetStatusCondition(&catalog.Status.Conditions, cond)
-	return &cond, r.Status().Update(ctx, catalog)
+	reduceCatalogImageReadiness(catalog)
+	statusErr := r.patchCatalogStatus(ctx, catalog, before)
+	if a := catalog.Status.Activation; a != nil && a.State == "Failed" {
+		failure = &catalogActivationFailure{Stage: a.Stage, Reason: a.Reason, Message: a.Message}
+	}
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" && failure != nil && r.Recorder != nil {
+		previous := apimeta.FindStatusCondition(before.Status.Conditions, conditionDataImageActivationFailed)
+		if previous == nil || previous.Status != metav1.ConditionTrue || previous.Reason != failure.Reason || previous.Message != failure.Message {
+			var eventMessage string
+			if failure.Stage == "Import" || failure.Stage == "Selection" {
+				eventMessage = "Selected images could not be resolved; inspect Catalog image resolution conditions and correct the selection or import source"
+			} else {
+				eventMessage = safeCatalogActivationFailure(failure).Message
+			}
+			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, "CatalogActivationFailed", "CatalogActivationFailed", "%s", eventMessage)
+		}
+	}
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" {
+		statusErr = errors.Join(statusErr, r.containCatalogImageFailure(ctx, catalog))
+	}
+	return apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable), statusErr
 }
 
-func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
+func (r *CatalogReconciler) patchCatalogStatus(ctx context.Context, catalog, before *catalogv1alpha1.Catalog) error {
+	if reflect.DeepEqual(before.Status, catalog.Status) {
+		return nil
+	}
+	// Guard against publishing observations for a concurrently edited selection.
+	patch := client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})
+	if err := r.Status().Patch(ctx, catalog, patch); err != nil {
+		return fmt.Errorf("updating catalog status: %w", err)
+	}
+	return nil
+}
+
+func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string, images *catalogv1alpha1.CatalogDataImages) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, deployment); err != nil {
 		return metav1.Condition{}, err
@@ -608,6 +750,33 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	condition := metav1.Condition{
 		Type:   ConditionTypeAvailable,
 		Status: metav1.ConditionFalse,
+	}
+	desiredReplicas := int32(1)
+	if deployment.Spec.Replicas != nil {
+		desiredReplicas = *deployment.Spec.Replicas
+	}
+	if desiredReplicas == 0 {
+		condition.Reason, condition.Message = "ScaledDown", "Deployment is scaled to zero replicas"
+		return condition, nil
+	}
+	if images != nil {
+		var catalogImage, benchmarkImage string
+		for _, container := range deployment.Spec.Template.Spec.InitContainers {
+			switch container.Name {
+			case "catalog-data-init":
+				catalogImage = container.Image
+			case "benchmark-data-init":
+				benchmarkImage = container.Image
+			}
+		}
+		if catalogImage != images.Catalog || benchmarkImage != images.Benchmark {
+			condition.Reason, condition.Message = "ImagesUpdating", "Deployment template does not yet contain the current catalog and benchmark images"
+			return condition, nil
+		}
+	}
+	if deployment.Status.ObservedGeneration < deployment.Generation {
+		condition.Reason, condition.Message = ReasonDeploymentUnavailable, "Waiting for the deployment controller to observe the current template"
+		return condition, nil
 	}
 
 	available := false
@@ -640,6 +809,10 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 		}
 	}
 
+	if available && (deployment.Status.UpdatedReplicas != desiredReplicas || deployment.Status.Replicas != desiredReplicas || deployment.Status.ReadyReplicas < desiredReplicas || deployment.Status.AvailableReplicas < desiredReplicas) {
+		available = false
+		condition.Message = fmt.Sprintf("Waiting for rollout completion: desired=%d, replicas=%d, updated=%d, ready=%d, available=%d", desiredReplicas, deployment.Status.Replicas, deployment.Status.UpdatedReplicas, deployment.Status.ReadyReplicas, deployment.Status.AvailableReplicas)
+	}
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
 		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)
@@ -1310,7 +1483,14 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		Namespace               string
 		Spec                    *v1beta1.ModelRegistrySpec
 		CatalogDataImage        string
+		ActivationBlocked       bool
+		AllowLegacyRuntimeFile  bool
+		ActivationAttempt       string
+		OperatorImage           string
 		BenchmarkDataImage      string
+		DataImageStreamName     string
+		DataImageStreamTag      string
+		DataImageStreamSource   string
 		PostgresImage           string
 		PostgresUser            string
 		PostgresDatabase        string
@@ -1328,10 +1508,17 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		HFSecretsHash           string
 	}{
 		Name:                    params.Name,
+		ActivationAttempt:       params.ActivationAttempt,
+		ActivationBlocked:       params.ActivationBlocked,
+		AllowLegacyRuntimeFile:  params.AllowLegacyRuntimeFile,
+		OperatorImage:           config.GetStringConfigWithDefault(config.ModelRegistryOperatorImage, config.DefaultOperatorImage),
 		Namespace:               params.Namespace,
 		Spec:                    defaultSpec,
 		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
 		BenchmarkDataImage:      config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
+		DataImageStreamName:     CatalogDataImageStreamName,
+		DataImageStreamTag:      catalogDataImageStreamTag,
+		DataImageStreamSource:   catalogDataImageSources()[0],
 		PostgresImage:           config.GetStringConfigWithDefault(config.PostgresImage, config.DefaultPostgresImage),
 		PostgresUser:            config.GetStringConfigWithDefault(config.CatalogPostgresUser, config.DefaultCatalogPostgresUser),
 		PostgresDatabase:        config.GetStringConfigWithDefault(config.CatalogPostgresDatabase, config.DefaultCatalogPostgresDatabase),
@@ -1347,6 +1534,18 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		Proxy:                   params.Proxy,
 		HFSources:               params.HFSources,
 		HFSecretsHash:           params.HFSecretsHash,
+	}
+	if params.CatalogDataImage != "" {
+		catalogParams.CatalogDataImage = params.CatalogDataImage
+	}
+	if params.BenchmarkDataImage != "" {
+		catalogParams.BenchmarkDataImage = params.BenchmarkDataImage
+	}
+	if params.DataImageStreamName != "" {
+		catalogParams.DataImageStreamName = params.DataImageStreamName
+	}
+	if params.DataImageStreamSource != "" {
+		catalogParams.DataImageStreamSource = params.DataImageStreamSource
 	}
 
 	return r.templateApplier.Apply(catalogParams, templateName, object)
@@ -1506,6 +1705,7 @@ func (r *CatalogReconciler) discoverHFSecrets(ctx context.Context, namespace str
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.APIReader = mgr.GetAPIReader()
 	r.templateApplier = &TemplateApplier{
 		Template:    r.Template,
 		IsOpenShift: r.Capabilities.IsOpenShift,
@@ -1525,9 +1725,12 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
+	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod),
+		builder.WithPredicates(predicate.NewPredicateFuncs(isCatalogPod)))
 
 	if r.Capabilities.IsOpenShift {
 		b = b.Owns(&routev1.Route{})
+		b = b.Watches(&imagev1.ImageStream{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForDataImageStream))
 	}
 
 	catalogSourceLabels, err := predicate.LabelSelectorPredicate(metav1.LabelSelector{

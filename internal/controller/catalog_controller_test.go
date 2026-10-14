@@ -72,11 +72,12 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 
 			catalogReconciler = &CatalogReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Recorder: &events.FakeRecorder{},
-				Log:      ctrl.Log.WithName("catalog-controller"),
-				Template: template,
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  &events.FakeRecorder{},
+				Log:       ctrl.Log.WithName("catalog-controller"),
+				Template:  template,
 				Capabilities: ClusterCapabilities{
 					IsOpenShift:  false,
 					HasUserAPI:   false,
@@ -1248,14 +1249,11 @@ labels:
 			Expect(initialCM.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
 
 			// envtest has no Deployment or EndpointSlice controller. Mark the deployment
-			// available so the Catalog reconciler stops polling before the delete.
+			// healthy before testing the delete watch. Activation remains pending;
+			// its 15-second poll cannot satisfy the 10-second watch assertion below.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
-			dep.Status.Conditions = []appsv1.DeploymentCondition{{
-				Type:               appsv1.DeploymentAvailable,
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
-			}}
+			dep.Status = completedCatalogDeploymentStatus(dep)
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 			ready := true
 			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
@@ -1276,8 +1274,12 @@ labels:
 				if err := k8sClient.Get(ctx, catalogKey, catalog); err != nil {
 					return false
 				}
-				return apimeta.IsStatusConditionTrue(catalog.Status.Conditions, ConditionTypeAvailable)
+				return apimeta.IsStatusConditionTrue(catalog.Status.Conditions, conditionWorkloadAvailable)
 			}, 20*time.Second).Should(BeTrue())
+			healthy := &catalogv1alpha1.Catalog{}
+			Expect(k8sClient.Get(ctx, catalogKey, healthy)).To(Succeed())
+			Expect(apimeta.IsStatusConditionTrue(healthy.Status.Conditions, conditionCatalogReady)).To(BeFalse())
+			Expect(apimeta.FindStatusCondition(healthy.Status.Conditions, conditionCatalogReady).Reason).To(Equal("ActivationPending"))
 
 			Expect(k8sClient.Delete(ctx, initialCM)).To(Succeed())
 			Eventually(func() bool {
@@ -1380,6 +1382,14 @@ labels:
 			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 			Expect(cond.Reason).To(Equal(ReasonResourcesUnavailable))
 			Expect(cond.Message).To(ContainSubstring(errPolicyRejected.Error()))
+			Expect(cond.ObservedGeneration).To(Equal(catalog.Generation))
+
+			By("Preserving image resolution observations when resource reconciliation fails")
+			imageCond := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
+			Expect(imageCond).NotTo(BeNil())
+			Expect(imageCond.Status).To(Equal(metav1.ConditionTrue))
+			Expect(imageCond.Reason).To(Equal("ReleaseDefault"))
+			Expect(imageCond.ObservedGeneration).To(Equal(catalog.Generation))
 
 			By("Clearing the failure only after the NetworkPolicy reconciles")
 			catalogReconciler.Client = k8sClient
@@ -1405,11 +1415,7 @@ labels:
 				},
 			}
 			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
-			dep.Status.Conditions = []appsv1.DeploymentCondition{{
-				Type:               appsv1.DeploymentAvailable,
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Now().Add(-deploymentDelay - time.Second)),
-			}}
+			dep.Status = completedCatalogDeploymentStatus(dep)
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 
 			ready := true
@@ -1430,6 +1436,7 @@ labels:
 				types.NamespacedName{Name: catalogResourceName, Namespace: namespaceName},
 				catalogResourceName,
 				catalogResourceName,
+				nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))

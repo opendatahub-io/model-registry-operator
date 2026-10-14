@@ -63,6 +63,7 @@ func initCatalogChaosReconciler(tmpl *template.Template, cfg *sdk.FaultConfig) *
 
 	return &CatalogReconciler{
 		Client:       chaosClient,
+		APIReader:    k8sClient,
 		Scheme:       k8sClient.Scheme(),
 		Recorder:     &events.FakeRecorder{},
 		Log:          ctrl.Log.WithName("chaos-test-catalog"),
