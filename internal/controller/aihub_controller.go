@@ -900,6 +900,9 @@ func stampChildOperatorDeployment(u *unstructured.Unstructured, images ChildImag
 		if images.OperatorImage != "" {
 			c.Image = images.OperatorImage
 		}
+		// The child uses this image for its content-validation init container.
+		// Keep it aligned with the manager image, including platform overrides.
+		upsertEnv(c, corev1.EnvVar{Name: config.ModelRegistryOperatorImage, Value: c.Image})
 
 		// Upsert operand env vars.
 		for _, env := range images.OperandEnv {

@@ -63,6 +63,7 @@ func TestStampChildOperatorDeployment_Full(t *testing.T) {
 	if c.Image != "new-operator:v2" {
 		t.Errorf("Image = %q, want %q", c.Image, "new-operator:v2")
 	}
+	assertEnv(t, c, config.ModelRegistryOperatorImage, "new-operator:v2")
 
 	assertEnv(t, c, config.RestImage, "new-rest@sha256:abc")
 	assertEnv(t, c, config.PostgresImage, "new-pg@sha256:def")
@@ -86,6 +87,7 @@ func TestStampChildOperatorDeployment_EmptyOperatorImage(t *testing.T) {
 	if c.Image != originalImage {
 		t.Errorf("Image = %q, want %q (empty OperatorImage should leave image untouched)", c.Image, originalImage)
 	}
+	assertEnv(t, c, config.ModelRegistryOperatorImage, originalImage)
 	assertEnv(t, c, config.RegistriesNamespace, "reg-ns")
 }
 
@@ -314,6 +316,7 @@ func TestRender_ModelRegistryOverlay(t *testing.T) {
 				if c.Image != images.OperatorImage {
 					t.Errorf("%s: stamped Image = %q, want %q", name, c.Image, images.OperatorImage)
 				}
+				assertEnv(t, c, config.ModelRegistryOperatorImage, images.OperatorImage)
 				assertEnv(t, c, config.RegistriesNamespace, "my-reg-ns")
 				if name == childDeploymentName {
 					assertEnv(t, c, config.RestImage, "stamped-rest@sha256:222")

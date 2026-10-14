@@ -410,4 +410,16 @@ func TestCatalogImageImportEvidenceSeparatesTargets(t *testing.T) {
 	if evidence(12, "3") == evidence(1, "23") {
 		t.Fatal("different import evidence tuples produced the same fingerprint input")
 	}
+	stream := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{UID: types.UID("stream")}}
+	firstGeneration, nextGeneration := int64(1), int64(2)
+	stream.Spec.Tags = []imagev1.TagReference{{Name: catalogDataImageStreamTag, Generation: &firstGeneration}}
+	healthy := catalogImageImportEvidence(stream, "catalog", metav1.ConditionTrue)
+	pending := catalogImageImportEvidence(stream, "catalog", metav1.ConditionUnknown)
+	stream.Spec.Tags[0].Generation = &nextGeneration
+	if catalogImageImportEvidence(stream, "catalog", metav1.ConditionTrue) != healthy {
+		t.Fatal("a healthy re-import changed activation evidence without changing the image")
+	}
+	if catalogImageImportEvidence(stream, "catalog", metav1.ConditionUnknown) == pending {
+		t.Fatal("a pending import lost its generation evidence")
+	}
 }
