@@ -13,8 +13,7 @@ const (
 )
 
 // One reducer owns Catalog readiness for selection/import and workload health.
-// These observations do not prove validated data activation. Activation-dependent
-// readiness must land together with the runtime producer and gate in 97414.
+// Readiness also requires a validated current-attempt workload.
 func reduceCatalogImageReadiness(catalog *catalogv1alpha1.Catalog) {
 	catalog.Status.ObservedGeneration = catalog.Generation
 	selectionStatus, reason, message := metav1.ConditionUnknown, "SelectionPending", "Waiting for current image resolution"
@@ -37,6 +36,13 @@ func reduceCatalogImageReadiness(catalog *catalogv1alpha1.Catalog) {
 			degradedStatus, degradedReason, degradedMessage = previous.Status, previous.Reason, previous.Message
 		}
 	}
+	// A persisted activation failure outlives its pod and configuration
+	// generation. Workload readiness or a spec edit cannot prove recovery.
+	activationFailure := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageActivationFailed)
+	activationFailed := activationFailure != nil && activationFailure.Status == metav1.ConditionTrue
+	if activationFailed && degradedStatus == metav1.ConditionFalse {
+		degradedStatus, degradedReason, degradedMessage = metav1.ConditionTrue, activationFailure.Reason, activationFailure.Message
+	}
 	setCatalogDataImageCondition(catalog, ConditionTypeDegraded, degradedStatus, degradedReason, degradedMessage)
 
 	ready := metav1.ConditionFalse
@@ -51,6 +57,15 @@ func reduceCatalogImageReadiness(catalog *catalogv1alpha1.Catalog) {
 				ready = metav1.ConditionTrue
 			}
 		}
+	}
+	activationReady := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataActivationReady)
+	if catalog.Status.Activation == nil || catalog.Status.Activation.State != "Succeeded" || activationReady == nil || activationReady.Status != metav1.ConditionTrue || activationReady.ObservedGeneration != catalog.Generation {
+		if selectionStatus == metav1.ConditionTrue && reason != ReasonResourcesUnavailable {
+			ready, reason, message = metav1.ConditionFalse, "ActivationPending", "Waiting for validation and current-attempt workload readiness"
+		}
+	}
+	if activationFailed && selectionStatus != metav1.ConditionFalse {
+		ready, reason, message = metav1.ConditionFalse, activationFailure.Reason, activationFailure.Message
 	}
 	setCatalogDataImageCondition(catalog, conditionCatalogReady, ready, reason, message)
 	setCatalogDataImageCondition(catalog, ConditionTypeAvailable, ready, reason, message)

@@ -9,6 +9,7 @@
         name: catalog-controller-manager
       fieldPaths:
         - spec.template.spec.containers.[name=manager].image
+        - spec.template.spec.containers.[name=manager].env.[name=RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE].value
 - source:
     kind: ConfigMap
     name: catalog-operator-parameters

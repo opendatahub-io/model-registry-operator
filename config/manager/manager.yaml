@@ -73,6 +73,8 @@ spec:
         image: controller
         name: manager
         env:
+          - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE
+            value: quay.io/opendatahub/model-registry-operator:latest
           - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_IMAGE
             value: quay.io/opendatahub/model-registry:latest
           - name: OAUTH_PROXY_IMAGE

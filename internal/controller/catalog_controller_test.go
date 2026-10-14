@@ -72,11 +72,12 @@ var _ = Describe("Catalog controller", func() {
 			Expect(err).To(Not(HaveOccurred()))
 
 			catalogReconciler = &CatalogReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Recorder: &events.FakeRecorder{},
-				Log:      ctrl.Log.WithName("catalog-controller"),
-				Template: template,
+				Client:    k8sClient,
+				APIReader: k8sClient,
+				Scheme:    k8sClient.Scheme(),
+				Recorder:  &events.FakeRecorder{},
+				Log:       ctrl.Log.WithName("catalog-controller"),
+				Template:  template,
 				Capabilities: ClusterCapabilities{
 					IsOpenShift:  false,
 					HasUserAPI:   false,
@@ -1248,7 +1249,8 @@ labels:
 			Expect(initialCM.Labels).NotTo(HaveKey("app.kubernetes.io/created-by"))
 
 			// envtest has no Deployment or EndpointSlice controller. Mark the deployment
-			// available so rollout polling stops before testing the delete watch.
+			// healthy before testing the delete watch. Activation remains pending;
+			// its 15-second poll cannot satisfy the 10-second watch assertion below.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, depKey, dep)).To(Succeed())
 			dep.Status = completedCatalogDeploymentStatus(dep)
@@ -1276,7 +1278,8 @@ labels:
 			}, 20*time.Second).Should(BeTrue())
 			healthy := &catalogv1alpha1.Catalog{}
 			Expect(k8sClient.Get(ctx, catalogKey, healthy)).To(Succeed())
-			Expect(apimeta.IsStatusConditionTrue(healthy.Status.Conditions, conditionCatalogReady)).To(BeTrue())
+			Expect(apimeta.IsStatusConditionTrue(healthy.Status.Conditions, conditionCatalogReady)).To(BeFalse())
+			Expect(apimeta.FindStatusCondition(healthy.Status.Conditions, conditionCatalogReady).Reason).To(Equal("ActivationPending"))
 
 			Expect(k8sClient.Delete(ctx, initialCM)).To(Succeed())
 			Eventually(func() bool {

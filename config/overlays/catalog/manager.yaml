@@ -36,6 +36,8 @@ spec:
         - "catalog"
         - "--leader-elect"
         env:
+          - name: RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE
+            value: quay.io/opendatahub/model-registry-operator:latest
           - name: POD_NAMESPACE
             valueFrom:
               fieldRef:

@@ -45,7 +45,7 @@ func TestCatalogIndependentDataImages(t *testing.T) {
 		}
 		want := map[string]string{"catalog-data-init": catImage, "benchmark-data-init": benchImage}
 		for _, container := range deployment.Spec.Template.Spec.InitContainers {
-			if container.Image != want[container.Name] {
+			if wanted, data := want[container.Name]; data && container.Image != wanted {
 				t.Fatalf("%s image = %q, want %q", container.Name, container.Image, want[container.Name])
 			}
 		}

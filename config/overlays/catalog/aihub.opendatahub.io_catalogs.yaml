@@ -236,10 +236,149 @@ spec:
           status:
             description: CatalogStatus defines the observed state of Catalog.
             properties:
+              activation:
+                description: Activation persists the current attempt and the last
+                  successfully validated workload.
+                properties:
+                  attemptID:
+                    maxLength: 64
+                    type: string
+                  catalogUID:
+                    maxLength: 64
+                    type: string
+                  images:
+                    description: |-
+                      CatalogDataImages identifies the independently resolved image references.
+                      Release defaults may contain tags; stable imports and pins contain digests.
+                    properties:
+                      benchmark:
+                        description: Benchmark is the resolved benchmark data image
+                          reference.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      catalog:
+                        description: Catalog is the resolved catalog data image reference.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                    required:
+                    - benchmark
+                    - catalog
+                    type: object
+                  lastSuccessful:
+                    description: CatalogActivationSuccess is recovery metadata, never
+                      serving authorization.
+                    properties:
+                      activatedAt:
+                        maxLength: 64
+                        type: string
+                      attemptID:
+                        maxLength: 64
+                        type: string
+                      catalogUID:
+                        maxLength: 64
+                        type: string
+                      images:
+                        description: |-
+                          CatalogDataImages identifies the independently resolved image references.
+                          Release defaults may contain tags; stable imports and pins contain digests.
+                        properties:
+                          benchmark:
+                            description: Benchmark is the resolved benchmark data
+                              image reference.
+                            maxLength: 2048
+                            minLength: 1
+                            type: string
+                          catalog:
+                            description: Catalog is the resolved catalog data image
+                              reference.
+                            maxLength: 2048
+                            minLength: 1
+                            type: string
+                        required:
+                        - benchmark
+                        - catalog
+                        type: object
+                    required:
+                    - activatedAt
+                    - attemptID
+                    - catalogUID
+                    - images
+                    type: object
+                  message:
+                    maxLength: 512
+                    type: string
+                  reason:
+                    maxLength: 128
+                    type: string
+                  recoveredAt:
+                    description: |-
+                      RecoveredAt records when a retrying workload most recently became ready.
+                      A recovery window resets only after ten uninterrupted healthy minutes.
+                    format: date-time
+                    type: string
+                  requestHash:
+                    maxLength: 64
+                    type: string
+                  requestedImages:
+                    description: |-
+                      CatalogDataImages identifies the independently resolved image references.
+                      Release defaults may contain tags; stable imports and pins contain digests.
+                    properties:
+                      benchmark:
+                        description: Benchmark is the resolved benchmark data image
+                          reference.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      catalog:
+                        description: Catalog is the resolved catalog data image reference.
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                    required:
+                    - benchmark
+                    - catalog
+                    type: object
+                  stage:
+                    enum:
+                    - Activation
+                    - Import
+                    - Selection
+                    - Loading
+                    - Initialization
+                    - Pull
+                    maxLength: 32
+                    type: string
+                  startedAt:
+                    description: StartedAt begins the current activation or recovery
+                      deadline.
+                    format: date-time
+                    type: string
+                  state:
+                    enum:
+                    - Pending
+                    - Failed
+                    - Succeeded
+                    maxLength: 16
+                    type: string
+                required:
+                - attemptID
+                - catalogUID
+                - images
+                - message
+                - reason
+                - requestHash
+                - requestedImages
+                - stage
+                - startedAt
+                - state
+                type: object
               conditions:
                 description: |-
                   Conditions represent the latest available observations of the Catalog's state.
-                  Ready and Available require current image resolution and workload health.
+                  Ready and Available require current image resolution, validated workload, and workload health.
                   WorkloadAvailable tracks deployment health independently of image selection.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -309,10 +448,12 @@ spec:
                 properties:
                   benchmark:
                     description: Benchmark is the resolved benchmark data image reference.
+                    maxLength: 2048
                     minLength: 1
                     type: string
                   catalog:
                     description: Catalog is the resolved catalog data image reference.
+                    maxLength: 2048
                     minLength: 1
                     type: string
                 required:

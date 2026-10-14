@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,7 +35,7 @@ func markDataImageWorkloadReady(t *testing.T, r *CatalogReconciler, catalog *cat
 	if err := r.Create(ctx, &discoveryv1.EndpointSlice{
 		ObjectMeta:  metav1.ObjectMeta{Name: "catalog-ready", Namespace: catalog.Namespace, Labels: map[string]string{discoveryv1.LabelServiceName: catalogResourceName}},
 		AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
-	}); err != nil {
+	}); err != nil && !apierrors.IsAlreadyExists(err) {
 		t.Fatal(err)
 	}
 }
@@ -51,7 +52,7 @@ func completedCatalogDeploymentStatus(deployment *appsv1.Deployment) appsv1.Depl
 	}
 }
 
-func TestCatalogReleaseDefaultsBecomeReadyWithoutActivationReporter(t *testing.T) {
+func TestCatalogReleaseDefaultsRequireValidatorEvidence(t *testing.T) {
 	for _, defaults := range [][2]string{
 		{config.DefaultCatalogDataImage, config.DefaultBenchmarkDataImage},
 		{dataTestRepository + "@" + dataTestDigest1, "registry.redhat.io/rhoai/benchmarks@" + dataTestDigest2},
@@ -69,14 +70,14 @@ func TestCatalogReleaseDefaultsBecomeReadyWithoutActivationReporter(t *testing.T
 			markDataImageWorkloadReady(t, r, catalog)
 			for range 2 {
 				result, err := r.Reconcile(ctx, request)
-				if err != nil || result != (ctrl.Result{}) {
-					t.Fatalf("healthy release defaults keep reconciling: result=%+v, error=%v", result, err)
+				if err != nil || result.RequeueAfter != 15*time.Second {
+					t.Fatalf("missing activation must remain pending: result=%+v, error=%v", result, err)
 				}
 			}
 			if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
 				t.Fatal(err)
 			}
-			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionTrue, ReasonDeploymentAvailable)
+			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 			streams := &imagev1.ImageStreamList{}
 			if err := r.List(ctx, streams); err != nil || len(streams.Items) != 0 {
@@ -93,7 +94,7 @@ func TestCatalogReleaseDefaultsBecomeReadyWithoutActivationReporter(t *testing.T
 	}
 }
 
-func TestCatalogPendingImportUsesWatchAfterWorkloadBecomesReady(t *testing.T) {
+func TestCatalogPendingImportStillPollsActivationTimeout(t *testing.T) {
 	ctx := context.Background()
 	stable := "stable"
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1},
@@ -106,8 +107,8 @@ func TestCatalogPendingImportUsesWatchAfterWorkloadBecomesReady(t *testing.T) {
 	markDataImageWorkloadReady(t, r, catalog)
 	for range 2 {
 		result, err := r.Reconcile(ctx, request)
-		if err != nil || result != (ctrl.Result{}) {
-			t.Fatalf("pending import with healthy workload must wait on the watch: result=%+v, error=%v", result, err)
+		if err != nil || result.RequeueAfter != 15*time.Second {
+			t.Fatalf("pending activation must requeue for its deadline: result=%+v, error=%v", result, err)
 		}
 	}
 	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
@@ -146,7 +147,7 @@ func TestCatalogClearingAfterImportFailureRecoversToDevelopmentDefaults(t *testi
 	}
 	// Clearing must recover after a controller restart without an import or
 	// an activation writer, even though the bundled references use tags.
-	r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
+	r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Capabilities: r.Capabilities}
 	if _, err := r.Reconcile(ctx, request); err != nil {
 		t.Fatal(err)
 	}

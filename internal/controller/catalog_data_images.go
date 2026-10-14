@@ -79,7 +79,7 @@ func (e *catalogDataImagesUnavailable) Unwrap() error { return e.cause }
 
 // Resolve selections independently. A fault requests deployment containment
 // rather than silently choosing historical imports. Successful resolution
-// permits rollout; runtime activation enforcement is deferred to RHOAIENG-97414.
+// permits candidate rollout; required-content validation precedes workload readiness.
 func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalog *catalogv1alpha1.Catalog, params *CatalogParams) error {
 	sources := catalogDataImageSources()
 	targets := []struct {
@@ -137,6 +137,20 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			streams[target.streamName] = stream
 		}
 		importHealth := catalogDataImageImportHealth(stream)
+		// A new import may be pending while its previous digest is still serving.
+		// Keep that healthy attempt until the new import succeeds or fails.
+		previousImage := lastImportedCatalogDataImage(stream)
+		servingPrevious := importHealth.Status == metav1.ConditionUnknown && !awaitingRecovery &&
+			previousResolution != nil && previousResolution.ObservedGeneration == catalog.Generation && previousResolution.Reason == "ImageStreamResolved" &&
+			previousImage != "" && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Succeeded" &&
+			((target.name == "catalog" && catalog.Status.Activation.RequestedImages.Catalog == previousImage) ||
+				(target.name == "benchmark" && catalog.Status.Activation.RequestedImages.Benchmark == previousImage))
+		fingerprintStatus := importHealth.Status
+		if servingPrevious {
+			fingerprintStatus = metav1.ConditionTrue
+		}
+		params.ImageImportEvidence += catalogImageImportEvidence(stream, target.name, fingerprintStatus)
+
 		health(importHealth.Status, importHealth.Reason, importHealth.Message)
 		if importHealth.Status == metav1.ConditionFalse {
 			resolved(metav1.ConditionFalse, importHealth.Reason, "The requested import is unusable; Catalog readiness is false and deployment containment is requested. "+importHealth.Message)
@@ -146,9 +160,9 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			resolved(metav1.ConditionUnknown, "AwaitingSuccessfulImport", "Deployment containment remains in place after the previous import failure; waiting for a successful import or a valid manual selection")
 			continue
 		}
-		if image := lastImportedCatalogDataImage(stream); importHealth.Status == metav1.ConditionTrue && image != "" {
-			*target.image = image
-			resolved(metav1.ConditionTrue, "ImageStreamResolved", "Using the last successfully imported image: "+image)
+		if previousImage != "" && (importHealth.Status == metav1.ConditionTrue || servingPrevious) {
+			*target.image = previousImage
+			resolved(metav1.ConditionTrue, "ImageStreamResolved", "Using the last successfully imported image: "+previousImage)
 			continue
 		}
 		// Pending is ordinary progress. The bundled image bootstraps a fresh
@@ -172,6 +186,12 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 	var images *catalogv1alpha1.CatalogDataImages
 	if apimeta.IsStatusConditionTrue(catalog.Status.Conditions, conditionDataImageResolved) {
 		images = &catalogv1alpha1.CatalogDataImages{Catalog: params.CatalogDataImage, Benchmark: params.BenchmarkDataImage}
+		if a := catalog.Status.Activation; a != nil && a.RequestedImages == *images {
+			// Preserve pull-resolved release digests without rewriting the raw
+			// request fingerprint or invalidating unchanged workload readiness.
+			pinned := a.Images
+			images = &pinned
+		}
 	}
 	if !reflect.DeepEqual(catalog.Status.ResolvedImages, images) {
 		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionFalse, "ImagesUpdating", "Waiting for the workload rollout for the current catalog and benchmark images")
@@ -201,6 +221,23 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 	setCatalogDataImageCondition(catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed", "Data image updates are allowed")
 	reduceCatalogImageReadiness(catalog)
 	return nil
+}
+
+func catalogImageImportEvidence(stream *imagev1.ImageStream, target string, status metav1.ConditionStatus) string {
+	generation := ""
+	// A healthy import of the same immutable digest is not a new activation.
+	// Retain the generation for pending and failed imports so retries and
+	// recovery still get distinct evidence.
+	if status != metav1.ConditionTrue {
+		for _, tag := range stream.Spec.Tags {
+			if tag.Name == catalogDataImageStreamTag && tag.Generation != nil {
+				generation = fmt.Sprint(*tag.Generation)
+				break
+			}
+		}
+	}
+	// Quoted, terminated fields keep adjacent targets and generations distinct.
+	return fmt.Sprintf("%q:%q:%q:%q;", string(stream.UID), target, string(status), generation)
 }
 
 func aggregateDataImageConditions(catalog *catalogv1alpha1.Catalog, aggregateType, catalogType, benchmarkType string) {

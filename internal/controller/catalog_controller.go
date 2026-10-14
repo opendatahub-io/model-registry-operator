@@ -112,6 +112,7 @@ type HFSource struct {
 // CatalogReconciler reconciles Catalog custom resources.
 type CatalogReconciler struct {
 	client.Client
+	APIReader             client.Reader
 	Scheme                *runtime.Scheme
 	Recorder              events.EventRecorder
 	Log                   logr.Logger
@@ -134,6 +135,11 @@ type CatalogParams struct {
 	Component               string
 	PostgresImage           string
 	CatalogDataImage        string
+	ActivationBlocked       bool
+	AllowLegacyRuntimeFile  bool
+	ActivationAttempt       string
+	OperatorImage           string
+	ImageImportEvidence     string
 	BenchmarkDataImage      string
 	DataImageStreamName     string
 	DataImageStreamSource   string
@@ -169,6 +175,7 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		Namespace:               catalog.Namespace,
 		Component:               catalogResourceName,
 		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
+		AllowLegacyRuntimeFile:  catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream == "",
 		BenchmarkDataImage:      config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage),
 		PostgresResources:       catalog.Spec.Resources.Postgres,
 		DatabaseVolumeSizeLimit: catalog.Spec.Database.Volume.SizeLimit,
@@ -284,13 +291,30 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
+	if catalog.Status.Activation != nil && catalog.Status.Activation.State == "Pending" {
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
 	return res, nil
 }
 
 // containCatalogImageFailure requests scale-down as temporary containment.
-// It does not revoke runtime serving permission or prove existing pods stopped.
-// RHOAIENG-97414 must enforce the attempt/image-pair gate in the backend.
+// Scale-down is asynchronous; availability follows ordinary Kubernetes endpoint
+// removal and pod termination, without a separate HTTP serving component.
 func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
+	// A status conflict means another reconcile may already own a newer
+	// attempt. Recheck the persisted attempt before changing its Deployment.
+	currentAttempt := func() (bool, error) {
+		current := &catalogv1alpha1.Catalog{}
+		if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
+			return false, fmt.Errorf("reading Catalog attempt for temporary containment: %w", err)
+		}
+		return current.UID == catalog.UID && current.Status.Activation != nil && catalog.Status.Activation != nil &&
+			current.Status.Activation.AttemptID == catalog.Status.Activation.AttemptID &&
+			current.Status.Activation.RequestHash == catalog.Status.Activation.RequestHash, nil
+	}
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
+	}
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -300,6 +324,10 @@ func (r *CatalogReconciler) containCatalogImageFailure(ctx context.Context, cata
 	}
 	if deployment.Spec.Replicas != nil && *deployment.Spec.Replicas == 0 {
 		return nil
+	}
+	// The Catalog may have advanced while the Deployment was being read.
+	if same, err := currentAttempt(); err != nil || !same {
+		return err
 	}
 	before := deployment.DeepCopy()
 	zero := int32(0)
@@ -370,6 +398,9 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	beforeResolution := catalog.DeepCopy()
 	resolutionErr := r.resolveCatalogDataImages(ctx, catalog, catalogParams)
+	if err := r.prepareActivation(ctx, catalog, catalogParams); err != nil {
+		return ctrl.Result{}, err
+	}
 	// Publish current image observations before applying the workload. A conflict
 	// prevents applying stale selections; reconciliation rereads current intent.
 	if err := r.patchCatalogStatus(ctx, catalog, beforeResolution); err != nil {
@@ -661,10 +692,41 @@ func (r *CatalogReconciler) updateStatus(ctx context.Context, catalog, before *c
 	}
 
 	cond.ObservedGeneration = catalog.Generation
+	failure, activationErr := r.catalogActivationFailure(ctx, catalog)
+	if activationErr != nil && !apierrors.IsNotFound(activationErr) {
+		setCatalogDataImageCondition(catalog, conditionWorkloadAvailable, metav1.ConditionUnknown, "ActivationStatusUnknown", activationErr.Error())
+		reduceCatalogImageReadiness(catalog)
+		return nil, errors.Join(activationErr, r.patchCatalogStatus(ctx, catalog, before))
+	}
+	if err := r.observeActivation(ctx, catalog, failure); err != nil {
+		setCatalogDataImageCondition(catalog, conditionDataActivationReady, metav1.ConditionFalse, "ActivationStatusUnknown", err.Error())
+		reduceCatalogImageReadiness(catalog)
+		return nil, errors.Join(err, r.patchCatalogStatus(ctx, catalog, before))
+	}
+
 	cond.Type = conditionWorkloadAvailable
 	apimeta.SetStatusCondition(&catalog.Status.Conditions, cond)
 	reduceCatalogImageReadiness(catalog)
-	return apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable), r.patchCatalogStatus(ctx, catalog, before)
+	statusErr := r.patchCatalogStatus(ctx, catalog, before)
+	if a := catalog.Status.Activation; a != nil && a.State == "Failed" {
+		failure = &catalogActivationFailure{Stage: a.Stage, Reason: a.Reason, Message: a.Message}
+	}
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" && failure != nil && r.Recorder != nil {
+		previous := apimeta.FindStatusCondition(before.Status.Conditions, conditionDataImageActivationFailed)
+		if previous == nil || previous.Status != metav1.ConditionTrue || previous.Reason != failure.Reason || previous.Message != failure.Message {
+			var eventMessage string
+			if failure.Stage == "Import" || failure.Stage == "Selection" {
+				eventMessage = "Selected images could not be resolved; inspect Catalog image resolution conditions and correct the selection or import source"
+			} else {
+				eventMessage = safeCatalogActivationFailure(failure).Message
+			}
+			r.Recorder.Eventf(catalog, nil, corev1.EventTypeWarning, "CatalogActivationFailed", "CatalogActivationFailed", "%s", eventMessage)
+		}
+	}
+	if statusErr == nil && catalog.Status.Activation != nil && catalog.Status.Activation.State == "Failed" {
+		statusErr = errors.Join(statusErr, r.containCatalogImageFailure(ctx, catalog))
+	}
+	return apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable), statusErr
 }
 
 func (r *CatalogReconciler) patchCatalogStatus(ctx context.Context, catalog, before *catalogv1alpha1.Catalog) error {
@@ -1421,6 +1483,10 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		Namespace               string
 		Spec                    *v1beta1.ModelRegistrySpec
 		CatalogDataImage        string
+		ActivationBlocked       bool
+		AllowLegacyRuntimeFile  bool
+		ActivationAttempt       string
+		OperatorImage           string
 		BenchmarkDataImage      string
 		DataImageStreamName     string
 		DataImageStreamTag      string
@@ -1442,6 +1508,10 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		HFSecretsHash           string
 	}{
 		Name:                    params.Name,
+		ActivationAttempt:       params.ActivationAttempt,
+		ActivationBlocked:       params.ActivationBlocked,
+		AllowLegacyRuntimeFile:  params.AllowLegacyRuntimeFile,
+		OperatorImage:           config.GetStringConfigWithDefault(config.ModelRegistryOperatorImage, config.DefaultOperatorImage),
 		Namespace:               params.Namespace,
 		Spec:                    defaultSpec,
 		CatalogDataImage:        config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage),
@@ -1635,6 +1705,7 @@ func (r *CatalogReconciler) discoverHFSecrets(ctx context.Context, namespace str
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.APIReader = mgr.GetAPIReader()
 	r.templateApplier = &TemplateApplier{
 		Template:    r.Template,
 		IsOpenShift: r.Capabilities.IsOpenShift,
@@ -1654,6 +1725,8 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
+	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod),
+		builder.WithPredicates(predicate.NewPredicateFuncs(isCatalogPod)))
 
 	if r.Capabilities.IsOpenShift {
 		b = b.Owns(&routev1.Route{})

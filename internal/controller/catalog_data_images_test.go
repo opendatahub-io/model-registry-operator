@@ -62,7 +62,7 @@ func newDataImageTestReconciler(t *testing.T, catalog *catalogv1alpha1.Catalog, 
 		},
 	})
 	return &CatalogReconciler{
-		Client: withGenerations,
+		Client: withGenerations, APIReader: withGenerations,
 		Scheme: scheme, Template: templates, Recorder: &events.FakeRecorder{}, Log: logr.Discard(),
 		Capabilities: ClusterCapabilities{IsOpenShift: openShift},
 	}
@@ -96,11 +96,11 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 	}
 	assertImages := func(deployment *appsv1.Deployment, want string) {
 		t.Helper()
-		if len(deployment.Spec.Template.Spec.InitContainers) != 2 {
-			t.Fatal("expected both data init containers")
+		if len(deployment.Spec.Template.Spec.InitContainers) != 3 {
+			t.Fatal("expected both data init containers and the validator")
 		}
 		for _, container := range deployment.Spec.Template.Spec.InitContainers {
-			if container.Image != want {
+			if container.Name != "catalog-content-validation" && container.Image != want {
 				t.Fatalf("%s image = %q, want %q", container.Name, container.Image, want)
 			}
 		}
@@ -243,7 +243,7 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 			assertCondition(metav1.ConditionFalse, "InvalidDataImageSelection")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "InvalidDataImageSelection")
 			// Use a fresh reconciler with the same persisted resources.
-			r = &CatalogReconciler{Client: r.Client, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
+			r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
 			next := importImage(dataTestDigest2, false, false)
 			assertImages(next, dataTestRepository+"@"+dataTestDigest1)
 			if !reflect.DeepEqual(previous.Spec.Template, next.Spec.Template) {
@@ -394,5 +394,32 @@ func TestLastImportedCatalogDataImage(t *testing.T) {
 				t.Fatalf("last imported image = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCatalogImageImportEvidenceSeparatesTargets(t *testing.T) {
+	evidence := func(generation int64, nextUID string) string {
+		first := &imagev1.ImageStream{
+			ObjectMeta: metav1.ObjectMeta{UID: types.UID("ab")},
+			Spec:       imagev1.ImageStreamSpec{Tags: []imagev1.TagReference{{Name: catalogDataImageStreamTag, Generation: &generation}}},
+		}
+		second := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{UID: types.UID(nextUID)}}
+		return catalogImageImportEvidence(first, "catalog", metav1.ConditionTrue) +
+			catalogImageImportEvidence(second, "benchmark", metav1.ConditionTrue)
+	}
+	if evidence(12, "3") == evidence(1, "23") {
+		t.Fatal("different import evidence tuples produced the same fingerprint input")
+	}
+	stream := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{UID: types.UID("stream")}}
+	firstGeneration, nextGeneration := int64(1), int64(2)
+	stream.Spec.Tags = []imagev1.TagReference{{Name: catalogDataImageStreamTag, Generation: &firstGeneration}}
+	healthy := catalogImageImportEvidence(stream, "catalog", metav1.ConditionTrue)
+	pending := catalogImageImportEvidence(stream, "catalog", metav1.ConditionUnknown)
+	stream.Spec.Tags[0].Generation = &nextGeneration
+	if catalogImageImportEvidence(stream, "catalog", metav1.ConditionTrue) != healthy {
+		t.Fatal("a healthy re-import changed activation evidence without changing the image")
+	}
+	if catalogImageImportEvidence(stream, "catalog", metav1.ConditionUnknown) == pending {
+		t.Fatal("a pending import lost its generation evidence")
 	}
 }

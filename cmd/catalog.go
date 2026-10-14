@@ -68,6 +68,13 @@ func catalogCacheOptions(registriesNamespace string) cache.Options {
 			discoveryv1.LabelServiceName: catalogServiceName,
 		}),
 	}
+	podOptions := cache.ByObject{
+		Namespaces: map[string]cache.Config{registriesNamespace: {}},
+		Label: labels.SelectorFromSet(labels.Set{
+			"app":       catalogServiceName,
+			"component": catalogServiceName,
+		}),
+	}
 
 	return cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
@@ -88,6 +95,7 @@ func catalogCacheOptions(registriesNamespace string) cache.Options {
 					registriesNamespace: {},
 				},
 			},
+			&corev1.Pod{}: podOptions,
 		},
 	}
 }

@@ -110,7 +110,9 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 			}
 			var images []string
 			for _, container := range deployment.Spec.Template.Spec.InitContainers {
-				images = append(images, container.Image)
+				if container.Name == "catalog-data-init" || container.Name == "benchmark-data-init" {
+					images = append(images, container.Image)
+				}
 			}
 			return images
 		}
@@ -201,6 +203,22 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 				}
 				deployment.Status = completedCatalogDeploymentStatus(deployment)
 				return direct.Status().Update(ctx, deployment)
+			}, 10*time.Second).Should(Succeed())
+			// Pod status is the only activation evidence; no runtime reports.
+			Eventually(func() error {
+				if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
+					return err
+				}
+				attempt := deployment.Spec.Template.Annotations[activationAttemptAnnotation]
+				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "validated-" + attempt, Namespace: namespace, Labels: deployment.Spec.Template.Labels, Annotations: deployment.Spec.Template.Annotations}, Spec: deployment.Spec.Template.Spec}
+				if err := direct.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
+					return err
+				}
+				if err := direct.Get(ctx, client.ObjectKeyFromObject(pod), pod); err != nil {
+					return err
+				}
+				pod.Status = validatedPodStatus()
+				return direct.Status().Update(ctx, pod)
 			}, 10*time.Second).Should(Succeed())
 			Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionTrue))
 		}
