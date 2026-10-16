@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -94,6 +95,43 @@ var _ = Describe("Catalog validating webhook", func() {
 		err := k8sClient.Create(ctx, cat)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("namespace must be " + namespaceName))
+	})
+
+	It("Should preserve deprecated data image fields with strict validation on create and update", func(ctx context.Context) {
+		for _, images := range [][2]string{
+			{"", ""},
+			{"v2.19", "latest"},
+			{"sha256:" + strings.Repeat("a", 64), "sha256:" + strings.Repeat("b", 64)},
+			{strings.Repeat("a", 128), strings.Repeat("b", 128)},
+		} {
+			// Send an unstructured manifest so strict validation checks the CRD schema.
+			cat := &unstructured.Unstructured{Object: map[string]interface{}{
+				"apiVersion": catalogv1alpha1.GroupVersion.String(),
+				"kind":       "Catalog",
+				"metadata":   map[string]interface{}{"name": "catalog", "namespace": namespaceName},
+				"spec": map[string]interface{}{
+					"catalogDataImage":   images[0],
+					"benchmarkDataImage": images[1],
+				},
+			}}
+			Expect(k8sClient.Create(ctx, cat, client.FieldValidation(metav1.FieldValidationStrict))).To(Succeed())
+			assertSavedImages := func(catalogImage, benchmarkImage string) {
+				saved := &catalogv1alpha1.Catalog{}
+				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cat), saved)).To(Succeed())
+				Expect(saved.Spec.CatalogDataImage).To(Equal(&catalogImage))
+				Expect(saved.Spec.BenchmarkDataImage).To(Equal(&benchmarkImage))
+			}
+			assertSavedImages(images[0], images[1])
+
+			// Legacy fields also coexist with the new selections and remain editable.
+			Expect(unstructured.SetNestedField(cat.Object, images[1], "spec", "catalogDataImage")).To(Succeed())
+			Expect(unstructured.SetNestedField(cat.Object, images[0], "spec", "benchmarkDataImage")).To(Succeed())
+			Expect(unstructured.SetNestedField(cat.Object, "stable", "spec", "catalogDataImageStream")).To(Succeed())
+			Expect(unstructured.SetNestedField(cat.Object, "sha256:"+strings.Repeat("c", 64), "spec", "benchmarkDataImageStream")).To(Succeed())
+			Expect(k8sClient.Update(ctx, cat, client.FieldValidation(metav1.FieldValidationStrict))).To(Succeed())
+			assertSavedImages(images[1], images[0])
+			Expect(k8sClient.Delete(ctx, cat)).To(Succeed())
+		}
 	})
 
 	It("Should reject unsupported image selections on create and update without changing the saved selection", func(ctx context.Context) {

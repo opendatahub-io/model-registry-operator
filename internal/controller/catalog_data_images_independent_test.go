@@ -151,6 +151,45 @@ func TestCatalogIndependentDataImages(t *testing.T) {
 	reconcile(catalogDefault, benchmarkDefault, 1)
 }
 
+func TestCatalogDeprecatedDataImagesAreIgnored(t *testing.T) {
+	catalogDefault := "registry.example/catalog@" + dataTestDigest1
+	benchmarkDefault := "registry.example/benchmarks@" + dataTestDigest2
+	t.Setenv(config.CatalogDataImage, catalogDefault)
+	t.Setenv(config.BenchmarkDataImage, benchmarkDefault)
+	t.Setenv(config.CatalogDataImageStreamSource, "")
+	t.Setenv(config.BenchmarkDataImageStreamSource, "")
+	legacyCatalog, legacyBenchmark := "v2.19", dataTestDigest3
+	empty, pin := "", dataTestDigest3
+	for _, tc := range []struct {
+		name      string
+		selection *string
+		catalog   string
+		benchmark string
+	}{
+		{"unset", nil, catalogDefault, benchmarkDefault},
+		{"empty", &empty, catalogDefault, benchmarkDefault},
+		{"pinned", &pin, "registry.example/catalog@" + pin, "registry.example/benchmarks@" + pin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "deprecated-test"},
+				Spec: catalogv1alpha1.CatalogSpec{
+					CatalogDataImage: &legacyCatalog, BenchmarkDataImage: &legacyBenchmark,
+					CatalogDataImageStream: tc.selection, BenchmarkDataImageStream: tc.selection,
+				},
+			}
+			r := newDataImageTestReconciler(t, catalog, false)
+			params := r.buildCatalogParams(catalog, nil, nil, nil, "")
+			if err := r.resolveCatalogDataImages(context.Background(), catalog, params); err != nil {
+				t.Fatal(err)
+			}
+			if params.CatalogDataImage != tc.catalog || params.BenchmarkDataImage != tc.benchmark {
+				t.Fatalf("deprecated fields affected image resolution: got %q, %q; want %q, %q", params.CatalogDataImage, params.BenchmarkDataImage, tc.catalog, tc.benchmark)
+			}
+		})
+	}
+}
+
 func TestCatalogStandaloneImportSources(t *testing.T) {
 	t.Setenv(config.CatalogDataImage, "registry.example/bundled-catalog@"+dataTestDigest1)
 	t.Setenv(config.BenchmarkDataImage, "registry.example/bundled-benchmarks@"+dataTestDigest2)

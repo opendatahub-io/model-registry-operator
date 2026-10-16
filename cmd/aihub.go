@@ -17,6 +17,7 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,8 +25,11 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
+	tlsconfig "github.com/opendatahub-io/model-registry-operator/internal/tls"
+	frameworktls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	platformlabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
+	oapiconfig "github.com/openshift/api/config/v1"
 	"github.com/spf13/cobra"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -69,7 +73,12 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("error parsing resource templates: %w", err)
 	}
 
-	capabilities, err := setup.GetCapabilities()
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		return fmt.Errorf("error getting cluster config: %w", err)
+	}
+
+	capabilities, err := setup.GetCapabilities(cfg)
 	if err != nil {
 		return fmt.Errorf("error detecting cluster capabilities: %w", err)
 	}
@@ -80,7 +89,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		"hasAuthAPI", capabilities.HasAuthAPI)
 
 	// On OpenShift, fetch the cluster TLS security profile for the metrics server
-	tlsResult, err := setup.ConfigureTLS(scheme, capabilities.HasConfigAPI, setupLog)
+	tlsResult, err := tlsconfig.ConfigureTLS(cfg, scheme, capabilities.HasConfigAPI, setupLog)
 	if err != nil {
 		return fmt.Errorf("unable to configure TLS: %w", err)
 	}
@@ -123,7 +132,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		Kind:    "ServiceMonitor",
 	})
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
@@ -192,8 +201,32 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to set up ready check: %w", err)
 	}
 
+	// Register SecurityProfileWatcher on OpenShift: cancel context on TLS profile change so pod restarts.
+	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
+	defer cancel()
+	if capabilities.HasConfigAPI {
+		watcher := &frameworktls.SecurityProfileWatcher{
+			Client:                mgr.GetClient(),
+			InitialTLSProfileSpec: tlsResult.Profile,
+			OnProfileChange: func(_ context.Context, _, _ oapiconfig.TLSProfileSpec) {
+				setupLog.Info("TLS profile changed, initiating graceful shutdown to reload")
+				cancel()
+			},
+		}
+		if tlsResult.AdherenceFetched {
+			watcher.InitialTLSAdherencePolicy = tlsResult.AdherencePolicy
+			watcher.OnAdherencePolicyChange = func(_ context.Context, _, _ oapiconfig.TLSAdherencePolicy) {
+				setupLog.Info("TLS adherence policy changed, initiating shutdown to reload")
+				cancel()
+			}
+		}
+		if err := watcher.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to register TLS security profile watcher: %w", err)
+		}
+	}
+
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("unable to run the manager: %w", err)
 	}
 
