@@ -42,7 +42,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -61,6 +60,15 @@ This subcommand starts the AIHub controller that reconciles AIHub CRs.`,
 
 func runAIHub(_ *cobra.Command, _ []string) error {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	// Serve the health probe endpoints before any startup API call so the
+	// kubelet liveness probe keeps passing while startup blocks on
+	// capabilities detection and TLS configuration, each bounded by a
+	// timeout.
+	healthSrv, err := startHealthServer()
+	if err != nil {
+		return fmt.Errorf("unable to bind health probe address: %w", err)
+	}
 
 	if fi, err := os.Stat(manifestsTemplatePath); err != nil {
 		return fmt.Errorf("manifests template path is not accessible %q: %w", manifestsTemplatePath, err)
@@ -150,11 +158,16 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 				serviceMonitor: deployerCacheObj,
 			},
 		},
-		Metrics:                 metricsServerOptions,
-		HealthProbeBindAddress:  probeAddr,
+		Metrics: metricsServerOptions,
+		// Probes are served by healthSrv from process start, so the manager's
+		// own probe server is disabled to avoid a port conflict.
+		HealthProbeBindAddress:  "0",
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "aihub-controller-manager",
 		LeaderElectionNamespace: leaderNS,
+		// Safe: on the cancellation paths where the process exits (SIGTERM,
+		// TLS profile change) the release speeds up the lease handover.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to start manager: %w", err)
@@ -195,11 +208,11 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("unable to create aihub controller: %w", err)
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		return fmt.Errorf("unable to set up health check: %w", err)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		return fmt.Errorf("unable to set up ready check: %w", err)
+	// Flip /readyz once the manager's runnables have started (caches synced;
+	// every replica, not just the leader). The manager's own probe server is
+	// disabled; healthSrv owns the port for the whole process.
+	if err := mgr.Add(readinessRunnable{healthSrv: healthSrv}); err != nil {
+		return fmt.Errorf("unable to register readiness runnable: %w", err)
 	}
 
 	// Register SecurityProfileWatcher on OpenShift: cancel context on TLS profile change so pod restarts.
@@ -228,8 +241,10 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctx); err != nil {
+		healthSrv.Close()
 		return fmt.Errorf("unable to run the manager: %w", err)
 	}
+	healthSrv.Close()
 
 	return nil
 }
