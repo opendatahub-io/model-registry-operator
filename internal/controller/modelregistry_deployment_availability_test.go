@@ -59,16 +59,19 @@ func availabilityDeployment(name, namespace string, transitionTime time.Time) *a
 	}
 }
 
-func availabilityEndpoints(name, namespace string, ready bool) *corev1.Endpoints {
-	endpoints := &corev1.Endpoints{
+// availabilityEndpoints builds the Endpoints object the availability check
+// reads; corev1.Endpoints is deprecated but still the type under test, so
+// the staticcheck deprecation is suppressed on each use below.
+func availabilityEndpoints(name, namespace string, ready bool) *corev1.Endpoints { //nolint:staticcheck
+	endpoints := &corev1.Endpoints{ //nolint:staticcheck
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
 	}
 	if ready {
-		endpoints.Subsets = []corev1.EndpointSubset{
+		endpoints.Subsets = []corev1.EndpointSubset{ //nolint:staticcheck
 			{Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}}},
 		}
 	} else {
-		endpoints.Subsets = []corev1.EndpointSubset{
+		endpoints.Subsets = []corev1.EndpointSubset{ //nolint:staticcheck
 			{NotReadyAddresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}}},
 		}
 	}

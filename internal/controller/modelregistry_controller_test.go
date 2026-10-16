@@ -170,7 +170,6 @@ var _ = Describe("ModelRegistry controller", func() {
 				// An unavailable registry must poll at a fixed interval instead
 				// of riding the workqueue exponential backoff.
 				Expect(result.RequeueAfter).To(Equal(unavailableRequeueInterval))
-				Expect(result.Requeue).To(BeFalse())
 
 				By("Marking the deployment available with ready endpoints")
 				deployment := &appsv1.Deployment{}
@@ -182,13 +181,14 @@ var _ = Describe("ModelRegistry controller", func() {
 				})
 				Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
 
-				// In envtest, Endpoints are not automatically created by the Endpoints controller
-				endpoints := &corev1.Endpoints{
+				// In envtest, Endpoints are not automatically created by the Endpoints controller.
+				// corev1.Endpoints is deprecated but still the type the availability check reads.
+				endpoints := &corev1.Endpoints{ //nolint:staticcheck
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      typeNamespaceName.Name,
 						Namespace: typeNamespaceName.Namespace,
 					},
-					Subsets: []corev1.EndpointSubset{
+					Subsets: []corev1.EndpointSubset{ //nolint:staticcheck
 						{
 							Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
 						},
@@ -201,7 +201,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(result.IsZero()).To(BeTrue(), "an available, unchanged registry must not requeue: %+v", result)
 
-				By("Requeueing immediately when resources changed while available")
+				By("Requeueing shortly when resources changed while available")
 				// Re-fetch: the previous reconcile updated the CR status.
 				Expect(k8sClient.Get(ctx, typeNamespaceName, modelRegistry)).To(Succeed())
 				var updatedPort int32 = 8081
@@ -209,8 +209,7 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(k8sClient.Update(ctx, modelRegistry)).To(Succeed())
 				result, err = modelRegistryReconciler.Reconcile(ctx, request)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(result.Requeue).To(BeTrue())
-				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.RequeueAfter).To(Equal(time.Second))
 			})
 
 			It("When using KubeRBACProxy configuration", func() {
