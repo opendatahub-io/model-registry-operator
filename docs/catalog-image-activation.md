@@ -7,6 +7,12 @@ through its existing configuration. It receives no activation flags, attempt
 identity, stable-channel information, or report-writing responsibility.
 There is no companion runtime change or additional HTTP proxy to ship.
 
+The optional `spec.catalogDataImage` and `spec.benchmarkDataImage` fields are
+deprecated and retained so existing manifests continue to pass validation.
+Their values are preserved but ignored by the controller. Use
+`spec.catalogDataImageStream` and `spec.benchmarkDataImageStream` to select images
+with the choices described below.
+
 ## Deployment flow
 
 1. Resolve the catalog and benchmark selections independently. Empty fields use
