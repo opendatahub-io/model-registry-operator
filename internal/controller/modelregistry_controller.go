@@ -267,8 +267,11 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: unavailableRequeueInterval}, nil
 	}
 
-	// requeue to update status
-	return ctrl.Result{Requeue: result != ResourceUnchanged}, nil
+	if result != ResourceUnchanged {
+		// Requeue shortly to refresh the status after the change.
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func IgnoreDeletingErrors(err error) error {
