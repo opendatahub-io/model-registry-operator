@@ -76,7 +76,8 @@ func (m *StorageMigrationManager) StartMigrationMonitor(ctx context.Context) {
 		"targetVersion", m.TargetVersion)
 
 	go func() {
-		// Wait for manager to be ready
+		// Startup grace period before the one-shot CRD check: lets the
+		// manager and its caches come up first.
 		select {
 		case <-time.After(30 * time.Second):
 		case <-ctx.Done():

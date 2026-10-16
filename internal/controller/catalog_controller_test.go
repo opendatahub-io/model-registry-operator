@@ -1442,5 +1442,49 @@ labels:
 			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
 			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
 		})
+
+		It("Should mark the Catalog deployment available immediately when an EndpointSlice has a ready endpoint", func() {
+			dep := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},
+				Spec: appsv1.DeploymentSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": catalogResourceName}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": catalogResourceName}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "catalog", Image: "example.com/catalog:latest"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
+			dep.Status = completedCatalogDeploymentStatus(dep)
+			// Pins the removal of the former availability cooldown: a freshly
+			// transitioned Available condition with ready endpoints must be
+			// available immediately.
+			dep.Status.Conditions[0].LastTransitionTime = metav1.Now()
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			ready := true
+			Expect(k8sClient.Create(ctx, &discoveryv1.EndpointSlice{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      catalogResourceName + "-fresh",
+					Namespace: namespaceName,
+					Labels:    map[string]string{discoveryv1.LabelServiceName: catalogResourceName},
+				},
+				AddressType: discoveryv1.AddressTypeIPv4,
+				Endpoints: []discoveryv1.Endpoint{{
+					Addresses:  []string{"10.0.0.1"},
+					Conditions: discoveryv1.EndpointConditions{Ready: &ready},
+				}},
+			})).To(Succeed())
+
+			condition, err := catalogReconciler.checkDeploymentAvailability(ctx,
+				types.NamespacedName{Name: catalogResourceName, Namespace: namespaceName},
+				catalogResourceName,
+				catalogResourceName,
+				nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
+		})
 	})
 })

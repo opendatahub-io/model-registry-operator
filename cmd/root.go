@@ -17,7 +17,10 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"net/http"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -31,6 +34,45 @@ var (
 	scheme   = setup.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
+
+// startHealthServer binds the health probe address and serves /healthz and
+// /readyz in the background, before any startup API call, so the kubelet
+// liveness probe keeps passing while startup blocks on a slow API server.
+func startHealthServer() (*setup.HealthServer, error) {
+	healthSrv, err := setup.NewHealthServer(probeAddr)
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		if err := healthSrv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			setupLog.Error(err, "health probe server stopped unexpectedly")
+		}
+	}()
+	return healthSrv, nil
+}
+
+// readinessRunnable flips the HealthServer ready flag when the manager's
+// non-leader-election runnables start (caches synced), mirroring the probe
+// semantics of the manager it replaces: /readyz answers 200 on every replica.
+//
+// NeedLeaderElection deliberately returns false. Leader-gated readiness
+// deadlocks rolling updates: a replacement pod can never acquire the lease
+// while the old leader still runs, so it would never become ready and the old
+// pod would never terminate.
+type readinessRunnable struct {
+	healthSrv *setup.HealthServer
+}
+
+func (r readinessRunnable) Start(ctx context.Context) error {
+	r.healthSrv.SetReady(true)
+	<-ctx.Done()
+	r.healthSrv.SetReady(false)
+	return nil
+}
+
+func (r readinessRunnable) NeedLeaderElection() bool {
+	return false
+}
 
 // rootCmd is the base command. When invoked without a subcommand it runs the
 // modelregistry behavior so that existing Deployments using the current image
