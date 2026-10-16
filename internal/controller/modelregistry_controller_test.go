@@ -141,6 +141,78 @@ var _ = Describe("ModelRegistry controller", func() {
 					time.Minute, time.Second).Should(Succeed())
 			})
 
+			It("requeues an unavailable registry at a fixed interval", func() {
+				registryName = "model-registry-requeue"
+				specInit()
+
+				var postgresPort int32 = 5432
+				modelRegistry.Spec.MySQL = nil
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "modelregistryuser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				request := reconcile.Request{NamespacedName: typeNamespaceName}
+
+				By("Reconciling with a deployment that has no Available condition")
+				result, err := modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				// An unavailable registry must poll at a fixed interval instead
+				// of riding the workqueue exponential backoff.
+				Expect(result.RequeueAfter).To(Equal(unavailableRequeueInterval))
+				Expect(result.Requeue).To(BeFalse())
+
+				By("Marking the deployment available with ready endpoints")
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, typeNamespaceName, deployment)).To(Succeed())
+				deployment.Status.Conditions = append(deployment.Status.Conditions, appsv1.DeploymentCondition{
+					Type:               appsv1.DeploymentAvailable,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+				})
+				Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+
+				// In envtest, Endpoints are not automatically created by the Endpoints controller
+				endpoints := &corev1.Endpoints{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      typeNamespaceName.Name,
+						Namespace: typeNamespaceName.Namespace,
+					},
+					Subsets: []corev1.EndpointSubset{
+						{
+							Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, endpoints)).To(Succeed())
+
+				By("Converging with no requeue once available and unchanged")
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.IsZero()).To(BeTrue(), "an available, unchanged registry must not requeue: %+v", result)
+
+				By("Requeueing immediately when resources changed while available")
+				// Re-fetch: the previous reconcile updated the CR status.
+				Expect(k8sClient.Get(ctx, typeNamespaceName, modelRegistry)).To(Succeed())
+				var updatedPort int32 = 8081
+				modelRegistry.Spec.Rest.Port = &updatedPort
+				Expect(k8sClient.Update(ctx, modelRegistry)).To(Succeed())
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.Requeue).To(BeTrue())
+				Expect(result.RequeueAfter).To(BeZero())
+			})
+
 			It("When using KubeRBACProxy configuration", func() {
 				registryName = "model-registry-kube-rbac-proxy"
 				specInit()

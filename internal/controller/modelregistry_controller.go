@@ -57,6 +57,12 @@ const (
 	modelRegistryFinalizer = "modelregistry.opendatahub.io/finalizer"
 	DisplayNameAnnotation  = "openshift.io/display-name"
 	DescriptionAnnotation  = "openshift.io/description"
+
+	// unavailableRequeueInterval is the fixed polling interval used while a
+	// registry's deployment is not yet available, so recovery after an outage
+	// is detected promptly instead of riding the workqueue exponential
+	// backoff.
+	unavailableRequeueInterval = 2 * time.Second
 )
 
 // ModelRegistryReconciler reconciles a ModelRegistry object
@@ -253,17 +259,16 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 	log.Info("status reconciled")
 
-	available := false
-	if condition != nil {
-		if condition.Reason == ReasonDeploymentCooldown {
-			// Requeue after a fixed delay to avoid exponential backoff.
-			return ctrl.Result{RequeueAfter: time.Second}, nil
-		}
-		available = condition.Status == metav1.ConditionTrue
+	available := condition != nil && condition.Status == metav1.ConditionTrue
+
+	if !available {
+		// Fixed-interval polling so recovery after an outage is detected
+		// promptly instead of riding the workqueue exponential backoff.
+		return ctrl.Result{RequeueAfter: unavailableRequeueInterval}, nil
 	}
 
 	// requeue to update status
-	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
+	return ctrl.Result{Requeue: result != ResourceUnchanged}, nil
 }
 
 func IgnoreDeletingErrors(err error) error {
