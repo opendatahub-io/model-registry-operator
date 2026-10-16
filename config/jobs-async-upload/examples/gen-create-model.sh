@@ -15,5 +15,6 @@ oc process --local -f jobs-async-upload-uri-to-oci-template.yaml \
   -p MODEL_SYNC_REGISTRY_PORT="443" \
   -p MODEL_SYNC_SOURCE_URI="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/mnist/model/mnist-8.onnx" \
   -p MODEL_SYNC_DESTINATION_OCI_URI="default-route-openshift-image-registry.apps.rosa.my-cluster.019m.p3.openshiftapps.com/project3/mnist-v1:latest" \
+  -p MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE="${MODEL_SYNC_DESTINATION_OCI_BASE_IMAGE:?Set a registry-qualified base image reachable from the Job pod}" \
   -p DESTINATION_CONNECTION=oci-credentials \
   -o yaml > job.yaml
