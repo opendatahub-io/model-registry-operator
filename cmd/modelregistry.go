@@ -24,10 +24,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/setup"
+	tlsconfig "github.com/opendatahub-io/model-registry-operator/internal/tls"
 	"github.com/opendatahub-io/model-registry-operator/internal/webhook"
 
+	frameworktls "github.com/opendatahub-io/odh-platform-utilities/framework/tls"
 	routev1 "github.com/openshift/api/route/v1"
-	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -96,7 +97,13 @@ func bindModelRegistryFlags(fs *flag.FlagSet) {
 func runModelRegistry(_ *cobra.Command, _ []string) error {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
-	capabilities, err := setup.GetCapabilities()
+	cfg, err := ctrl.GetConfig()
+	if err != nil {
+		setupLog.Error(err, "error getting cluster config")
+		os.Exit(1)
+	}
+
+	capabilities, err := setup.GetCapabilities(cfg)
 	if err != nil {
 		setupLog.Error(err, "error detecting cluster capabilities")
 		os.Exit(1)
@@ -108,7 +115,7 @@ func runModelRegistry(_ *cobra.Command, _ []string) error {
 		"hasAuthAPI", capabilities.HasAuthAPI)
 
 	// On OpenShift, fetch the cluster TLS security profile for webhook and metrics servers
-	tlsResult, err := setup.ConfigureTLS(scheme, capabilities.HasConfigAPI, setupLog)
+	tlsResult, err := tlsconfig.ConfigureTLS(cfg, scheme, capabilities.HasConfigAPI, setupLog)
 	if err != nil {
 		setupLog.Error(err, "unable to configure TLS")
 		os.Exit(1)
@@ -166,7 +173,7 @@ func runModelRegistry(_ *cobra.Command, _ []string) error {
 		cacheOptions.ByObject[&routev1.Route{}] = objOptions
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme,
 		Cache:  cacheOptions,
 		// Secrets are read but not created by the operator (user DB credentials, TLS certs),
@@ -275,7 +282,7 @@ func runModelRegistry(_ *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	defer cancel()
 	if capabilities.HasConfigAPI {
-		watcher := &tlspkg.SecurityProfileWatcher{
+		watcher := &frameworktls.SecurityProfileWatcher{
 			Client:                mgr.GetClient(),
 			InitialTLSProfileSpec: tlsResult.Profile,
 			OnProfileChange: func(_ context.Context, _, _ oapiconfig.TLSProfileSpec) {

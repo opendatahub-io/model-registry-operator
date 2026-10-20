@@ -17,26 +17,15 @@ limitations under the License.
 package setup
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"fmt"
-	"time"
-
-	"github.com/go-logr/logr"
 	oapi "github.com/openshift/api"
 	oapiconfig "github.com/openshift/api/config/v1"
-	tlspkg "github.com/openshift/controller-runtime-common/pkg/tls"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
 	security "istio.io/client-go/pkg/apis/security/v1beta1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/rest"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
@@ -80,114 +69,10 @@ func NewScheme() *runtime.Scheme {
 }
 
 // GetCapabilities detects cluster capabilities by querying the discovery API.
-func GetCapabilities() (controller.ClusterCapabilities, error) {
-	cfg, err := ctrl.GetConfig()
-	if err != nil {
-		return controller.ClusterCapabilities{}, err
-	}
+func GetCapabilities(cfg *rest.Config) (controller.ClusterCapabilities, error) {
 	client, err := discovery.NewDiscoveryClientForConfig(cfg)
 	if err != nil {
 		return controller.ClusterCapabilities{}, err
 	}
 	return controller.DetectClusterCapabilities(client)
-}
-
-// TLSConfig holds the result of TLS profile configuration.
-type TLSConfig struct {
-	Opts             []func(*tls.Config)
-	Profile          oapiconfig.TLSProfileSpec
-	AdherencePolicy  oapiconfig.TLSAdherencePolicy
-	AdherenceFetched bool
-}
-
-// ConfigureTLS reads the cluster TLS security profile (on OpenShift) and returns
-// TLS options suitable for webhook and metrics servers.
-func ConfigureTLS(scheme *runtime.Scheme, hasConfigAPI bool, log logr.Logger) (TLSConfig, error) {
-	var result TLSConfig
-
-	if hasConfigAPI {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		bootstrapClient, err := client.New(ctrl.GetConfigOrDie(), client.Options{Scheme: scheme})
-		if err != nil {
-			return TLSConfig{}, fmt.Errorf("unable to create bootstrap client for TLS profile: %w", err)
-		}
-
-		profile, err := tlspkg.FetchAPIServerTLSProfile(ctx, bootstrapClient)
-		if err != nil {
-			switch {
-			case isTransientAPIError(err):
-				log.Info("Transient API error reading TLS profile, using Intermediate fallback", "error", err)
-			default:
-				log.Error(err, "unable to fetch TLS profile, using defaults")
-			}
-			profile = *oapiconfig.TLSProfiles[oapiconfig.TLSProfileIntermediateType]
-		}
-		result.Profile = profile
-
-		tlsConfigFn, unsupportedCiphers := tlspkg.NewTLSConfigFromProfile(profile)
-		if len(unsupportedCiphers) > 0 {
-			log.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
-		}
-		result.Opts = append(result.Opts, tlsConfigFn)
-
-		policy, adherenceErr := tlspkg.FetchAPIServerTLSAdherencePolicy(ctx, bootstrapClient)
-		result.AdherencePolicy, result.AdherenceFetched, err = resolveAdherencePolicy(policy, adherenceErr, log)
-		if err != nil {
-			return TLSConfig{}, err
-		}
-	}
-
-	result.Opts = append(result.Opts, func(c *tls.Config) {
-		c.NextProtos = []string{"h2", "http/1.1"}
-	})
-
-	return result, nil
-}
-
-// resolveAdherencePolicy decides the effective TLS adherence policy given the
-// result of fetching it from the APIServer. On fail-closed errors it returns a
-// wrapped error and fetched=false; on success or graceful/transient errors it
-// returns fetched=true (logging graceful/transient errors and falling back to
-// NoOpinion) so the watcher can be seeded and self-heal.
-func resolveAdherencePolicy(policy oapiconfig.TLSAdherencePolicy, err error, log logr.Logger) (oapiconfig.TLSAdherencePolicy, bool, error) {
-	if err == nil {
-		return policy, true, nil
-	}
-
-	failClosed, reason := classifyAdherenceFetchError(err)
-	if failClosed {
-		return oapiconfig.TLSAdherencePolicyNoOpinion, false, fmt.Errorf("%s: %w", reason, err)
-	}
-
-	log.Info(reason, "error", err)
-	return oapiconfig.TLSAdherencePolicyNoOpinion, true, nil
-}
-
-// classifyAdherenceFetchError decides how ConfigureTLS should react to an error
-// returned while fetching the cluster TLS adherence policy. It returns failClosed=true
-// when the operator must not continue (Forbidden / unexpected), and a human-readable
-// reason for logging or error wrapping.
-func classifyAdherenceFetchError(err error) (failClosed bool, reason string) {
-	switch {
-	case apierrors.IsNotFound(err), apimeta.IsNoMatchError(err):
-		return false, "APIServer resource not found, continuing with default TLS adherence policy"
-	case isTransientAPIError(err):
-		return false, "transient API error reading TLS adherence policy, continuing with defaults; watcher will retry"
-	case apierrors.IsForbidden(err):
-		return true, "forbidden reading TLS adherence policy (check operator RBAC for the APIServer resource)"
-	default:
-		return true, "unexpected error reading TLS adherence policy"
-	}
-}
-
-// isTransientAPIError reports whether err is a transient API error likely to
-// succeed on retry.
-func isTransientAPIError(err error) bool {
-	return apierrors.IsServiceUnavailable(err) ||
-		apierrors.IsTimeout(err) ||
-		apierrors.IsServerTimeout(err) ||
-		apierrors.IsTooManyRequests(err) ||
-		errors.Is(err, context.DeadlineExceeded)
 }
