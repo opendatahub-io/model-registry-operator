@@ -19,6 +19,7 @@ package tls
 import (
 	"context"
 	"crypto/fips140"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,16 +29,24 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	klog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ResolveProxy returns kube-rbac-proxy TLS flags using a direct API reader.
-// Only an absent APIServer API permits fallback after a failed read.
+// An absent APIServer API or a predefined cluster profile whose minimum version
+// is below the proxy's TLS 1.2 floor falls back to the hardened Intermediate
+// default; a failed APIServer read or any other profile the proxy cannot honor
+// returns an error.
 func ResolveProxy(ctx context.Context, reader client.Reader, hasConfigAPI bool) ([]string, error) {
 	// Product Go builds also enable FIPS from the kernel setting.
 	kernelFIPS, _ := os.ReadFile("/proc/sys/crypto/fips_enabled")
 	fipsEnabled := fips140.Enabled() || strings.TrimSpace(string(kernelFIPS)) == "1"
 	return resolveProxy(ctx, reader, hasConfigAPI, fipsEnabled)
 }
+
+// errProxyTLSBelowMinimum marks a profile whose minimum TLS version is below
+// what kube-rbac-proxy supports.
+var errProxyTLSBelowMinimum = errors.New("proxy minimum TLS version is below TLS 1.2")
 
 func resolveProxy(ctx context.Context, reader client.Reader, hasConfigAPI, fipsEnabled bool) ([]string, error) {
 	var profile *configv1.TLSSecurityProfile
@@ -51,7 +60,16 @@ func resolveProxy(ctx context.Context, reader client.Reader, hasConfigAPI, fipsE
 			profile = apiServer.Spec.TLSSecurityProfile
 		}
 	}
-	return proxyArgs(ctx, profile, fipsEnabled)
+	args, err := proxyArgs(ctx, profile, fipsEnabled)
+	// Only a predefined profile below TLS 1.2 falls back: Intermediate is
+	// stricter than every such profile, so the swap can never weaken policy. A
+	// Custom profile is an explicit admin choice and any other unusable profile
+	// fails closed, keeping the last good Deployment.
+	if errors.Is(err, errProxyTLSBelowMinimum) && profile != nil && profile.Custom == nil {
+		klog.FromContext(ctx).Error(err, "cluster TLS profile is below kube-rbac-proxy's minimum; using Intermediate")
+		return proxyArgs(ctx, nil, fipsEnabled)
+	}
+	return args, err
 }
 
 func proxyArgs(ctx context.Context, profile *configv1.TLSSecurityProfile, fipsEnabled bool) ([]string, error) {
@@ -60,6 +78,9 @@ func proxyArgs(ctx context.Context, profile *configv1.TLSSecurityProfile, fipsEn
 		return nil, fmt.Errorf("resolve proxy TLS profile: %w", err)
 	}
 	if version != string(configv1.VersionTLS12) && version != string(configv1.VersionTLS13) {
+		if version == string(configv1.VersionTLS10) || version == string(configv1.VersionTLS11) {
+			return nil, fmt.Errorf("%w: minimum TLS version %q is unsupported, require TLS 1.2 or TLS 1.3", errProxyTLSBelowMinimum, version)
+		}
 		return nil, fmt.Errorf("proxy minimum TLS version %q is unsupported: require TLS 1.2 or TLS 1.3", version)
 	}
 
@@ -67,7 +88,7 @@ func proxyArgs(ctx context.Context, profile *configv1.TLSSecurityProfile, fipsEn
 	if version == string(configv1.VersionTLS12) {
 		usable := make([]string, 0)
 		seen := make(map[string]bool)
-		for _, cipher := range strings.Split(ciphers, ",") {
+		for cipher := range strings.SplitSeq(ciphers, ",") {
 			if cipher == "" || seen[cipher] || fipsEnabled && !proxyFIPSCipher(cipher) {
 				continue
 			}

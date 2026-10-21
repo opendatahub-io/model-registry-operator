@@ -372,16 +372,6 @@ func (r *CatalogReconciler) finalizeCatalog(ctx context.Context, catalog *catalo
 
 func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog *catalogv1alpha1.Catalog) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
-	// Resolve policy before any image containment or workload mutation. A bad
-	// strict profile must preserve the entire last valid Deployment spec.
-	reader := r.APIReader
-	if reader == nil {
-		reader = r.Client
-	}
-	proxyTLSArgs, err := tlsconfig.ResolveProxy(ctx, reader, r.Capabilities.HasConfigAPI)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("resolve proxy TLS: %w", err)
-	}
 
 	log.Info("Reconciling catalog", "name", catalog.Name, "namespace", catalog.Namespace)
 
@@ -406,12 +396,23 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	}
 
 	catalogParams := r.buildCatalogParams(catalog, adminGroups, labeledSources, hfSources, hfSecretsHash)
-	catalogParams.ProxyTLSArgs = proxyTLSArgs
 	postgresParams := r.createPostgresParams(catalog)
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	beforeResolution := catalog.DeepCopy()
 	resolutionErr := r.resolveCatalogDataImages(ctx, catalog, catalogParams)
+	if resolutionErr == nil {
+		// Resolve TLS before starting the activation deadline or mutating the
+		// workload. Image failures bypass TLS resolution so containment still runs.
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		catalogParams.ProxyTLSArgs, err = tlsconfig.ResolveProxy(ctx, reader, r.Capabilities.HasConfigAPI)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("resolve proxy TLS: %w", err)
+		}
+	}
 	if err := r.prepareActivation(ctx, catalog, catalogParams); err != nil {
 		return ctrl.Result{}, err
 	}
