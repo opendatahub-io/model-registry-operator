@@ -32,7 +32,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	tlsconfig "github.com/opendatahub-io/model-registry-operator/internal/tls"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
+	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	userv1 "github.com/openshift/api/user/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -62,6 +64,7 @@ const (
 // ModelRegistryReconciler reconciles a ModelRegistry object
 type ModelRegistryReconciler struct {
 	client.Client
+	APIReader          client.Reader
 	ClientSet          *kubernetes.Clientset
 	Scheme             *runtime.Scheme
 	Recorder           events.EventRecorder
@@ -229,6 +232,16 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		Spec:         &modelRegistry.Spec,
 		OriginalSpec: originalSpec,
 	}
+	if modelRegistry.Spec.KubeRBACProxy != nil {
+		reader := r.APIReader
+		if reader == nil {
+			reader = r.Client
+		}
+		params.ProxyTLSArgs, err = tlsconfig.ResolveProxy(ctx, reader, r.Capabilities.HasConfigAPI)
+		if err != nil {
+			return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{}, fmt.Errorf("resolve proxy TLS: %w", err))
+		}
+	}
 
 	if r.GatewayDomain != "" {
 		params.GatewayDomain = r.GatewayDomain
@@ -278,6 +291,7 @@ func IgnoreDeletingErrors(err error) error {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.APIReader = mgr.GetAPIReader()
 	builder := ctrl.NewControllerManagedBy(mgr).
 		For(&v1beta1.ModelRegistry{}).
 		Owns(&corev1.Service{}).
@@ -285,6 +299,10 @@ func (r *ModelRegistryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&rbac.Role{}).
 		Owns(&networkingv1.NetworkPolicy{})
+	if r.Capabilities.HasConfigAPI {
+		builder = builder.Watches(&configv1.APIServer{}, handler.EnqueueRequestsFromMapFunc(r.registriesForTLSChange),
+			pkgbuilder.WithPredicates(proxyTLSChangedPredicate()))
+	}
 	if r.Capabilities.IsOpenShift {
 		builder = builder.Owns(&rbac.RoleBinding{})
 
@@ -940,6 +958,7 @@ func (r *ModelRegistryReconciler) doFinalizerOperationsForModelRegistry(ctx cont
 
 // ModelRegistryParams is a wrapper for template parameters
 type ModelRegistryParams struct {
+	ProxyTLSArgs []string
 	Name         string
 	Namespace    string
 	Spec         *v1beta1.ModelRegistrySpec

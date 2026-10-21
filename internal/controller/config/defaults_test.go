@@ -151,7 +151,7 @@ func TestKubeRBACProxyTemplates(t *testing.T) {
 			KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 				Port:      &httpsPort,
 				RoutePort: &routePort,
-				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
+				Image:     "quay.io/opendatahub/odh-kube-rbac-proxy:odh-stable",
 				Domain:    "example.com",
 			},
 		},
@@ -241,7 +241,7 @@ func TestKubeRBACProxyDeploymentGeneration(t *testing.T) {
 			KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 				Port:      &httpsPort,
 				RoutePort: &routePort,
-				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
+				Image:     "quay.io/opendatahub/odh-kube-rbac-proxy:odh-stable",
 				Domain:    "example.com",
 				// RuntimeDefaults sets these, so they must be present for template rendering
 				TLSCertificateSecret: &v1beta1.SecretKeyValue{
@@ -371,7 +371,7 @@ func TestDeploymentWithResources(t *testing.T) {
 			KubeRBACProxy: &v1beta1.KubeRBACProxyConfig{
 				Port:      &httpsPort,
 				RoutePort: &routePort,
-				Image:     "quay.io/openshift/origin-kube-rbac-proxy:latest",
+				Image:     "quay.io/opendatahub/odh-kube-rbac-proxy:odh-stable",
 				Domain:    "example.com",
 				TLSCertificateSecret: &v1beta1.SecretKeyValue{
 					Name: "test-registry-kube-rbac-proxy",
