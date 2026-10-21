@@ -17,7 +17,9 @@ import (
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/api/v1beta1"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
+	tlsconfig "github.com/opendatahub-io/model-registry-operator/internal/tls"
 	"github.com/opendatahub-io/model-registry-operator/internal/utils"
+	configv1 "github.com/openshift/api/config/v1"
 	imagev1 "github.com/openshift/api/image/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -130,6 +132,7 @@ type CatalogReconciler struct {
 
 // CatalogParams is a wrapper for template parameters
 type CatalogParams struct {
+	ProxyTLSArgs            []string
 	Name                    string
 	Namespace               string
 	Component               string
@@ -369,6 +372,16 @@ func (r *CatalogReconciler) finalizeCatalog(ctx context.Context, catalog *catalo
 
 func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog *catalogv1alpha1.Catalog) (ctrl.Result, error) {
 	log := klog.FromContext(ctx)
+	// Resolve policy before any image containment or workload mutation. A bad
+	// strict profile must preserve the entire last valid Deployment spec.
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	proxyTLSArgs, err := tlsconfig.ResolveProxy(ctx, reader, r.Capabilities.HasConfigAPI)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolve proxy TLS: %w", err)
+	}
 
 	log.Info("Reconciling catalog", "name", catalog.Name, "namespace", catalog.Namespace)
 
@@ -393,6 +406,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	}
 
 	catalogParams := r.buildCatalogParams(catalog, adminGroups, labeledSources, hfSources, hfSecretsHash)
+	catalogParams.ProxyTLSArgs = proxyTLSArgs
 	postgresParams := r.createPostgresParams(catalog)
 
 	crOwner := metav1.NewControllerRef(catalog, catalogv1alpha1.GroupVersion.WithKind("Catalog"))
@@ -1479,6 +1493,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 	}
 
 	catalogParams := struct {
+		ProxyTLSArgs            []string
 		Name                    string
 		Namespace               string
 		Spec                    *v1beta1.ModelRegistrySpec
@@ -1507,6 +1522,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		HFSources               []HFSource
 		HFSecretsHash           string
 	}{
+		ProxyTLSArgs:            params.ProxyTLSArgs,
 		Name:                    params.Name,
 		ActivationAttempt:       params.ActivationAttempt,
 		ActivationBlocked:       params.ActivationBlocked,
@@ -1725,6 +1741,10 @@ func (r *CatalogReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbac.Role{}).
 		Owns(&rbac.RoleBinding{})
+	if r.Capabilities.HasConfigAPI {
+		b = b.Watches(&configv1.APIServer{}, handler.EnqueueRequestsFromMapFunc(r.catalogsForTLSChange),
+			builder.WithPredicates(proxyTLSChangedPredicate()))
+	}
 	b = b.Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.getCatalogsForPod),
 		builder.WithPredicates(predicate.NewPredicateFuncs(isCatalogPod)))
 

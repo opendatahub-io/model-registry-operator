@@ -228,6 +228,9 @@ spec:
             - --config-file=/etc/kube-rbac-proxy/config-file.yaml
             - --tls-cert-file=/etc/tls/private-cert/{{.Spec.KubeRBACProxy.TLSCertificateSecret.Key}}
             - --tls-private-key-file=/etc/tls/private-key/{{.Spec.KubeRBACProxy.TLSKeySecret.Key}}
+            {{- range .ProxyTLSArgs }}
+            - {{ printf "%q" . }}
+            {{- end }}
           image: {{.Spec.KubeRBACProxy.Image}}
           ports:
             - containerPort: {{.Spec.KubeRBACProxy.Port}}

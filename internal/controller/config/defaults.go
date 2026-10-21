@@ -57,7 +57,7 @@ const (
 	DefaultOperatorImage       = "quay.io/opendatahub/model-registry-operator:latest"
 	DefaultRestImage           = "quay.io/opendatahub/model-registry:latest"
 	DefaultOAuthProxyImage     = "quay.io/openshift/origin-oauth-proxy:latest"
-	DefaultKubeRBACProxyImage  = "quay.io/openshift/origin-kube-rbac-proxy:latest"
+	DefaultKubeRBACProxyImage  = "quay.io/opendatahub/odh-kube-rbac-proxy:odh-stable"
 	DefaultPostgresImage       = "quay.io/sclorg/postgresql-16-c10s:latest"
 	DefaultCatalogDataImage    = "quay.io/opendatahub/odh-model-metadata-collection:latest"
 	DefaultBenchmarkDataImage  = "quay.io/opendatahub/odh-model-metadata-collection:latest"
