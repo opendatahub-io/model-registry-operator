@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"crypto/fips140"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,8 +27,21 @@ import (
 )
 
 // Exercise the real reconciler and templates: a policy change must change the
-// operand PodTemplate, while an invalid strict policy must preserve its spec.
+// operand PodTemplate, the Old profile falls back to the hardened Intermediate
+// default, and any other unusable strict policy must preserve the workload.
 func TestProxyTLSReconciliation(t *testing.T) {
+	// Hardened Intermediate defaults, accounting for the effective crypto mode.
+	intermediateProxyArgs := []string{
+		"--tls-min-version=VersionTLS12",
+		"--tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+		"--tls-curve-preferences=4588,29,23,24",
+	}
+	kernelFIPS, _ := os.ReadFile("/proc/sys/crypto/fips_enabled")
+	if fips140.Enabled() || strings.TrimSpace(string(kernelFIPS)) == "1" {
+		intermediateProxyArgs[1] = "--tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+		intermediateProxyArgs[2] = "--tls-curve-preferences=23,24"
+	}
+
 	for _, kind := range []string{"registry", "catalog"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
@@ -129,19 +144,23 @@ func TestProxyTLSReconciliation(t *testing.T) {
 					}
 				}
 			}
-			apiServer.Spec.TLSSecurityProfile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType}
+			apiServer.Spec.TLSSecurityProfile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType}
 			if err := cli.Update(ctx, apiServer); err != nil {
 				t.Fatal(err)
 			}
-			if err := run(); err == nil {
-				t.Fatal("invalid strict profile was accepted")
+			// The Old profile is below the proxy's TLS 1.2 minimum, so it must
+			// not block reconciliation and falls back to the hardened
+			// Intermediate default.
+			if err := run(); err != nil {
+				t.Fatalf("Old profile blocked reconciliation: %v", err)
 			}
-			if after := getDeployment(); !reflect.DeepEqual(modern.Spec, after.Spec) {
-				t.Fatal("invalid policy changed the workload")
+			intermediate := getDeployment()
+			for _, arg := range intermediateProxyArgs {
+				assertArg(intermediate, arg)
 			}
 			// The shipped proxy always configures HTTP/2. Its TLS 1.2 server
-			// cannot start with an AES-256-only cipher list; resolve this before
-			// Kubernetes replaces the previously healthy workload.
+			// cannot start with an AES-256-only cipher list, so the reconcile
+			// fails and keeps the previously applied workload.
 			apiServer.Spec.TLSSecurityProfile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType, Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12, Ciphers: []string{"ECDHE-RSA-AES256-GCM-SHA384"},
 			}}}
@@ -151,7 +170,7 @@ func TestProxyTLSReconciliation(t *testing.T) {
 			if err := run(); err == nil {
 				t.Fatal("profile incompatible with proxy HTTP/2 startup was accepted")
 			}
-			if after := getDeployment(); !reflect.DeepEqual(modern.Spec, after.Spec) {
+			if after := getDeployment(); !reflect.DeepEqual(intermediate.Spec, after.Spec) {
 				t.Fatal("unrepresentable HTTP/2 policy changed the workload")
 			}
 			apiServer.Spec.TLSAdherence = configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly
