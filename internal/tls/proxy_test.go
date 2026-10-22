@@ -101,6 +101,7 @@ func TestResolveProxyAdherence(t *testing.T) {
 		{"Strict empty profile defaults Intermediate", configv1.TLSAdherencePolicyStrictAllComponents, &configv1.TLSSecurityProfile{}, intermediateProxyArgs},
 		{"Strict Intermediate", configv1.TLSAdherencePolicyStrictAllComponents, &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}, intermediateProxyArgs},
 		{"Strict Modern", configv1.TLSAdherencePolicyStrictAllComponents, &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType}, []string{"--tls-min-version=VersionTLS13", "--tls-curve-preferences=4588,29,23,24"}},
+		{"Strict Old falls back to Intermediate", configv1.TLSAdherencePolicyStrictAllComponents, &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType}, intermediateProxyArgs},
 		{"unknown policy honors Custom", "FuturePolicy", customProxyProfile(configv1.VersionTLS12, []string{"ECDHE-RSA-AES128-GCM-SHA256"}, configv1.TLSGroupSecP256r1), []string{"--tls-min-version=VersionTLS12", "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "--tls-curve-preferences=23"}},
 	}
 	for _, tt := range tests {
@@ -117,6 +118,16 @@ func TestResolveProxyAdherence(t *testing.T) {
 				t.Errorf("APIServer reads = %v, want one read of cluster", reader.keys)
 			}
 		})
+	}
+}
+
+func TestResolveProxyCustomBelowMinimumFailsClosed(t *testing.T) {
+	for _, version := range []configv1.TLSProtocolVersion{configv1.VersionTLS10, configv1.VersionTLS11} {
+		reader := proxyAPIServerReader(t, configv1.TLSAdherencePolicyStrictAllComponents,
+			customProxyProfile(version, []string{"ECDHE-RSA-AES128-GCM-SHA256"}))
+		if got, err := resolveProxy(context.Background(), reader, true, false); err == nil {
+			t.Errorf("%s: proxy arguments = %q, want error", version, got)
+		}
 	}
 }
 
@@ -227,7 +238,8 @@ func TestProxyArgsRejectsUnusableStrictProfiles(t *testing.T) {
 
 func TestResolveProxyRequiresHTTP2CompatibleTLS12Ciphers(t *testing.T) {
 	// The proxy configures HTTP/2 at startup, which rejects an explicit TLS 1.2
-	// cipher list without ECDHE RSA or ECDSA AES-128-GCM. TLS 1.3 has no such list.
+	// cipher list without ECDHE RSA or ECDSA AES-128-GCM. TLS 1.3 has no such
+	// list. A profile that cannot satisfy the requirement fails resolution.
 	tests := []struct {
 		name    string
 		version configv1.TLSProtocolVersion
