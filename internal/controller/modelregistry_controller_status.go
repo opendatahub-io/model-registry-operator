@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 
@@ -64,7 +63,6 @@ const (
 	ReasonDeploymentUpdating    = "UpdatingDeployment"
 	ReasonDeploymentAvailable   = "DeploymentAvailable"
 	ReasonDeploymentUnavailable = "DeploymentUnavailable"
-	ReasonDeploymentCooldown    = "DeploymentCooldown"
 	ReasonConfigurationError    = "ConfigurationError"
 
 	ReasonResourcesCreated     = "CreatedResources"
@@ -204,9 +202,6 @@ func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta
 	return nil
 }
 
-// deploymentDelay is how long to wait after the deployment is available to consider it ready.
-const deploymentDelay = 5 * time.Second
-
 func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
 	if err := r.Get(ctx, key, deployment); err != nil {
@@ -221,7 +216,6 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 	// check deployment conditions errors
 	// start with available=false to force DeploymentAvailable condition to set it to true later
 	available := false
-	var availableSince time.Time
 	failed := false
 	progressing := true
 	for _, c := range deployment.Status.Conditions {
@@ -231,8 +225,6 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 				available = c.Status == corev1.ConditionTrue
 				if !available {
 					condition.Message = c.Message
-				} else {
-					availableSince = c.LastTransitionTime.Time
 				}
 			}
 		case appsv1.DeploymentProgressing:
@@ -284,13 +276,6 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable
 			condition.Message = "Service endpoints not ready - no ready addresses available"
-			return condition, nil
-		}
-
-		if time.Since(availableSince) < deploymentDelay {
-			condition.Status = metav1.ConditionFalse
-			condition.Reason = ReasonDeploymentCooldown
-			condition.Message = "Deployment only recently available"
 			return condition, nil
 		}
 

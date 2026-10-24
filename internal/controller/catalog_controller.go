@@ -283,10 +283,6 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionWorkloadAvailable); condition != nil {
-		if condition.Reason == ReasonDeploymentCooldown {
-			// Requeue after a fixed delay to avoid exponential backoff.
-			return ctrl.Result{RequeueAfter: time.Second}, nil
-		}
 		if condition.Status != metav1.ConditionTrue {
 			// Not yet available for another reason (e.g. deployment still rolling
 			// out) - keep polling until it settles.
@@ -795,7 +791,6 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	}
 
 	available := false
-	var availableSince time.Time
 	failed := false
 	progressing := true
 	for _, c := range deployment.Status.Conditions {
@@ -805,8 +800,6 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 				available = c.Status == corev1.ConditionTrue
 				if !available {
 					condition.Message = c.Message
-				} else {
-					availableSince = c.LastTransitionTime.Time
 				}
 			}
 		case appsv1.DeploymentProgressing:
@@ -866,13 +859,6 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable
 			condition.Message = "Service endpoints not ready - no ready addresses available"
-			return condition, nil
-		}
-
-		if time.Since(availableSince) < deploymentDelay {
-			condition.Status = metav1.ConditionFalse
-			condition.Reason = ReasonDeploymentCooldown
-			condition.Message = "Deployment only recently available"
 			return condition, nil
 		}
 
