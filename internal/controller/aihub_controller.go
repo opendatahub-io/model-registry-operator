@@ -66,6 +66,8 @@ const (
 	catalogDeploymentName   = "catalog-controller-manager"
 	childManagerContainer   = "manager"
 	asyncUploadTemplateName = "jobs-async-upload-s3-to-oci-template"
+	// Marks the one-time transition to ImageStream-managed data images.
+	catalogImageStreamsMigratedAnnotation = "aihub.opendatahub.io/data-image-streams-migrated"
 
 	// ConditionModelRegistryReady tracks whether the child model-registry
 	// operator Deployment is available.
@@ -128,6 +130,7 @@ type AIHubReconciler struct {
 	ManifestsTemplatePath string
 	Getenv                func(string) string
 	Deployer              ResourceDeployer
+	Capabilities          ClusterCapabilities
 	// Template is the parsed set of embedded resource templates
 	// (config.ParseTemplates), used to render the operator's own metrics
 	// ServiceMonitor. Falls back to parsing on demand if nil (e.g. in tests
@@ -390,16 +393,30 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Namespace: spec.InstancesNamespace,
 		},
 	}
-	// Leave image selections unset to use the images supplied by the product
-	// operator. CreateIfNotExists preserves later admin selections.
+	if r.Capabilities.IsOpenShift {
+		stable := catalogDataImageStreamTag
+		newCatalog.Spec.CatalogDataImageStream = &stable
+		newCatalog.Spec.BenchmarkDataImageStream = &stable
+		newCatalog.Annotations = map[string]string{catalogImageStreamsMigratedAnnotation: "true"}
+	}
+	// OpenShift Catalogs start on the configured ImageStreams. Existing Catalogs
+	// transition once; later administrator selections remain independent. Other
+	// clusters keep their release image defaults without requiring ImageStreams.
 	newCatalog.SetGroupVersionKind(catalogv1alpha1.GroupVersion.WithKind("Catalog"))
 	if err := ctrl.SetControllerReference(aihub, newCatalog, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("setting Catalog owner reference: %w", err)
 	}
 	rm := ResourceManager{Client: r.Client}
 	currCatalog := &catalogv1alpha1.Catalog{}
-	if _, err := rm.CreateIfNotExists(ctx, currCatalog, newCatalog); err != nil {
+	result, err := rm.CreateIfNotExists(ctx, currCatalog, newCatalog)
+	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring Catalog CR: %w", err)
+	}
+	if result == ResourceCreated {
+		currCatalog = newCatalog
+	}
+	if err := r.migrateCatalogImageStreams(ctx, currCatalog); err != nil {
+		return ctrl.Result{}, fmt.Errorf("migrating Catalog ImageStream selections: %w", err)
 	}
 	catalogReady, catalogFailed := reconcileAIHubCatalogReadiness(currCatalog, condMgr)
 
@@ -426,6 +443,27 @@ func (r *AIHubReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *AIHubReconciler) migrateCatalogImageStreams(ctx context.Context, catalog *catalogv1alpha1.Catalog) error {
+	if !r.Capabilities.IsOpenShift || catalog.Annotations[catalogImageStreamsMigratedAnnotation] == "true" || !catalog.DeletionTimestamp.IsZero() {
+		return nil
+	}
+	updated := catalog.DeepCopy()
+	stable := catalogDataImageStreamTag
+	updated.Spec.CatalogDataImageStream = &stable
+	updated.Spec.BenchmarkDataImageStream = &stable
+	if updated.Annotations == nil {
+		updated.Annotations = make(map[string]string)
+	}
+	updated.Annotations[catalogImageStreamsMigratedAnnotation] = "true"
+	// Commit the selections and marker together. A concurrent update conflicts
+	// and requeues reconciliation instead of marking an incomplete migration.
+	if err := r.Patch(ctx, updated, client.MergeFromWithOptions(catalog, client.MergeFromWithOptimisticLock{})); err != nil {
+		return err
+	}
+	*catalog = *updated
+	return nil
 }
 
 // The owned Catalog watch triggers failure and recovery propagation. Stale or

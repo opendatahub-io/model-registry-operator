@@ -43,13 +43,12 @@ func dataImageSelection(selection *string) (string, error) {
 	return *selection, nil
 }
 
-// The product supplies release-pinned bootstrap images. Import sources default
-// to stable in each release repository, and may point to standalone channels.
+// Import sources default to the complete release image references, preserving
+// their digests or development tags. Explicit sources may follow update channels.
 func catalogDataImageSources() [2]string {
-	stable := catalogDataImageStreamTag
 	return [2]string{
-		config.GetStringConfigWithDefault(config.CatalogDataImageStreamSource, config.ResolveImage(&stable, config.CatalogDataImage, config.DefaultCatalogDataImage)),
-		config.GetStringConfigWithDefault(config.BenchmarkDataImageStreamSource, config.ResolveImage(&stable, config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)),
+		config.GetStringConfigWithDefault(config.CatalogDataImageStreamSource, config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage)),
+		config.GetStringConfigWithDefault(config.BenchmarkDataImageStreamSource, config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)),
 	}
 }
 
