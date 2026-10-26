@@ -14,7 +14,7 @@ require (
 	github.com/openshift/api v0.0.0-20261002115817-f8795cdde518
 	github.com/openshift/controller-runtime-common v0.0.0-20261005093240-b39eb7218441
 	github.com/spf13/cobra v1.10.2
-	istio.io/client-go v1.31.2
+	istio.io/client-go v1.31.3
 	k8s.io/api v0.37.1
 	k8s.io/apiextensions-apiserver v0.37.1
 	k8s.io/apimachinery v0.37.1
@@ -131,7 +131,7 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	helm.sh/helm/v4 v4.1.4 // indirect
-	istio.io/api v1.31.2-0.20261013143744-969dd730e3f1 // indirect
+	istio.io/api v1.31.3-0.20261021173654-6bc70d5e00c2 // indirect
 	k8s.io/apiserver v0.37.1 // indirect
 	k8s.io/component-base v0.37.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
