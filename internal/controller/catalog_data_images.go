@@ -43,13 +43,12 @@ func dataImageSelection(selection *string) (string, error) {
 	return *selection, nil
 }
 
-// The product supplies release-pinned bootstrap images. Import sources default
-// to stable in each release repository, and may point to standalone channels.
+// Import sources default to the complete release image references, preserving
+// their digests or development tags. Explicit sources may follow update channels.
 func catalogDataImageSources() [2]string {
-	stable := catalogDataImageStreamTag
 	return [2]string{
-		config.GetStringConfigWithDefault(config.CatalogDataImageStreamSource, config.ResolveImage(&stable, config.CatalogDataImage, config.DefaultCatalogDataImage)),
-		config.GetStringConfigWithDefault(config.BenchmarkDataImageStreamSource, config.ResolveImage(&stable, config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)),
+		config.GetStringConfigWithDefault(config.CatalogDataImageStreamSource, config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage)),
+		config.GetStringConfigWithDefault(config.BenchmarkDataImageStreamSource, config.GetStringConfigWithDefault(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)),
 	}
 }
 
@@ -82,6 +81,8 @@ func (e *catalogDataImagesUnavailable) Unwrap() error { return e.cause }
 // permits candidate rollout; required-content validation precedes workload readiness.
 func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalog *catalogv1alpha1.Catalog, params *CatalogParams) error {
 	sources := catalogDataImageSources()
+	releaseCatalogImage := config.GetStringConfigWithDefault(config.CatalogDataImage, config.DefaultCatalogDataImage)
+	params.AllowLegacyRuntimeFile = catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream == ""
 	targets := []struct {
 		name, streamName, source, sourceEnv, resolvedType, healthType string
 		selection                                                     *string
@@ -136,6 +137,16 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			}
 			streams[target.streamName] = stream
 		}
+		if target.name == "catalog" {
+			// Importing the release source must retain its compatibility behavior,
+			// including while a release tag is resolved to an immutable digest.
+			// Inspect the actual source so manual ImageStream overrides stay strict.
+			for _, tag := range stream.Spec.Tags {
+				if tag.Name == catalogDataImageStreamTag && tag.From != nil && tag.From.Kind == "DockerImage" && tag.From.Name == releaseCatalogImage {
+					params.AllowLegacyRuntimeFile = true
+				}
+			}
+		}
 		importHealth := catalogDataImageImportHealth(stream)
 		// A new import may be pending while its previous digest is still serving.
 		// Keep that healthy attempt until the new import succeeds or fails.
@@ -179,6 +190,17 @@ func (r *CatalogReconciler) resolveCatalogDataImages(ctx context.Context, catalo
 			*target.image = applied.BenchmarkDataImage
 		}
 		resolved(metav1.ConditionFalse, "NoSuccessfulImport", "Waiting for the first successful import; using the current applied or release image: "+*target.image)
+	}
+
+	if catalog.Spec.CatalogDataImageStream != nil && *catalog.Spec.CatalogDataImageStream == catalogDataImageStreamTag {
+		// An independent channel or mirror can also import the exact release
+		// digest. Its content has the same compatibility contract as the release.
+		_, releaseDigest, releasePinned := strings.Cut(releaseCatalogImage, "@")
+		_, selectedDigest, selectedPinned := strings.Cut(params.CatalogDataImage, "@")
+		sameDigest := releasePinned && selectedPinned && catalogDataDigestPattern.MatchString(releaseDigest) && releaseDigest == selectedDigest
+		if params.CatalogDataImage == releaseCatalogImage || sameDigest {
+			params.AllowLegacyRuntimeFile = true
+		}
 	}
 
 	aggregateDataImageConditions(catalog, conditionDataImageResolved, "CatalogDataImageResolved", "BenchmarkDataImageResolved")

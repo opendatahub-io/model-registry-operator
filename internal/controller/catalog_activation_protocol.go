@@ -34,7 +34,7 @@ func (r *CatalogReconciler) prepareActivation(ctx context.Context, catalog *cata
 		}
 		return *value
 	}
-	request := []string{string(catalog.UID), selection(catalog.Spec.CatalogDataImageStream), selection(catalog.Spec.BenchmarkDataImageStream), params.CatalogDataImage, params.BenchmarkDataImage, config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage), config.GetStringConfigWithDefault(config.ModelRegistryOperatorImage, config.DefaultOperatorImage), string(resolved.Status), resolved.Reason, params.ImageImportEvidence, catalog.Annotations["aihub.opendatahub.io/retry-activation"]}
+	request := []string{string(catalog.UID), selection(catalog.Spec.CatalogDataImageStream), selection(catalog.Spec.BenchmarkDataImageStream), params.CatalogDataImage, params.BenchmarkDataImage, config.GetStringConfigWithDefault(config.RestImage, config.DefaultRestImage), config.GetStringConfigWithDefault(config.ModelRegistryOperatorImage, config.DefaultOperatorImage), string(resolved.Status), resolved.Reason, params.ImageImportEvidence, fmt.Sprint(params.AllowLegacyRuntimeFile), catalog.Annotations["aihub.opendatahub.io/retry-activation"]}
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		return err

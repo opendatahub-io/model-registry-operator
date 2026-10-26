@@ -204,6 +204,7 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 		ManifestsTemplatePath: tmpDir,
 		APIReader:             k8sClient,
 		HasServiceMonitorCRD:  true,
+		Capabilities:          ClusterCapabilities{IsOpenShift: true},
 		Getenv: fakeGetenv(map[string]string{
 			config.ModelRegistryOperatorImage: "fake-op@sha256:aaa",
 			config.RestImage:                  "fake-rest@sha256:bbb",
@@ -436,6 +437,11 @@ func TestAIHubReconcile_Envtest(t *testing.T) {
 	}
 	if !hasAIHubOwner {
 		t.Error("Catalog CR missing controller owner reference with Kind=AIHub")
+	}
+	if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != "stable" ||
+		catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != "stable" ||
+		catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "true" {
+		t.Fatal("fresh Catalog must select both ImageStreams and record initialization")
 	}
 
 	platformVersion := got2.GetReleaseStatus().GetPlatformRelease()

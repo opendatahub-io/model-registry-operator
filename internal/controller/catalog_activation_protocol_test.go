@@ -217,8 +217,8 @@ func TestTimedOutPendingImportStaysContained(t *testing.T) {
 	if resumed || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 || catalog.Status.Activation.AttemptID != attempt || catalog.Status.Activation.Reason != "ActivationTimedOut" {
 		t.Fatalf("unchanged timed-out attempt resumed: activation=%+v replicas=%v update=%t", catalog.Status.Activation, deployment.Spec.Replicas, resumed)
 	}
-	if strings.Contains(deployment.Spec.Template.Spec.InitContainers[0].Command[2], "serving_runtimes: []") {
-		t.Fatal("explicitly selected images must ship the serving-runtime file")
+	if !strings.Contains(deployment.Spec.Template.Spec.InitContainers[0].Command[2], "serving_runtimes: []") {
+		t.Fatal("pending import must retain release image compatibility")
 	}
 }
 
