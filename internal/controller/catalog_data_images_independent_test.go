@@ -23,8 +23,8 @@ func TestCatalogIndependentDataImages(t *testing.T) {
 	catalogDefault, benchmarkDefault := catalogRepo+"@"+dataTestDigest1, benchmarkRepo+"@"+dataTestDigest2
 	t.Setenv(config.CatalogDataImage, catalogDefault)
 	t.Setenv(config.BenchmarkDataImage, benchmarkDefault)
-	t.Setenv(config.CatalogDataImageStreamSource, "")
-	t.Setenv(config.BenchmarkDataImageStreamSource, "")
+	t.Setenv(config.CatalogDataImageStreamSource, catalogRepo+":stable")
+	t.Setenv(config.BenchmarkDataImageStreamSource, benchmarkRepo+":stable")
 	stable := "stable"
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "independent-test", Generation: 1, UID: "independent"}}
 	r := newDataImageTestReconciler(t, catalog, true)
@@ -188,6 +188,59 @@ func TestCatalogDeprecatedDataImagesAreIgnored(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCatalogReleaseImageSources(t *testing.T) {
+	catalogRelease := "registry.example/catalog@" + dataTestDigest1
+	benchmarkRelease := "registry.example/benchmarks@" + dataTestDigest2
+	t.Setenv(config.CatalogDataImage, catalogRelease)
+	t.Setenv(config.BenchmarkDataImage, benchmarkRelease)
+	t.Setenv(config.CatalogDataImageStreamSource, "")
+	t.Setenv(config.BenchmarkDataImageStreamSource, "")
+	stable := "stable"
+	catalog := &catalogv1alpha1.Catalog{
+		ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "release-source-test", UID: "release-source"},
+		Spec: catalogv1alpha1.CatalogSpec{
+			CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable,
+		},
+	}
+	r := newDataImageTestReconciler(t, catalog, true)
+	resolve := func() {
+		t.Helper()
+		if err := r.resolveCatalogDataImages(t.Context(), catalog, r.buildCatalogParams(catalog, nil, nil, nil, "")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertSource := func(name, source string) *imagev1.ImageStream {
+		t.Helper()
+		stream := &imagev1.ImageStream{}
+		if err := r.Get(t.Context(), client.ObjectKey{Name: name, Namespace: catalog.Namespace}, stream); err != nil {
+			t.Fatal(err)
+		}
+		if len(stream.Spec.Tags) != 1 || stream.Spec.Tags[0].Name != stable || stream.Spec.Tags[0].From.Name != source {
+			t.Fatalf("release image reference was rewritten: %+v", stream.Spec.Tags)
+		}
+		return stream
+	}
+	resolve()
+	stream := assertSource(CatalogDataImageStreamName, catalogRelease)
+	assertSource(BenchmarkDataImageStreamName, benchmarkRelease)
+	generation := int64(7)
+	stream.Spec.Tags[0].Generation = &generation
+	if err := r.Update(t.Context(), stream); err != nil {
+		t.Fatal(err)
+	}
+
+	// A later operator release changes its supplied digest. The managed stream
+	// must request a fresh import without relying on an external stable tag.
+	catalogRelease = "registry.example/catalog@" + dataTestDigest3
+	t.Setenv(config.CatalogDataImage, catalogRelease)
+	resolve()
+	stream = assertSource(CatalogDataImageStreamName, catalogRelease)
+	if stream.Spec.Tags[0].Generation == nil || *stream.Spec.Tags[0].Generation != 0 {
+		t.Fatal("changed release digest must request a new ImageStream import")
+	}
+	assertSource(BenchmarkDataImageStreamName, benchmarkRelease)
 }
 
 func TestCatalogStandaloneImportSources(t *testing.T) {

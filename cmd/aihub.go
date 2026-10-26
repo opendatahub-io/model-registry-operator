@@ -167,6 +167,7 @@ func runAIHub(_ *cobra.Command, _ []string) error {
 		ManifestsTemplatePath: manifestsTemplatePath,
 		Getenv:                os.Getenv,
 		APIReader:             mgr.GetAPIReader(),
+		Capabilities:          capabilities,
 		HasServiceMonitorCRD:  capabilities.HasServiceMonitor,
 		Template:              resourceTemplate,
 		Deployer: deploy.NewDeployer(

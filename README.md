@@ -84,11 +84,17 @@ same combined image today or separate images and versions:
 | `stable` | Follow scheduled imports from its managed ImageStream (OpenShift only). |
 | `sha256:<64 lowercase hex>` | Pin that digest in the configured import repository, including rollback. |
 
-AIHub leaves both fields unset when it creates the Catalog, using the release
-images supplied by the product operator on all clusters. The standalone sample
-also leaves both selections empty. AIHub preserves later admin selections.
-Scheduled updates require an admin to select `stable` and configure a published
-import source. For example, mixed selections are supported:
+On OpenShift, AIHub sets both fields to `stable` when it creates a Catalog.
+On upgrade, AIHub also sets both fields on the existing Catalog
+to `stable`, replacing previous empty selections or digest pins. It records
+`aihub.opendatahub.io/data-image-streams-migrated: "true"` on the Catalog in the
+same update. New Catalogs receive this marker at creation, and subsequent
+administrator selections are preserved across reconciliations and restarts.
+The standalone sample leaves both selections empty. On OpenShift, an administrator
+can select `stable` to import the release images or configure alternate update
+sources. On other Kubernetes clusters, AIHub leaves selections unset on creation
+and preserves existing selections, using release images without requiring the
+OpenShift ImageStream API. Mixed selections are supported on OpenShift, for example:
 
 ```yaml
 spec:
@@ -99,10 +105,15 @@ spec:
 The release defaults come from `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
 and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. They remain
 bootstrap and recovery images shipped with the product. Each import source defaults
-to `:stable` in its release repository. `CATALOG_DATA_IMAGE_STREAM_SOURCE` and
-`BENCHMARK_DATA_IMAGE_STREAM_SOURCE` can override the full source references for
-standalone delivery, including a different repository or floating tag such as
-`:latest`. The ImageStream's local selection tag remains `stable`.
+to its complete release image reference, preserving its digest or development tag.
+A digest-pinned source changes when a later operator release supplies a different
+image reference; scheduled imports of the same digest do not discover new builds.
+`CATALOG_DATA_IMAGE_STREAM_SOURCE` and `BENCHMARK_DATA_IMAGE_STREAM_SOURCE` can
+override these references with independent update channels. A distribution can set
+these values in its AIHub overlay's `params.env`, and AIHub forwards them to the
+child operators. The shared implementation requires no distribution-specific code.
+The ImageStream's local selection tag remains `stable` regardless of whether its
+external source uses a digest or a tag.
 
 The operator creates its ImageStreams from an embedded template with scheduled
 imports and watches their status. Identical sources share `model-catalog-data:stable`;

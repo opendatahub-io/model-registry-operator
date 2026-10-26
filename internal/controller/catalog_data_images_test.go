@@ -78,6 +78,8 @@ func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
 	t.Setenv(config.CatalogDataImage, releaseDefault)
 	// Both repositories can ship the combined image today.
 	t.Setenv(config.BenchmarkDataImage, releaseDefault)
+	t.Setenv(config.CatalogDataImageStreamSource, dataTestRepository+":stable")
+	t.Setenv(config.BenchmarkDataImageStreamSource, dataTestRepository+":stable")
 	ctx := context.Background()
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1}}
 	r := newDataImageTestReconciler(t, catalog, true)
