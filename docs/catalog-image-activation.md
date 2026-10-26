@@ -27,9 +27,11 @@ with the choices described below.
    pair starts. Both copy init containers must succeed. The benchmark image must
    contain `/app/benchmarks`, but that directory may be empty. Older release
    images lack the serving-runtime catalog;
-   for an empty Catalog image selection, the copy init container supplies an
-   empty serving-runtime list when that file is absent. Explicitly selected
-   images must contain the file and fail preflight when it is missing.
+   empty Catalog image selections and `stable` imports from the release source
+   (or of its known digest) retain the copy init container's empty serving-runtime
+   list when that file is absent. Migration to ImageStreams therefore preserves
+   release-image compatibility. Other selections must contain the file and fail
+   preflight when it is missing. A shipped serving-runtime file is never replaced.
 4. Run `/manager catalog-content-validate` from the operator image as a third init
    container. It reads shipped source YAML and benchmark files before the catalog
    process starts. It makes no database or Kubernetes API calls. On failure, it
