@@ -90,13 +90,16 @@ func TestCheckDeploymentAvailability(t *testing.T) {
 		wantReason  string
 		wantMessage string
 	}{
+		// The cooldown guards against the application reporting ready
+		// endpoints before it actually serves requests.
 		"available with fresh transition time and ready endpoints": {
 			objects: []client.Object{
 				availabilityDeployment(name, namespace, time.Now()),
 				availabilityEndpoints(name, namespace, true),
 			},
-			wantStatus: metav1.ConditionTrue,
-			wantReason: ReasonDeploymentAvailable,
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  ReasonDeploymentCooldown,
+			wantMessage: "Deployment only recently available",
 		},
 		"available with mature transition time and ready endpoints": {
 			objects: []client.Object{

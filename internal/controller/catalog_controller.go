@@ -283,6 +283,10 @@ func (r *CatalogReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 
 	if condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionWorkloadAvailable); condition != nil {
+		if condition.Reason == ReasonDeploymentCooldown {
+			// Requeue after a fixed delay to avoid exponential backoff.
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		if condition.Status != metav1.ConditionTrue {
 			// Not yet available for another reason (e.g. deployment still rolling
 			// out) - keep polling until it settles.
@@ -790,32 +794,9 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 		return condition, nil
 	}
 
-	available := false
-	failed := false
-	progressing := true
-	for _, c := range deployment.Status.Conditions {
-		switch c.Type {
-		case appsv1.DeploymentAvailable:
-			if !failed && progressing {
-				available = c.Status == corev1.ConditionTrue
-				if !available {
-					condition.Message = c.Message
-				}
-			}
-		case appsv1.DeploymentProgressing:
-			if c.Status == corev1.ConditionFalse && !failed {
-				available = false
-				progressing = false
-				condition.Message = c.Message
-			}
-		case appsv1.DeploymentReplicaFailure:
-			if c.Status == corev1.ConditionTrue {
-				available = false
-				failed = true
-				condition.Message = c.Message
-			}
-		}
-	}
+	parsed := parseDeploymentConditions(deployment)
+	available := parsed.available
+	availableSince := parsed.availableSince
 
 	if available && (deployment.Status.UpdatedReplicas != desiredReplicas || deployment.Status.Replicas != desiredReplicas || deployment.Status.ReadyReplicas < desiredReplicas || deployment.Status.AvailableReplicas < desiredReplicas) {
 		available = false
@@ -823,7 +804,7 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	}
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
-		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", parsed.message)
 	}
 
 	if deployment.Status.UnavailableReplicas != 0 {
@@ -859,6 +840,16 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentUnavailable
 			condition.Message = "Service endpoints not ready - no ready addresses available"
+			return condition, nil
+		}
+
+		// The app can report ready endpoints before it actually serves
+		// requests, so hold back the Available condition
+		// for a short cooldown after the deployment becomes available.
+		if time.Since(availableSince) < deploymentDelay {
+			condition.Status = metav1.ConditionFalse
+			condition.Reason = ReasonDeploymentCooldown
+			condition.Message = "Deployment only recently available"
 			return condition, nil
 		}
 

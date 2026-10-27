@@ -1443,7 +1443,7 @@ labels:
 			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
 		})
 
-		It("Should mark the Catalog deployment available immediately when an EndpointSlice has a ready endpoint", func() {
+		It("Should hold back the Catalog deployment behind the cooldown when the Available transition is fresh", func() {
 			dep := &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},
 				Spec: appsv1.DeploymentSpec{
@@ -1456,9 +1456,10 @@ labels:
 			}
 			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
 			dep.Status = completedCatalogDeploymentStatus(dep)
-			// Pins the removal of the former availability cooldown: a freshly
-			// transitioned Available condition with ready endpoints must be
-			// available immediately.
+			// Pins the availability cooldown: a freshly transitioned Available
+			// condition with ready endpoints must stay behind the cooldown,
+			// because the application can report ready endpoints before it
+			// actually serves requests.
 			dep.Status.Conditions[0].LastTransitionTime = metav1.Now()
 			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 
@@ -1483,8 +1484,8 @@ labels:
 				nil,
 			)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(condition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(ReasonDeploymentCooldown))
 		})
 	})
 })

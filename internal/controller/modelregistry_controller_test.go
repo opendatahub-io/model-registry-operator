@@ -141,7 +141,7 @@ var _ = Describe("ModelRegistry controller", func() {
 					time.Minute, time.Second).Should(Succeed())
 			})
 
-			It("requeues an unavailable registry at a fixed interval", func() {
+			It("requeues through the rate limiter while unavailable and during cooldown", func() {
 				registryName = "model-registry-requeue"
 				specInit()
 
@@ -167,9 +167,11 @@ var _ = Describe("ModelRegistry controller", func() {
 				By("Reconciling with a deployment that has no Available condition")
 				result, err := modelRegistryReconciler.Reconcile(ctx, request)
 				Expect(err).To(Not(HaveOccurred()))
-				// An unavailable registry must poll at a fixed interval instead
-				// of riding the workqueue exponential backoff.
-				Expect(result.RequeueAfter).To(Equal(unavailableRequeueInterval))
+				// An unavailable registry requeues through the workqueue rate
+				// limiter (exponential backoff), which bounds the reconcile
+				// load from permanently broken registries.
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.IsZero()).To(BeFalse(), "an unavailable registry must requeue")
 
 				By("Marking the deployment available with ready endpoints")
 				deployment := &appsv1.Deployment{}
@@ -196,12 +198,24 @@ var _ = Describe("ModelRegistry controller", func() {
 				}
 				Expect(k8sClient.Create(ctx, endpoints)).To(Succeed())
 
-				By("Converging with no requeue once available and unchanged")
+				By("Requeueing at a fixed delay while the deployment cooldown runs")
+				// The cooldown holds back the Available condition for a short
+				// period after the deployment becomes available, because the
+				// application can report ready endpoints before it actually
+				// serves requests.
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.RequeueAfter).To(Equal(time.Second))
+
+				By("Converging with no requeue once available, mature, and unchanged")
+				Expect(k8sClient.Get(ctx, typeNamespaceName, deployment)).To(Succeed())
+				deployment.Status.Conditions[0].LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Minute))
+				Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
 				result, err = modelRegistryReconciler.Reconcile(ctx, request)
 				Expect(err).To(Not(HaveOccurred()))
 				Expect(result.IsZero()).To(BeTrue(), "an available, unchanged registry must not requeue: %+v", result)
 
-				By("Requeueing shortly when resources changed while available")
+				By("Requeueing through the rate limiter when resources changed while available")
 				// Re-fetch: the previous reconcile updated the CR status.
 				Expect(k8sClient.Get(ctx, typeNamespaceName, modelRegistry)).To(Succeed())
 				var updatedPort int32 = 8081
@@ -209,7 +223,8 @@ var _ = Describe("ModelRegistry controller", func() {
 				Expect(k8sClient.Update(ctx, modelRegistry)).To(Succeed())
 				result, err = modelRegistryReconciler.Reconcile(ctx, request)
 				Expect(err).To(Not(HaveOccurred()))
-				Expect(result.RequeueAfter).To(Equal(time.Second))
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.IsZero()).To(BeFalse(), "a changed registry must requeue")
 			})
 
 			It("When using KubeRBACProxy configuration", func() {
