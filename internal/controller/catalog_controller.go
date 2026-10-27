@@ -804,7 +804,13 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	}
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
-		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", parsed.message)
+		// The rollout check above may already have set a more specific
+		// progress message; only the condition parse carries one otherwise.
+		message := parsed.message
+		if message == "" {
+			message = condition.Message
+		}
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", message)
 	}
 
 	if deployment.Status.UnavailableReplicas != 0 {

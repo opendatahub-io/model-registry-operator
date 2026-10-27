@@ -1443,6 +1443,37 @@ labels:
 			Expect(condition.Reason).To(Equal(ReasonDeploymentAvailable))
 		})
 
+		It("Should keep the rollout progress message when the deployment is available but the rollout is incomplete", func() {
+			dep := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},
+				Spec: appsv1.DeploymentSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": catalogResourceName}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": catalogResourceName}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "catalog", Image: "example.com/catalog:latest"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, dep)).To(Succeed())
+			// DeploymentAvailable=True but the rollout has not caught up: the
+			// unavailable message must retain the rollout progress detail.
+			status := completedCatalogDeploymentStatus(dep)
+			status.UpdatedReplicas = 0
+			dep.Status = status
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			condition, err := catalogReconciler.checkDeploymentAvailability(ctx,
+				types.NamespacedName{Name: catalogResourceName, Namespace: namespaceName},
+				catalogResourceName,
+				catalogResourceName,
+				nil,
+			)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal(ReasonDeploymentUnavailable))
+			Expect(condition.Message).To(ContainSubstring("Waiting for rollout completion"))
+		})
+
 		It("Should hold back the Catalog deployment behind the cooldown when the Available transition is fresh", func() {
 			dep := &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{Name: catalogResourceName, Namespace: namespaceName},
