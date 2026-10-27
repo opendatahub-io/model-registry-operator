@@ -1374,26 +1374,29 @@ func expectModelRegistryIngressPeers(np *networkingv1.NetworkPolicy) {
 	))
 }
 
-// expectCatalogIngressPeers asserts the catalog ingress peers are the router/gateway namespaces and the
-// model-registry-ui BFF pods in the applications namespace.
-func expectCatalogIngressPeers(np *networkingv1.NetworkPolicy) {
+// expectCatalogIngressPeers asserts the catalog ingress peers are the router/gateway namespaces and, when
+// appsNamespace is set, the model-registry-ui BFF pods in that namespace (matched by name).
+func expectCatalogIngressPeers(np *networkingv1.NetworkPolicy, appsNamespace string) {
 	GinkgoHelper()
 	Expect(np.Spec.Ingress).To(HaveLen(1))
-	Expect(np.Spec.Ingress[0].From).To(ConsistOf(
-		networkingv1.NetworkPolicyPeer{
+	peers := []networkingv1.NetworkPolicyPeer{
+		{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
 			},
 		},
-		networkingv1.NetworkPolicyPeer{
+	}
+	if appsNamespace != "" {
+		peers = append(peers, networkingv1.NetworkPolicyPeer{
 			NamespaceSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": appsNamespace},
 			},
 			PodSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"deployment": "model-registry-ui"},
 			},
-		},
-	))
+		})
+	}
+	Expect(np.Spec.Ingress[0].From).To(ConsistOf(peers))
 }
 
 // expectDenyAllEgress asserts a deny-all egress policy (Egress policy type with no egress rules).

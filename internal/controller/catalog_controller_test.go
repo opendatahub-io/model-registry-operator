@@ -83,6 +83,7 @@ var _ = Describe("Catalog controller", func() {
 					HasUserAPI:   false,
 					HasConfigAPI: false,
 				},
+				ApplicationsNamespace: "test-applications",
 			}
 		})
 
@@ -1301,7 +1302,19 @@ labels:
 			Expect(catalogReconciler.Apply(catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, ""),
 				"catalog-kube-rbac-proxy-network-policy.yaml.tmpl", ingressPolicy)).To(Succeed())
 			expectIngressPolicy(ingressPolicy, 8443)
-			expectCatalogIngressPeers(ingressPolicy)
+			expectCatalogIngressPeers(ingressPolicy, "test-applications")
+		})
+
+		It("Should omit the model-registry-ui peer when the applications namespace is unknown", func() {
+			catalog := &catalogv1alpha1.Catalog{
+				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName},
+			}
+			catalogReconciler.ApplicationsNamespace = ""
+			ingressPolicy := &networkingv1.NetworkPolicy{}
+			Expect(catalogReconciler.Apply(catalogReconciler.buildCatalogParams(catalog, nil, nil, nil, ""),
+				"catalog-kube-rbac-proxy-network-policy.yaml.tmpl", ingressPolicy)).To(Succeed())
+			expectIngressPolicy(ingressPolicy, 8443)
+			expectCatalogIngressPeers(ingressPolicy, "")
 		})
 
 		It("Should remove the applications namespace peer from an existing catalog ingress NetworkPolicy", func() {
@@ -1329,7 +1342,7 @@ labels:
 			updated := &networkingv1.NetworkPolicy{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(newPolicy), updated)).To(Succeed())
 			expectIngressPolicy(updated, 8443)
-			expectCatalogIngressPeers(updated)
+			expectCatalogIngressPeers(updated, "test-applications")
 			Expect(k8sClient.Delete(ctx, updated)).To(Succeed())
 		})
 
