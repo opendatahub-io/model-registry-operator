@@ -1374,7 +1374,8 @@ func expectModelRegistryIngressPeers(np *networkingv1.NetworkPolicy) {
 	))
 }
 
-// expectCatalogIngressPeers asserts the catalog ingress peers are only the router/gateway namespaces.
+// expectCatalogIngressPeers asserts the catalog ingress peers are the router/gateway namespaces and the
+// model-registry-ui BFF pods in the applications namespace.
 func expectCatalogIngressPeers(np *networkingv1.NetworkPolicy) {
 	GinkgoHelper()
 	Expect(np.Spec.Ingress).To(HaveLen(1))
@@ -1382,6 +1383,14 @@ func expectCatalogIngressPeers(np *networkingv1.NetworkPolicy) {
 		networkingv1.NetworkPolicyPeer{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{"network.openshift.io/policy-group": "ingress"},
+			},
+		},
+		networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"opendatahub.io/generated-namespace": "true"},
+			},
+			PodSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"deployment": "model-registry-ui"},
 			},
 		},
 	))

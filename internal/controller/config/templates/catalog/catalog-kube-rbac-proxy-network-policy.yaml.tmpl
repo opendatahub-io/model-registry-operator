@@ -15,12 +15,19 @@ metadata:
 spec:
   ingress:
   - from:
-    # OpenShift router and Gateway API traffic for the Route / HTTPRoute exposure paths. Dashboard callers
-    # (model-registry-ui BFF) reach the catalog through these paths via the external-address-rest annotation;
-    # no workload in the shared applications namespace calls the catalog pod-to-pod.
+    # OpenShift router and Gateway API traffic for the Route / HTTPRoute exposure paths.
     - namespaceSelector:
         matchLabels:
           network.openshift.io/policy-group: ingress
+    # model-registry-ui BFF in the shared applications namespace calls the catalog pod-to-pod using the
+    # in-cluster Service host, avoiding external gateway hairpins. The apps namespace is shared, so the peer
+    # also requires the pod's stable Deployment selector label, owned by the Dashboard team.
+    - namespaceSelector:
+        matchLabels:
+          opendatahub.io/generated-namespace: "true"
+      podSelector:
+        matchLabels:
+          deployment: model-registry-ui
     ports:
       - protocol: TCP
         port: {{.Spec.KubeRBACProxy.Port}}
