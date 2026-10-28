@@ -211,6 +211,7 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 		GatewayName:           gatewayName,
 		GatewayNamespace:      gatewayNamespace,
 		HTTPRouteNamespace:    httpRouteNamespace,
+		ApplicationsNamespace: os.Getenv("POD_NAMESPACE"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Catalog")
 		os.Exit(1)
