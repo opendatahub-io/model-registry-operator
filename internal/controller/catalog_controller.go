@@ -125,6 +125,9 @@ type CatalogReconciler struct {
 	GatewayName           string
 	GatewayNamespace      string
 	HTTPRouteNamespace    string
+	// ApplicationsNamespace is the platform applications namespace (the operator's own namespace), used to
+	// admit dashboard BFF callers to the catalog by namespace name.
+	ApplicationsNamespace string
 
 	templateApplier *TemplateApplier
 	resourceManager *ResourceManager
@@ -155,6 +158,7 @@ type CatalogParams struct {
 	GatewayName             string
 	GatewayNamespace        string
 	HTTPRouteNamespace      string
+	ApplicationsNamespace   string
 	PostgresSecretHash      string
 	Proxy                   *catalogv1alpha1.ProxyConfig
 	HFSources               []HFSource
@@ -191,6 +195,7 @@ func (r *CatalogReconciler) buildCatalogParams(catalog *catalogv1alpha1.Catalog,
 		GatewayName:             r.GatewayName,
 		GatewayNamespace:        r.GatewayNamespace,
 		HTTPRouteNamespace:      r.HTTPRouteNamespace,
+		ApplicationsNamespace:   r.ApplicationsNamespace,
 		Proxy:                   catalogProxyOrDefault(catalog.Spec.Proxy),
 	}
 }
@@ -1518,6 +1523,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName             string
 		GatewayNamespace        string
 		HTTPRouteNamespace      string
+		ApplicationsNamespace   string
 		PostgresSecretHash      string
 		Proxy                   *catalogv1alpha1.ProxyConfig
 		HFSources               []HFSource
@@ -1547,6 +1553,7 @@ func (r *CatalogReconciler) Apply(params *CatalogParams, templateName string, ob
 		GatewayName:             params.GatewayName,
 		GatewayNamespace:        params.GatewayNamespace,
 		HTTPRouteNamespace:      params.HTTPRouteNamespace,
+		ApplicationsNamespace:   params.ApplicationsNamespace,
 		PostgresSecretHash:      params.PostgresSecretHash,
 		Proxy:                   params.Proxy,
 		HFSources:               params.HFSources,
