@@ -141,6 +141,92 @@ var _ = Describe("ModelRegistry controller", func() {
 					time.Minute, time.Second).Should(Succeed())
 			})
 
+			It("requeues through the rate limiter while unavailable and during cooldown", func() {
+				registryName = "model-registry-requeue"
+				specInit()
+
+				var postgresPort int32 = 5432
+				modelRegistry.Spec.MySQL = nil
+				modelRegistry.Spec.Postgres = &v1beta1.PostgresConfig{
+					Host:     "model-registry-db",
+					Port:     &postgresPort,
+					Database: "model-registry",
+					Username: "modelregistryuser",
+					PasswordSecret: &v1beta1.SecretKeyValue{
+						Name: "model-registry-db",
+						Key:  "database-password",
+					},
+				}
+
+				err = k8sClient.Create(ctx, modelRegistry)
+				Expect(err).To(Not(HaveOccurred()))
+
+				modelRegistryReconciler := initModelRegistryReconciler(template)
+				request := reconcile.Request{NamespacedName: typeNamespaceName}
+
+				By("Reconciling with a deployment that has no Available condition")
+				result, err := modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				// An unavailable registry requeues through the workqueue rate
+				// limiter (exponential backoff), which bounds the reconcile
+				// load from permanently broken registries.
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.IsZero()).To(BeFalse(), "an unavailable registry must requeue")
+
+				By("Marking the deployment available with ready endpoints")
+				deployment := &appsv1.Deployment{}
+				Expect(k8sClient.Get(ctx, typeNamespaceName, deployment)).To(Succeed())
+				deployment.Status.Conditions = append(deployment.Status.Conditions, appsv1.DeploymentCondition{
+					Type:               appsv1.DeploymentAvailable,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+				})
+				Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+
+				// In envtest, Endpoints are not automatically created by the Endpoints controller.
+				// corev1.Endpoints is deprecated but still the type the availability check reads.
+				endpoints := &corev1.Endpoints{ //nolint:staticcheck
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      typeNamespaceName.Name,
+						Namespace: typeNamespaceName.Namespace,
+					},
+					Subsets: []corev1.EndpointSubset{ //nolint:staticcheck
+						{
+							Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, endpoints)).To(Succeed())
+
+				By("Requeueing at a fixed delay while the deployment cooldown runs")
+				// The cooldown holds back the Available condition for a short
+				// period after the deployment becomes available, because the
+				// application can report ready endpoints before it actually
+				// serves requests.
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.RequeueAfter).To(Equal(time.Second))
+
+				By("Converging with no requeue once available, mature, and unchanged")
+				Expect(k8sClient.Get(ctx, typeNamespaceName, deployment)).To(Succeed())
+				deployment.Status.Conditions[0].LastTransitionTime = metav1.NewTime(time.Now().Add(-time.Minute))
+				Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.IsZero()).To(BeTrue(), "an available, unchanged registry must not requeue: %+v", result)
+
+				By("Requeueing through the rate limiter when resources changed while available")
+				// Re-fetch: the previous reconcile updated the CR status.
+				Expect(k8sClient.Get(ctx, typeNamespaceName, modelRegistry)).To(Succeed())
+				var updatedPort int32 = 8081
+				modelRegistry.Spec.Rest.Port = &updatedPort
+				Expect(k8sClient.Update(ctx, modelRegistry)).To(Succeed())
+				result, err = modelRegistryReconciler.Reconcile(ctx, request)
+				Expect(err).To(Not(HaveOccurred()))
+				Expect(result.RequeueAfter).To(BeZero())
+				Expect(result.IsZero()).To(BeFalse(), "a changed registry must requeue")
+			})
+
 			It("When using KubeRBACProxy configuration", func() {
 				registryName = "model-registry-kube-rbac-proxy"
 				specInit()

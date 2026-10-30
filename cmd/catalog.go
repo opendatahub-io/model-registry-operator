@@ -39,7 +39,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -103,6 +102,16 @@ func catalogCacheOptions(registriesNamespace string) cache.Options {
 
 func runCatalog(_ *cobra.Command, _ []string) error {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
+
+	// Serve the health probe endpoints before any startup API call so the
+	// kubelet liveness probe keeps passing while startup blocks on
+	// capabilities detection and TLS configuration, each bounded by a
+	// timeout.
+	healthSrv, err := startHealthServer()
+	if err != nil {
+		setupLog.Error(err, "unable to bind health probe address")
+		os.Exit(1)
+	}
 
 	cfg, err := ctrl.GetConfig()
 	if err != nil {
@@ -174,9 +183,14 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 		WebhookServer: ctrlwebhook.NewServer(ctrlwebhook.Options{
 			TLSOpts: tlsResult.Opts,
 		}),
-		HealthProbeBindAddress: probeAddr,
+		// Probes are served by healthSrv from process start, so the manager's
+		// own probe server is disabled to avoid a port conflict.
+		HealthProbeBindAddress: "0",
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "catalog.opendatahub.io",
+		// Safe: on the cancellation paths where the process exits (SIGTERM,
+		// TLS profile change) the release speeds up the lease handover.
+		LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -224,12 +238,11 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+	// Flip /readyz once the manager's runnables have started (caches synced;
+	// every replica, not just the leader). The manager's own probe server is
+	// disabled; healthSrv owns the port for the whole process.
+	if err := mgr.Add(readinessRunnable{healthSrv: healthSrv}); err != nil {
+		setupLog.Error(err, "unable to register readiness runnable")
 		os.Exit(1)
 	}
 
@@ -259,9 +272,11 @@ func runCatalog(_ *cobra.Command, _ []string) error {
 
 	setupLog.Info("starting catalog manager")
 	if err := mgr.Start(ctx); err != nil {
+		healthSrv.Close()
 		setupLog.Error(err, "problem running catalog manager")
 		os.Exit(1)
 	}
+	healthSrv.Close()
 
 	return nil
 }

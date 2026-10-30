@@ -799,35 +799,9 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 		return condition, nil
 	}
 
-	available := false
-	var availableSince time.Time
-	failed := false
-	progressing := true
-	for _, c := range deployment.Status.Conditions {
-		switch c.Type {
-		case appsv1.DeploymentAvailable:
-			if !failed && progressing {
-				available = c.Status == corev1.ConditionTrue
-				if !available {
-					condition.Message = c.Message
-				} else {
-					availableSince = c.LastTransitionTime.Time
-				}
-			}
-		case appsv1.DeploymentProgressing:
-			if c.Status == corev1.ConditionFalse && !failed {
-				available = false
-				progressing = false
-				condition.Message = c.Message
-			}
-		case appsv1.DeploymentReplicaFailure:
-			if c.Status == corev1.ConditionTrue {
-				available = false
-				failed = true
-				condition.Message = c.Message
-			}
-		}
-	}
+	parsed := parseDeploymentConditions(deployment)
+	available := parsed.available
+	availableSince := parsed.availableSince
 
 	if available && (deployment.Status.UpdatedReplicas != desiredReplicas || deployment.Status.Replicas != desiredReplicas || deployment.Status.ReadyReplicas < desiredReplicas || deployment.Status.AvailableReplicas < desiredReplicas) {
 		available = false
@@ -835,7 +809,13 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 	}
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
-		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)
+		// The rollout check above may already have set a more specific
+		// progress message; only the condition parse carries one otherwise.
+		message := parsed.message
+		if message == "" {
+			message = condition.Message
+		}
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", message)
 	}
 
 	if deployment.Status.UnavailableReplicas != 0 {
@@ -874,6 +854,9 @@ func (r *CatalogReconciler) checkDeploymentAvailability(ctx context.Context, key
 			return condition, nil
 		}
 
+		// The app can report ready endpoints before it actually serves
+		// requests, so hold back the Available condition
+		// for a short cooldown after the deployment becomes available.
 		if time.Since(availableSince) < deploymentDelay {
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentCooldown
