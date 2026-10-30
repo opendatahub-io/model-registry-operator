@@ -131,7 +131,10 @@ func tlsOptionsFromProfile(profile oapiconfig.TLSProfileSpec, log logr.Logger) (
 		return nil, err
 	}
 
-	tlsConfigFn, unsupportedCiphers := frameworktls.ConfigFromProfile(profile)
+	tlsConfigFn, unsupportedCiphers, err := frameworktls.ConfigFromProfileWithError(profile)
+	if err != nil {
+		return nil, fmt.Errorf("building TLS options from profile: %w", err)
+	}
 	if len(unsupportedCiphers) > 0 {
 		log.Info("some ciphers from TLS profile are not supported by Go", "unsupported", unsupportedCiphers)
 	}
