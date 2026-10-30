@@ -52,6 +52,52 @@ func completedCatalogDeploymentStatus(deployment *appsv1.Deployment) appsv1.Depl
 	}
 }
 
+// TestCatalogCooldownHoldsBackReadinessRequeue pins the Reconcile-level
+// cooldown branch: a freshly available deployment with ready endpoints must
+// requeue at the fixed cooldown delay, not report available. The application
+// can report ready endpoints before it actually serves requests
+// .
+func TestCatalogCooldownHoldsBackReadinessRequeue(t *testing.T) {
+	ctx := context.Background()
+	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1}}
+	r := newDataImageTestReconciler(t, catalog, true)
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
+	if _, err := r.Reconcile(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+
+	deployment := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+		t.Fatal(err)
+	}
+	status := completedCatalogDeploymentStatus(deployment)
+	status.Conditions[0].LastTransitionTime = metav1.Now()
+	deployment.Status = status
+	if err := r.Status().Update(ctx, deployment); err != nil {
+		t.Fatal(err)
+	}
+	ready := true
+	if err := r.Create(ctx, &discoveryv1.EndpointSlice{
+		ObjectMeta:  metav1.ObjectMeta{Name: "catalog-fresh", Namespace: catalog.Namespace, Labels: map[string]string{discoveryv1.LabelServiceName: catalogResourceName}},
+		AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := r.Reconcile(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RequeueAfter != time.Second {
+		t.Fatalf("freshly available deployment must requeue at the cooldown delay: result=%+v", result)
+	}
+
+	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
+		t.Fatal(err)
+	}
+	assertDataImageCondition(t, catalog, conditionWorkloadAvailable, metav1.ConditionFalse, ReasonDeploymentCooldown)
+}
+
 func TestCatalogReleaseDefaultsRequireValidatorEvidence(t *testing.T) {
 	for _, defaults := range [][2]string{
 		{config.DefaultCatalogDataImage, config.DefaultBenchmarkDataImage},

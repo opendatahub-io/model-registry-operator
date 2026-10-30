@@ -74,6 +74,11 @@ const (
 
 	restContainerName       = "rest-container"
 	containerCreatingReason = "ContainerCreating"
+
+	// deploymentDelay is how long to wait after the deployment is available
+	// to consider it ready: pods can report ready endpoints before the
+	// application actually serves requests.
+	deploymentDelay = 5 * time.Second
 )
 
 // errRegexp is based on the CHECK_EQ macro output used by REST container.
@@ -204,8 +209,50 @@ func (r *ModelRegistryReconciler) setRegistryStatusSpecDefaults(registry *v1beta
 	return nil
 }
 
-// deploymentDelay is how long to wait after the deployment is available to consider it ready.
-const deploymentDelay = 5 * time.Second
+// deploymentConditions is the availability verdict parsed from a
+// Deployment's status conditions.
+type deploymentConditions struct {
+	available      bool
+	availableSince time.Time
+	message        string
+}
+
+// parseDeploymentConditions reads the Deployment availability, progressing,
+// and replica-failure conditions: available is true only when the
+// DeploymentAvailable condition is true and no failure or stopped
+// progressing state overrides it, and message carries the first failure
+// message for the unavailable case.
+func parseDeploymentConditions(deployment *appsv1.Deployment) deploymentConditions {
+	state := deploymentConditions{}
+	failed := false
+	progressing := true
+	for _, c := range deployment.Status.Conditions {
+		switch c.Type {
+		case appsv1.DeploymentAvailable:
+			if !failed && progressing {
+				state.available = c.Status == corev1.ConditionTrue
+				if !state.available {
+					state.message = c.Message
+				} else {
+					state.availableSince = c.LastTransitionTime.Time
+				}
+			}
+		case appsv1.DeploymentProgressing:
+			if c.Status == corev1.ConditionFalse && !failed {
+				state.available = false
+				progressing = false
+				state.message = c.Message
+			}
+		case appsv1.DeploymentReplicaFailure:
+			if c.Status == corev1.ConditionTrue {
+				state.available = false
+				failed = true
+				state.message = c.Message
+			}
+		}
+	}
+	return state
+}
 
 func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Context, key client.ObjectKey, app string, podComponent string) (metav1.Condition, error) {
 	deployment := &appsv1.Deployment{}
@@ -218,41 +265,13 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 		Type: ConditionTypeAvailable,
 	}
 
-	// check deployment conditions errors
-	// start with available=false to force DeploymentAvailable condition to set it to true later
-	available := false
-	var availableSince time.Time
-	failed := false
-	progressing := true
-	for _, c := range deployment.Status.Conditions {
-		switch c.Type {
-		case appsv1.DeploymentAvailable:
-			if !failed && progressing {
-				available = c.Status == corev1.ConditionTrue
-				if !available {
-					condition.Message = c.Message
-				} else {
-					availableSince = c.LastTransitionTime.Time
-				}
-			}
-		case appsv1.DeploymentProgressing:
-			if c.Status == corev1.ConditionFalse && !failed {
-				available = false
-				progressing = false
-				condition.Message = c.Message
-			}
-		case appsv1.DeploymentReplicaFailure:
-			if c.Status == corev1.ConditionTrue {
-				available = false
-				failed = true
-				condition.Message = c.Message
-			}
-		}
-	}
+	parsed := parseDeploymentConditions(deployment)
+	available := parsed.available
+	availableSince := parsed.availableSince
 
 	if !available {
 		condition.Reason = ReasonDeploymentUnavailable
-		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", condition.Message)
+		condition.Message = fmt.Sprintf("Deployment is unavailable: %s", parsed.message)
 	}
 
 	// look for pod level detailed errors, if present
@@ -287,6 +306,9 @@ func (r *ModelRegistryReconciler) checkDeploymentAvailability(ctx context.Contex
 			return condition, nil
 		}
 
+		// The app can report ready endpoints before it actually serves
+		// requests, so hold back the Available condition
+		// for a short cooldown after the deployment becomes available.
 		if time.Since(availableSince) < deploymentDelay {
 			condition.Status = metav1.ConditionFalse
 			condition.Reason = ReasonDeploymentCooldown

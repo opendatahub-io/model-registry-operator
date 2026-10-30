@@ -17,6 +17,8 @@ limitations under the License.
 package setup
 
 import (
+	"time"
+
 	oapi "github.com/openshift/api"
 	oapiconfig "github.com/openshift/api/config/v1"
 	networking "istio.io/client-go/pkg/apis/networking/v1beta1"
@@ -70,7 +72,11 @@ func NewScheme() *runtime.Scheme {
 
 // GetCapabilities detects cluster capabilities by querying the discovery API.
 func GetCapabilities(cfg *rest.Config) (controller.ClusterCapabilities, error) {
-	client, err := discovery.NewDiscoveryClientForConfig(cfg)
+	// Bound the discovery attempt so a hung connection cannot block startup
+	// forever; ServerGroups does not take a context.
+	discoveryCfg := rest.CopyConfig(cfg)
+	discoveryCfg.Timeout = 10 * time.Second
+	client, err := discovery.NewDiscoveryClientForConfig(discoveryCfg)
 	if err != nil {
 		return controller.ClusterCapabilities{}, err
 	}
