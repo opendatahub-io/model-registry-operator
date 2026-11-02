@@ -55,7 +55,7 @@ const (
 	AsyncUploadImage           = "RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE"
 	DefaultAsyncUploadImage    = "quay.io/opendatahub/model-registry-job-async-upload:latest"
 	DefaultOperatorImage       = "quay.io/opendatahub/model-registry-operator:latest"
-	DefaultRestImage           = "quay.io/opendatahub/model-registry:latest"
+	DefaultRestImage           = "quay.io/opendatahub/model-registry:v0.3.18"
 	DefaultOAuthProxyImage     = "quay.io/openshift/origin-oauth-proxy:latest"
 	DefaultKubeRBACProxyImage  = "quay.io/opendatahub/odh-kube-rbac-proxy:odh-stable"
 	DefaultPostgresImage       = "quay.io/sclorg/postgresql-16-c10s:latest"
