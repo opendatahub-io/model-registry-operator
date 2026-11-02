@@ -142,6 +142,18 @@ func TestConfigureTLSFromClientDeniedReadFailsClosed(t *testing.T) {
 	}
 }
 
+func TestConfigureTLSFromClientUnregisteredSchemeFailsClosed(t *testing.T) {
+	bootstrapClient := fake.NewClientBuilder().WithScheme(runtime.NewScheme()).Build()
+
+	result, err := configureTLSFromClient(context.Background(), bootstrapClient, logr.Discard())
+	if err == nil || !runtime.IsNotRegisteredError(errors.Unwrap(err)) {
+		t.Fatalf("configureTLSFromClient() error = %v, want unregistered scheme error", err)
+	}
+	if len(result.Opts) != 0 {
+		t.Fatalf("TLS options = %d, want none for an unregistered scheme", len(result.Opts))
+	}
+}
+
 func TestConfigureTLSFromClientTransientReadUsesIntermediateFallback(t *testing.T) {
 	bootstrapClient := &getErrorClient{err: apierrors.NewServiceUnavailable("temporarily unavailable")}
 	result, err := configureTLSFromClient(context.Background(), bootstrapClient, logr.Discard())
