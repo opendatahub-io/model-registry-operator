@@ -48,8 +48,10 @@ type AIHubSpec struct {
 	ApplicationNamespace string `json:"applicationNamespace"`
 
 	// InstancesNamespace is the namespace where model registry instances, the catalog
-	// service, and the Catalog CR are deployed. It is sourced from the DSC field
-	// spec.components.modelregistry.registriesNamespace and MAY equal ApplicationNamespace.
+	// service, and the Catalog CR are deployed. The platform projects it from DSC v3
+	// spec.components.aiHub.instancesNamespace; DSC v2
+	// spec.components.modelregistry.registriesNamespace maps to that field through
+	// conversion. It MAY equal ApplicationNamespace.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
