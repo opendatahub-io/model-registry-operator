@@ -13,5 +13,6 @@ The below are links more documentation on Model Registry
 4. [How to use Model Registry Python library](./getting-started.md)
 5. [Deploy a model using UI](./deploy-model.md)
 6. [Operator environment variables](./operator-environment-variables.md)
+7. [AI Hub and Model Registry configuration in ODH 3.6 (DSC v3 migration)](./aihub-dsc-v3-migration.md)
 
 
