@@ -14,7 +14,7 @@ require (
 	github.com/openshift/api v0.0.0-20261002115817-f8795cdde518
 	github.com/openshift/controller-runtime-common v0.0.0-20261026124434-bdfc411d93cd
 	github.com/spf13/cobra v1.10.2
-	istio.io/client-go v1.31.3
+	istio.io/client-go v1.31.4
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2
 	k8s.io/apimachinery v0.37.2
