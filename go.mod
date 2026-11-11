@@ -6,15 +6,15 @@ require (
 	github.com/banzaicloud/k8s-objectmatcher v1.8.0
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/go-logr/logr v1.4.4
-	github.com/onsi/ginkgo/v2 v2.33.1
+	github.com/onsi/ginkgo/v2 v2.34.0
 	github.com/onsi/gomega v1.44.0
 	github.com/opendatahub-io/odh-platform-utilities v0.6.0
-	github.com/opendatahub-io/odh-platform-utilities/framework v0.3.1
+	github.com/opendatahub-io/odh-platform-utilities/framework v0.4.0
 	github.com/opendatahub-io/operator-chaos v0.0.0-20260521100204-4dab974d613c
 	github.com/openshift/api v0.0.0-20261002115817-f8795cdde518
 	github.com/openshift/controller-runtime-common v0.0.0-20261026124434-bdfc411d93cd
 	github.com/spf13/cobra v1.10.2
-	istio.io/client-go v1.31.3
+	istio.io/client-go v1.31.4
 	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.2
 	k8s.io/apimachinery v0.37.2
