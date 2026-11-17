@@ -45,6 +45,11 @@ with the choices described below.
    image pair, a Ready catalog container, and a completed deployment rollout
    before recording `WorkloadValidated` and restoring aggregate readiness.
 
+Pod admission may substitute a repository while preserving a pinned SHA-256
+digest. Activation compares those references by content digest. Tagged
+references continue to require an exact match; matching tag names in different
+repositories do not prove matching content.
+
 ## Structural validation
 
 Enabled shipped model, MCP, agent, and serving-runtime YAML sources referenced by
