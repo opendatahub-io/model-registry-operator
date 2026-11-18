@@ -3,9 +3,8 @@
 Pull requests targeting `main` are checked for CRD compatibility by the shared
 checks in
 [`red-hat-data-services/api-contract-tests`](https://github.com/red-hat-data-services/api-contract-tests).
-The checks need no cluster and start in **report mode**: findings are shown on
-the pull request but do not fail it. They are pull-request jobs, not promotion
-gates.
+The checks need no cluster and run in **enforce mode**: findings fail the
+pull-request checks. They are pull-request jobs, not promotion gates.
 
 ## What is covered
 
@@ -22,7 +21,7 @@ removed schema properties, newly required properties, type changes, enum
 narrowing and default changes. It does not replace conversion, admission or
 upgrade tests.
 
-The `crd-contract-coverage` job fails (once enforced) when a CRD manifest is not
+The `crd-contract-coverage` job fails when a CRD manifest is not
 matched by the glob in `.github/workflows/api-contract.yml`, so a new or moved
 CRD cannot silently leave the check. Both jobs run on every pull request
 targeting `main`, with no path filter. Kustomize patches are not CRD manifests
@@ -41,8 +40,9 @@ names, tags and `HEAD` are rejected.
 
 Use the same api-contract-tests ref as the workflow (the `latest` tag), so local
 results match CI; fetch the tags again before each run, since `latest` moves to
-each new release. The coverage command uses `--report-only` to match the report
-mode used in CI; drop it to see the result enforce mode would give.
+each new release. The coverage command below uses `--report-only` so it never
+fails locally; CI runs it in enforce mode, so drop the flag to match what CI
+enforces.
 
 ```sh
 git clone git@github.com:red-hat-data-services/api-contract-tests.git ../api-contract-tests
