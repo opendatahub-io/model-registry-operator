@@ -174,7 +174,7 @@ func TestCatalogDeprecatedDataImagesAreIgnored(t *testing.T) {
 			catalog := &catalogv1alpha1.Catalog{
 				ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "deprecated-test"},
 				Spec: catalogv1alpha1.CatalogSpec{
-					CatalogDataImage: &legacyCatalog, BenchmarkDataImage: &legacyBenchmark,
+					CatalogDataImage: &legacyCatalog, BenchmarkDataImage: &legacyBenchmark, //nolint:staticcheck // Verify that deprecated image fields are ignored.
 					CatalogDataImageStream: tc.selection, BenchmarkDataImageStream: tc.selection,
 				},
 			}

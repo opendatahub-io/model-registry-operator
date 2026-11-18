@@ -111,7 +111,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		log.Info("Adding Finalizer for ModelRegistry")
 		if ok := controllerutil.AddFinalizer(modelRegistry, modelRegistryFinalizer); !ok {
 			log.Error(err, "Failed to add finalizer into the custom resource")
-			return ctrl.Result{Requeue: true}, nil
+			return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 		}
 
 		if err = r.Update(ctx, modelRegistry); err != nil {
@@ -146,7 +146,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			// the Kubernetes API to remove the custom resource.
 			if err = r.doFinalizerOperationsForModelRegistry(ctx, modelRegistry); err != nil {
 				log.Error(err, "Failed to do finalizer operations for modelRegistry")
-				return ctrl.Result{Requeue: true}, nil
+				return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 			}
 
 			// TODO(user): If you add operations to the doFinalizerOperationsForModelRegistry method
@@ -174,7 +174,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			log.Info("Removing Finalizer for modelRegistry after successfully perform the operations")
 			if ok := controllerutil.RemoveFinalizer(modelRegistry, modelRegistryFinalizer); !ok {
 				log.Error(err, "Failed to remove finalizer for modelRegistry")
-				return ctrl.Result{Requeue: true}, nil
+				return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 			}
 
 			if err = r.Update(ctx, modelRegistry); IgnoreDeletingErrors(err) != nil {
@@ -195,7 +195,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		// Requeue to process with the migrated configuration
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 	}
 
 	// Default to kube-rbac-proxy for existing registries that have no auth proxy configured.
@@ -208,7 +208,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Failed to update modelRegistry after KubeRBACProxy defaulting")
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 	}
 
 	// remember original spec
@@ -262,7 +262,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// set custom resource status
 	condition, err := r.setRegistryStatus(ctx, req, params, result)
 	if err != nil {
-		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err)
+		return r.handleReconcileErrors(ctx, modelRegistry, ctrl.Result{Requeue: true}, err) //nolint:staticcheck // Preserve the existing reconcile result passed to error handling.
 	}
 	log.Info("status reconciled")
 
@@ -276,7 +276,7 @@ func (r *ModelRegistryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// requeue to update status
-	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil
+	return ctrl.Result{Requeue: (result != ResourceUnchanged) || !available}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 }
 
 func IgnoreDeletingErrors(err error) error {
