@@ -377,7 +377,7 @@ func (r *ModelRegistryReconciler) checkPodStatus(ctx context.Context, app string
 			first := ""
 			containerErrors.WriteString("[")
 			for c, e := range failedContainers {
-				containerErrors.WriteString(fmt.Sprintf("%s%s: %s", first, c, e))
+				fmt.Fprintf(&containerErrors, "%s%s: %s", first, c, e)
 				if first == "" {
 					first = ", "
 				}
