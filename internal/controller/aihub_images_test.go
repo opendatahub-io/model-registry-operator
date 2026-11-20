@@ -19,11 +19,21 @@ import (
 
 func TestAIHubCatalogImageStreamSources(t *testing.T) {
 	for _, tc := range []struct {
-		name, source, release string
+		name, source, release, combinedImage, injectedImage string
 	}{
 		{name: "release digest", release: "registry.example/release/catalog@" + dataTestDigest1},
 		{name: "development tag", release: "registry.example/release/catalog:latest"},
 		{name: "configured channel", source: "registry.example/channels/catalog:updates", release: "registry.example/release/catalog@" + dataTestDigest1},
+		{
+			name: "combined image from overlay", release: "quay.io/opendatahub/odh-model-metadata-collection:latest",
+			combinedImage: "registry.redhat.io/rhai/ai-hub-catalog-rhel9@sha256:0e396f316c5da71164d97e36a2d950be1ba15fc3659b177797a7f0b8b74e5b96",
+		},
+		{
+			name:   "CSV injection overrides differing overlay values",
+			source: "registry.example/channels/catalog:updates", release: "quay.io/opendatahub/odh-model-metadata-collection:latest",
+			combinedImage: "registry.redhat.io/rhai/ai-hub-catalog-rhel9@sha256:0e396f316c5da71164d97e36a2d950be1ba15fc3659b177797a7f0b8b74e5b96",
+			injectedImage: "mirror.example/rhai/ai-hub-catalog-rhel9@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			overlay := t.TempDir()
@@ -38,6 +48,7 @@ func TestAIHubCatalogImageStreamSources(t *testing.T) {
 			overrides := map[string]string{
 				config.CatalogDataImageStreamSource: tc.source, config.BenchmarkDataImageStreamSource: tc.source,
 				config.CatalogDataImage: tc.release, config.BenchmarkDataImage: tc.release,
+				config.AIHubCatalogImage: tc.combinedImage,
 			}
 			lines := strings.Split(string(paramsData), "\n")
 			for i, line := range lines {
@@ -72,6 +83,14 @@ func TestAIHubCatalogImageStreamSources(t *testing.T) {
 				}
 				t.Setenv(key, "")
 			}
+			// The platform injects RelatedImages after rendering the overlay.
+			if tc.injectedImage != "" {
+				env[config.AIHubCatalogImage] = tc.injectedImage
+			}
+			wantRelease, wantSource := tc.release, tc.source
+			if image := env[config.AIHubCatalogImage]; image != "" {
+				wantRelease, wantSource = image, image
+			}
 			images := ResolveChildImages(fakeGetenv(env))
 			for _, name := range []string{childDeploymentName, catalogDeploymentName} {
 				child := makeDeploymentUnstructured(t, name, "app-ns", "manager", "operator:v1", nil)
@@ -79,9 +98,12 @@ func TestAIHubCatalogImageStreamSources(t *testing.T) {
 					t.Fatal(err)
 				}
 				manager := findContainer(t, deploymentFromUnstructured(t, child), "manager")
-				if tc.source != "" {
+				for _, key := range []string{config.CatalogDataImage, config.BenchmarkDataImage} {
+					assertEnv(t, manager, key, wantRelease)
+				}
+				if wantSource != "" {
 					for _, key := range []string{config.CatalogDataImageStreamSource, config.BenchmarkDataImageStreamSource} {
-						assertEnv(t, manager, key, tc.source)
+						assertEnv(t, manager, key, wantSource)
 					}
 				}
 				if name == catalogDeploymentName {
@@ -91,33 +113,21 @@ func TestAIHubCatalogImageStreamSources(t *testing.T) {
 				}
 			}
 
-			stable := "stable"
-			catalog := &catalogv1alpha1.Catalog{
-				ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns", UID: "catalog"},
-				Spec: catalogv1alpha1.CatalogSpec{
-					CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable,
-				},
-			}
+			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns", UID: "catalog"}}
 			r := newDataImageTestReconciler(t, catalog, true)
 			params := r.buildCatalogParams(catalog, nil, nil, nil, "")
 			if err := r.resolveCatalogDataImages(context.Background(), catalog, params); err != nil {
 				t.Fatal(err)
 			}
+			if params.CatalogDataImage != wantRelease || params.BenchmarkDataImage != wantRelease {
+				t.Fatal("release image defaults were not forwarded")
+			}
 			streams := &imagev1.ImageStreamList{}
 			if err := r.List(context.Background(), streams, client.InNamespace(catalog.Namespace)); err != nil {
 				t.Fatal(err)
 			}
-			if len(streams.Items) != 1 || streams.Items[0].Name != CatalogDataImageStreamName {
-				t.Fatalf("combined source must use one shared ImageStream, got %v", streams.Items)
-			}
-			source := tc.source
-			if source == "" {
-				source = tc.release
-			}
-			tags := streams.Items[0].Spec.Tags
-			if len(tags) != 1 || tags[0].Name != "stable" || tags[0].From == nil || tags[0].From.Kind != "DockerImage" || tags[0].From.Name != source ||
-				!tags[0].ImportPolicy.Scheduled || tags[0].ImportPolicy.ImportMode != imagev1.ImportModePreserveOriginal || tags[0].ReferencePolicy.Type != imagev1.SourceTagReferencePolicy {
-				t.Fatalf("unexpected shared ImageStream configuration: %+v", tags)
+			if len(streams.Items) != 0 {
+				t.Fatal("release defaults must not create ImageStreams")
 			}
 		})
 	}

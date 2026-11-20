@@ -51,6 +51,7 @@ const (
 	PostgresImage              = "RELATED_IMAGE_POSTGRESQL_16_IMAGE"
 	CatalogDataImage           = "RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE"
 	BenchmarkDataImage         = "RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE"
+	AIHubCatalogImage          = "RELATED_IMAGE_RHAI_AI_HUB_CATALOG_IMAGE"
 	ModelRegistryOperatorImage = "RELATED_IMAGE_ODH_MODEL_REGISTRY_OPERATOR_IMAGE"
 	AsyncUploadImage           = "RELATED_IMAGE_ODH_MODEL_REGISTRY_JOB_ASYNC_UPLOAD_IMAGE"
 	DefaultAsyncUploadImage    = "quay.io/opendatahub/model-registry-job-async-upload:latest"

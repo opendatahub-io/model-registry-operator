@@ -126,7 +126,7 @@ var _ = Describe("Catalog validating webhook", func() {
 			// Legacy fields also coexist with the new selections and remain editable.
 			Expect(unstructured.SetNestedField(cat.Object, images[1], "spec", "catalogDataImage")).To(Succeed())
 			Expect(unstructured.SetNestedField(cat.Object, images[0], "spec", "benchmarkDataImage")).To(Succeed())
-			Expect(unstructured.SetNestedField(cat.Object, "stable", "spec", "catalogDataImageStream")).To(Succeed())
+			Expect(unstructured.SetNestedField(cat.Object, "sha256:"+strings.Repeat("a", 64), "spec", "catalogDataImageStream")).To(Succeed())
 			Expect(unstructured.SetNestedField(cat.Object, "sha256:"+strings.Repeat("c", 64), "spec", "benchmarkDataImageStream")).To(Succeed())
 			Expect(k8sClient.Update(ctx, cat, client.FieldValidation(metav1.FieldValidationStrict))).To(Succeed())
 			assertSavedImages(images[1], images[0])
@@ -136,7 +136,7 @@ var _ = Describe("Catalog validating webhook", func() {
 
 	It("Should reject unsupported image selections on create and update without changing the saved selection", func(ctx context.Context) {
 		for _, fieldName := range []string{"catalogDataImageStream", "benchmarkDataImageStream"} {
-			for _, invalid := range []string{"latest", " stable", "stable ", "sha256:abc", "sha256:" + strings.Repeat("A", 64), "repository@sha256:" + strings.Repeat("a", 64)} {
+			for _, invalid := range []string{"stable", ":stable", "latest", " stable", "stable ", "sha256:abc", "sha256:" + strings.Repeat("A", 64), "repository@sha256:" + strings.Repeat("a", 64)} {
 				cat := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName}}
 				setSelection := func(value string) {
 					if fieldName == "catalogDataImageStream" {
@@ -150,7 +150,7 @@ var _ = Describe("Catalog validating webhook", func() {
 				Expect(apierrors.IsInvalid(err)).To(BeTrue(), "create with %s=%q: %v", fieldName, invalid, err)
 				Expect(err.Error()).To(ContainSubstring("spec." + fieldName))
 
-				setSelection("stable")
+				setSelection("")
 				Expect(k8sClient.Create(ctx, cat)).To(Succeed())
 				setSelection(invalid)
 				err = k8sClient.Update(ctx, cat)
@@ -158,9 +158,9 @@ var _ = Describe("Catalog validating webhook", func() {
 				Expect(err.Error()).To(ContainSubstring("spec." + fieldName))
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cat), cat)).To(Succeed())
 				if fieldName == "catalogDataImageStream" {
-					Expect(*cat.Spec.CatalogDataImageStream).To(Equal("stable"))
+					Expect(*cat.Spec.CatalogDataImageStream).To(Equal(""))
 				} else {
-					Expect(*cat.Spec.BenchmarkDataImageStream).To(Equal("stable"))
+					Expect(*cat.Spec.BenchmarkDataImageStream).To(Equal(""))
 				}
 				Expect(k8sClient.Delete(ctx, cat)).To(Succeed())
 			}
@@ -171,7 +171,7 @@ var _ = Describe("Catalog validating webhook", func() {
 		cat := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespaceName}}
 		Expect(k8sClient.Create(ctx, cat)).To(Succeed())
 		DeferCleanup(func(ctx context.Context) { Expect(k8sClient.Delete(ctx, cat)).To(Succeed()) })
-		for _, selections := range [][2]string{{"", ""}, {"stable", ""}, {"", "stable"}, {"stable", "sha256:" + strings.Repeat("a", 64)}, {"sha256:" + strings.Repeat("b", 64), "sha256:" + strings.Repeat("c", 64)}} {
+		for _, selections := range [][2]string{{"", ""}, {"sha256:" + strings.Repeat("a", 64), ""}, {"", "sha256:" + strings.Repeat("b", 64)}, {"sha256:" + strings.Repeat("b", 64), "sha256:" + strings.Repeat("c", 64)}} {
 			cat.Spec.CatalogDataImageStream, cat.Spec.BenchmarkDataImageStream = &selections[0], &selections[1]
 			Expect(k8sClient.Update(ctx, cat)).To(Succeed())
 		}

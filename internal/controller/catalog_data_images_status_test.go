@@ -51,22 +51,23 @@ func validatedPodStatus() corev1.PodStatus {
 	return corev1.PodStatus{InitContainerStatuses: []corev1.ContainerStatus{{Name: "catalog-content-validation", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}}}}, ContainerStatuses: []corev1.ContainerStatus{{Name: "catalog", Ready: true}}}
 }
 
-// Seed a ready Catalog so image import faults can be tested independently of
+// Seed a digest-pinned Catalog so status handling can be tested independently of
 // workload readiness. The fake API does not run a Deployment or image importer.
 func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.Catalog) {
 	t.Helper()
 	t.Setenv(config.CatalogDataImage, dataTestRepository+"@"+dataTestDigest3)
 	t.Setenv(config.BenchmarkDataImage, dataTestRepository+"@"+dataTestDigest3)
 	ctx := context.Background()
-	stable := "stable"
+	pin := dataTestDigest1
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1},
-		Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable}}
+		Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &pin, BenchmarkDataImageStream: &pin}}
 	r := newDataImageTestReconciler(t, catalog, true)
 	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
 		t.Fatal(err)
 	}
-	stream := &imagev1.ImageStream{}
-	if err := r.Get(ctx, client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}, stream); err != nil {
+	// Explicitly seed import state to prove that it cannot affect a pinned Catalog.
+	stream, err := r.ensureCatalogDataImageStream(t.Context(), catalog, r.buildCatalogParams(catalog, nil, nil, nil, ""))
+	if err != nil {
 		t.Fatal(err)
 	}
 	stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: dataTestRepository + "@" + dataTestDigest1}}}}
@@ -106,7 +107,7 @@ func readyDataImageCatalog(t *testing.T) (*CatalogReconciler, *catalogv1alpha1.C
 	return r, catalog
 }
 
-func TestHealthySameDigestReimportKeepsServingAttempt(t *testing.T) {
+func TestCatalogPinnedImagesIgnoreImportChanges(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)
 	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
@@ -149,7 +150,7 @@ func TestHealthySameDigestReimportKeepsServingAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconcile()
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionUnknown, "ImportPending")
+	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "NotTrackingImageStream")
 	assertUnchanged()
 	if err := r.Get(ctx, streamKey, stream); err != nil {
 		t.Fatal(err)
@@ -159,11 +160,10 @@ func TestHealthySameDigestReimportKeepsServingAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconcile()
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
+	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "NotTrackingImageStream")
 	assertUnchanged()
 
-	// A failed import must still stop the workload, and a successful import
-	// of the same digest after that failure must start a new attempt.
+	// Failed imports also leave the pinned workload and serving attempt unchanged.
 	if err := r.Get(ctx, streamKey, stream); err != nil {
 		t.Fatal(err)
 	}
@@ -180,10 +180,7 @@ func TestHealthySameDigestReimportKeepsServingAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconcile()
-	failedAttempt := catalog.Status.Activation.AttemptID
-	if catalog.Status.Activation.State != "Failed" || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 {
-		t.Fatalf("failed import was not contained: activation=%+v replicas=%v", catalog.Status.Activation, deployment.Spec.Replicas)
-	}
+	assertUnchanged()
 	if err := r.Get(ctx, streamKey, stream); err != nil {
 		t.Fatal(err)
 	}
@@ -193,9 +190,7 @@ func TestHealthySameDigestReimportKeepsServingAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconcile()
-	if catalog.Status.Activation.AttemptID == failedAttempt || catalog.Status.Activation.State != "Pending" || deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
-		t.Fatalf("successful recovery did not create an attempt: activation=%+v replicas=%v", catalog.Status.Activation, deployment.Spec.Replicas)
-	}
+	assertUnchanged()
 }
 
 func TestCatalogDataImageImportHealth(t *testing.T) {
@@ -234,137 +229,75 @@ func TestCatalogDataImageImportHealth(t *testing.T) {
 	}
 }
 
-func TestCatalogDataImageAPIFailureStatusAndRecovery(t *testing.T) {
-	for _, operation := range []string{"get stream", "create stream", "update stream", "read applied deployment", "stop deployment"} {
-		t.Run(operation, func(t *testing.T) {
-			ctx := context.Background()
-			r, catalog := readyDataImageCatalog(t)
-			base := r.Client.(client.WithWatch)
-			stream := &imagev1.ImageStream{}
-			streamKey := client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}
-			if err := base.Get(ctx, streamKey, stream); err != nil {
-				t.Fatal(err)
+func TestCatalogContainmentAPIFailureAndRecovery(t *testing.T) {
+	ctx := context.Background()
+	r, catalog := readyDataImageCatalog(t)
+	base := r.Client.(client.WithWatch)
+	invalid := "stable"
+	catalog.Spec.CatalogDataImageStream = &invalid
+	catalog.Generation++
+	if err := base.Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	deploymentKey := client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}
+	before := &appsv1.Deployment{}
+	if err := base.Get(ctx, deploymentKey, before); err != nil {
+		t.Fatal(err)
+	}
+	fault := errors.New("temporary API failure")
+	fail := true
+	r.Client = interceptor.NewClient(base, interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, isDeployment := obj.(*appsv1.Deployment); fail && isDeployment {
+				return fault
 			}
-			switch operation {
-			case "create stream":
-				if err := base.Delete(ctx, stream); err != nil {
-					t.Fatal(err)
-				}
-			case "update stream":
-				stream.Spec.Tags[0].ImportPolicy.Scheduled = false
-				if err := base.Update(ctx, stream); err != nil {
-					t.Fatal(err)
-				}
-			case "read applied deployment":
-				stream.Status.Tags = nil
-				if err := base.Status().Update(ctx, stream); err != nil {
-					t.Fatal(err)
-				}
-			case "stop deployment":
-				stream.Status.Tags[0].Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Reason: "Unauthorized"}}
-				if err := base.Status().Update(ctx, stream); err != nil {
-					t.Fatal(err)
-				}
-			}
-			deploymentKey := client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}
-			before := &appsv1.Deployment{}
-			if err := base.Get(ctx, deploymentKey, before); err != nil {
-				t.Fatal(err)
-			}
-			fault := errors.New("temporary API failure")
-			fail := true
-			r.Client = interceptor.NewClient(base, interceptor.Funcs{
-				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					_, isStream := obj.(*imagev1.ImageStream)
-					_, isDeployment := obj.(*appsv1.Deployment)
-					if fail && ((operation == "get stream" && isStream) || (operation == "read applied deployment" && isDeployment)) {
-						return fault
-					}
-					return c.Get(ctx, key, obj, opts...)
-				},
-				Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-					if _, isStream := obj.(*imagev1.ImageStream); fail && operation == "create stream" && isStream {
-						return fault
-					}
-					return c.Create(ctx, obj, opts...)
-				},
-				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-					if _, isStream := obj.(*imagev1.ImageStream); fail && operation == "update stream" && isStream {
-						return fault
-					}
-					return c.Update(ctx, obj, opts...)
-				},
-				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-					if _, isDeployment := obj.(*appsv1.Deployment); fail && operation == "stop deployment" && isDeployment {
-						return fault
-					}
-					return c.Patch(ctx, obj, patch, opts...)
-				},
-			})
-			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)})
-			if !errors.Is(err, fault) {
-				t.Fatalf("reconcile error = %v, want API failure", err)
-			}
-			if err := base.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-				t.Fatal(err)
-			}
-			reason := "ImageStreamUnavailable"
-			if operation == "read applied deployment" {
-				reason = "AppliedImageReadFailed"
-			}
-			if operation == "stop deployment" {
-				reason = "ImportFailed"
-			}
-			assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionFalse, reason)
-			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, reason)
-			expectedAvailability := metav1.ConditionFalse // A containment error never hides a confirmed failure.
-			if available := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable); available == nil || available.Status != expectedAvailability {
-				t.Fatalf("unexpected availability after image fault: %+v", available)
-			}
-			after := &appsv1.Deployment{}
-			if err := base.Get(ctx, deploymentKey, after); err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(before.Spec.Template, after.Spec.Template) {
-				t.Fatal("API failure changed the applied pod template")
-			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)})
+	if !errors.Is(err, fault) {
+		t.Fatalf("reconcile error = %v, want API failure", err)
+	}
+	if err := base.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
+	reason := "InvalidDataImageSelection"
+	assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionFalse, reason)
+	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, reason)
+	expectedAvailability := metav1.ConditionFalse // A containment error never hides a confirmed failure.
+	if available := apimeta.FindStatusCondition(catalog.Status.Conditions, ConditionTypeAvailable); available == nil || available.Status != expectedAvailability {
+		t.Fatalf("unexpected availability after image fault: %+v", available)
+	}
+	after := &appsv1.Deployment{}
+	if err := base.Get(ctx, deploymentKey, after); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before.Spec.Template, after.Spec.Template) {
+		t.Fatal("API failure changed the applied pod template")
+	}
 
-			fail = false
-			if operation == "read applied deployment" {
-				stable := "stable"
-				catalog.Spec.BenchmarkDataImageStream = &stable
-				catalog.Generation++
-				if err := base.Update(ctx, catalog); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
-				t.Fatal(err)
-			}
-			if err := base.Get(ctx, streamKey, stream); err != nil {
-				t.Fatal(err)
-			}
-			stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: dataTestRepository + "@" + dataTestDigest2}}}}
-			if err := base.Status().Update(ctx, stream); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
-				t.Fatal(err)
-			}
-			if err := base.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-				t.Fatal(err)
-			}
-			assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
-			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
-			if err := base.Get(ctx, deploymentKey, after); err != nil {
-				t.Fatal(err)
-			}
-			for _, container := range after.Spec.Template.Spec.InitContainers {
-				if container.Name != "catalog-content-validation" && container.Image != dataTestRepository+"@"+dataTestDigest2 {
-					t.Fatal("recovery must apply the new successful digest")
-				}
-			}
-		})
+	fail = false
+	pin := dataTestDigest2
+	catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = &pin, &pin
+	catalog.Generation++
+	if err := base.Update(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+		t.Fatal(err)
+	}
+	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "NotTrackingImageStream")
+	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
+	if err := base.Get(ctx, deploymentKey, after); err != nil {
+		t.Fatal(err)
+	}
+	for _, container := range after.Spec.Template.Spec.InitContainers {
+		if container.Name != "catalog-content-validation" && container.Image != dataTestRepository+"@"+dataTestDigest2 {
+			t.Fatal("recovery must apply the new successful digest")
+		}
 	}
 }
 
@@ -372,7 +305,7 @@ func TestCatalogDataImageStatusWrites(t *testing.T) {
 	for _, failed := range []bool{false, true} {
 		name := "healthy observations do not write status"
 		if failed {
-			name = "repeated import failures do not write status"
+			name = "unrelated import failures do not write status"
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -413,10 +346,10 @@ func TestCatalogDataImageStatusWrites(t *testing.T) {
 	t.Run("retain reconciliation and status errors", func(t *testing.T) {
 		ctx := context.Background()
 		r, catalog := readyDataImageCatalog(t)
-		apiFailure, statusFailure := errors.New("ImageStream unavailable"), errors.New("status write failed")
+		apiFailure, statusFailure := errors.New("Deployment unavailable"), errors.New("status write failed")
 		r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, isStream := obj.(*imagev1.ImageStream); isStream {
+				if _, isStream := obj.(*appsv1.Deployment); isStream {
 					return apiFailure
 				}
 				return c.Get(ctx, key, obj, opts...)
@@ -434,10 +367,10 @@ func TestCatalogDataImageStatusWrites(t *testing.T) {
 		ctx := context.Background()
 		r, catalog := readyDataImageCatalog(t)
 		base := r.Client.(client.WithWatch)
-		apiFailure := errors.New("ImageStream unavailable")
+		apiFailure := errors.New("Deployment unavailable")
 		r.Client = interceptor.NewClient(base, interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, isStream := obj.(*imagev1.ImageStream); isStream {
+				if _, isStream := obj.(*appsv1.Deployment); isStream {
 					current := &catalogv1alpha1.Catalog{}
 					if err := c.Get(ctx, client.ObjectKeyFromObject(catalog), current); err != nil {
 						return err
@@ -469,7 +402,7 @@ func TestCatalogDataImageStatusWrites(t *testing.T) {
 	})
 }
 
-func TestCatalogManualRecoveryDuringImageStreamOutage(t *testing.T) {
+func TestCatalogDigestSelectionsIgnoreImageStreamOutage(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)
 	base := r.Client.(client.WithWatch)
@@ -483,8 +416,8 @@ func TestCatalogManualRecoveryDuringImageStreamOutage(t *testing.T) {
 		},
 	})
 	key := client.ObjectKeyFromObject(catalog)
-	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); !errors.Is(err, fault) {
-		t.Fatalf("expected an ImageStream fault: %v", err)
+	if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
+		t.Fatalf("pinned images must ignore an ImageStream fault: %v", err)
 	}
 	if err := base.Get(ctx, key, catalog); err != nil {
 		t.Fatal(err)
@@ -511,66 +444,4 @@ func TestCatalogManualRecoveryDuringImageStreamOutage(t *testing.T) {
 		assertDataImageCondition(t, catalog, conditionDataImageUpdateBlocked, metav1.ConditionFalse, "UpdatesAllowed")
 		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 	}
-}
-
-func TestCatalogPendingRetryDoesNotResumeAfterImportFailure(t *testing.T) {
-	ctx := context.Background()
-	r, catalog := readyDataImageCatalog(t)
-	stream := &imagev1.ImageStream{}
-	streamKey := client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}
-	if err := r.Get(ctx, streamKey, stream); err != nil {
-		t.Fatal(err)
-	}
-	generation := int64(1)
-	stream.Spec.Tags[0].Generation = &generation
-	if err := r.Update(ctx, stream); err != nil {
-		t.Fatal(err)
-	}
-	stream.Status.Tags[0].Items[0].Generation = 1
-	stream.Status.Tags[0].Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Generation: 1, Reason: "Unauthorized"}}
-	if err := r.Status().Update(ctx, stream); err != nil {
-		t.Fatal(err)
-	}
-	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
-	checkReplicas := func(want int32) {
-		t.Helper()
-		if _, err := r.Reconcile(ctx, request); err != nil {
-			t.Fatal(err)
-		}
-		deployment := &appsv1.Deployment{}
-		if err := r.Get(ctx, client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
-			t.Fatal(err)
-		}
-		if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != want {
-			t.Fatalf("replicas = %v, want %d", deployment.Spec.Replicas, want)
-		}
-	}
-	checkReplicas(0)
-	if err := r.Get(ctx, streamKey, stream); err != nil {
-		t.Fatal(err)
-	}
-	generation = 2
-	stream.Spec.Tags[0].Generation = &generation
-	if err := r.Update(ctx, stream); err != nil {
-		t.Fatal(err)
-	}
-	// The previous failed condition is stale, but a pending new source must
-	// not restore old content before there is a successful import.
-	checkReplicas(0)
-	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
-		t.Fatal(err)
-	}
-	assertDataImageCondition(t, catalog, conditionImageSelectionReady, metav1.ConditionUnknown, "AwaitingSuccessfulImport")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
-	// Persisted conditions preserve this behavior over reconciler restarts.
-	r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
-	checkReplicas(0)
-	if err := r.Get(ctx, streamKey, stream); err != nil {
-		t.Fatal(err)
-	}
-	stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{Generation: 2, DockerImageReference: dataTestRepository + "@" + dataTestDigest2}}}}
-	if err := r.Status().Update(ctx, stream); err != nil {
-		t.Fatal(err)
-	}
-	checkReplicas(1)
 }
