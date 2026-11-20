@@ -92,27 +92,23 @@ type CatalogSpec struct {
 	BenchmarkDataImage *string `json:"benchmarkDataImage,omitempty"`
 
 	// CatalogDataImageStream independently selects the catalog data image.
-	// Empty uses its current release default. "stable" follows the managed
-	// ImageStream (OpenShift only); sha256:<64 lowercase hex> pins a digest in
-	// its configured data repository. The benchmark field may select a different image.
-	// On OpenShift, AIHub initializes new Catalogs and migrates existing Catalogs
-	// once to stable for both fields. Subsequent administrator selections are preserved.
-	// Selection/import failures make Catalog and AIHub unready. Successful
-	// resolution permits rollout; readiness also requires a healthy workload.
-	// Deployment scale-down is temporary containment. Runtime validation and
-	// serving enforcement will be integrated with RHOAIENG-97414.
+	// Empty uses its current release default; sha256:<64 lowercase hex> pins
+	// a digest in its configured data repository. Stable channel selection is
+	// temporarily unsupported. The benchmark field may select a different digest.
+	// AIHub leaves both fields unset and preserves administrator selections.
+	// Invalid selections make Catalog and AIHub unready. Successful resolution
+	// permits rollout; readiness also requires a healthy, validated workload.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
-	// +kubebuilder:validation:Pattern=`^(|stable|sha256:[a-f0-9]{64})$`
+	// +kubebuilder:validation:Pattern=`^(|sha256:[a-f0-9]{64})$`
 	CatalogDataImageStream *string `json:"catalogDataImageStream,omitempty"`
 
 	// BenchmarkDataImageStream independently selects the benchmark data image
-	// using the same empty/stable/digest choices as CatalogDataImageStream.
-	// Identical import sources share an ImageStream; separate sources are tracked
-	// independently. Unset and empty values are equivalent.
+	// using the same empty/digest choices as CatalogDataImageStream.
+	// Unset and empty values are equivalent. Stable is temporarily unsupported.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
-	// +kubebuilder:validation:Pattern=`^(|stable|sha256:[a-f0-9]{64})$`
+	// +kubebuilder:validation:Pattern=`^(|sha256:[a-f0-9]{64})$`
 	BenchmarkDataImageStream *string `json:"benchmarkDataImageStream,omitempty"`
 
 	// Proxy configures outbound HTTP proxy settings for the catalog. If unset,

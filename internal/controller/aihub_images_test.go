@@ -91,33 +91,21 @@ func TestAIHubCatalogImageStreamSources(t *testing.T) {
 				}
 			}
 
-			stable := "stable"
-			catalog := &catalogv1alpha1.Catalog{
-				ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns", UID: "catalog"},
-				Spec: catalogv1alpha1.CatalogSpec{
-					CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable,
-				},
-			}
+			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns", UID: "catalog"}}
 			r := newDataImageTestReconciler(t, catalog, true)
 			params := r.buildCatalogParams(catalog, nil, nil, nil, "")
 			if err := r.resolveCatalogDataImages(context.Background(), catalog, params); err != nil {
 				t.Fatal(err)
 			}
+			if params.CatalogDataImage != tc.release || params.BenchmarkDataImage != tc.release {
+				t.Fatal("release image defaults were not forwarded")
+			}
 			streams := &imagev1.ImageStreamList{}
 			if err := r.List(context.Background(), streams, client.InNamespace(catalog.Namespace)); err != nil {
 				t.Fatal(err)
 			}
-			if len(streams.Items) != 1 || streams.Items[0].Name != CatalogDataImageStreamName {
-				t.Fatalf("combined source must use one shared ImageStream, got %v", streams.Items)
-			}
-			source := tc.source
-			if source == "" {
-				source = tc.release
-			}
-			tags := streams.Items[0].Spec.Tags
-			if len(tags) != 1 || tags[0].Name != "stable" || tags[0].From == nil || tags[0].From.Kind != "DockerImage" || tags[0].From.Name != source ||
-				!tags[0].ImportPolicy.Scheduled || tags[0].ImportPolicy.ImportMode != imagev1.ImportModePreserveOriginal || tags[0].ReferencePolicy.Type != imagev1.SourceTagReferencePolicy {
-				t.Fatalf("unexpected shared ImageStream configuration: %+v", tags)
+			if len(streams.Items) != 0 {
+				t.Fatal("release defaults must not create ImageStreams")
 			}
 		})
 	}

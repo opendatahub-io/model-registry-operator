@@ -1196,14 +1196,8 @@ func testAIHubStatusReady(t *testing.T, openShift bool) {
 	if err := fakeClient.Get(ctx, client.ObjectKey{Namespace: regNs, Name: catalogCRName}, catalog); err != nil {
 		t.Fatal(err)
 	}
-	if openShift {
-		if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != "stable" ||
-			catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != "stable" ||
-			catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "true" {
-			t.Fatal("new OpenShift Catalog must follow both ImageStreams and record initialization")
-		}
-	} else if catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil || catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "" {
-		t.Fatal("new Catalog must use release images without requiring OpenShift ImageStreams")
+	if catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil {
+		t.Fatal("new Catalog must use release images on every platform")
 	}
 	// Missing Catalog status is progressing, not a confirmed failure.
 	if result.RequeueAfter == 0 {
@@ -1225,8 +1219,8 @@ func testAIHubStatusReady(t *testing.T, openShift bool) {
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 	// User selections remain independent; failures propagate through AIHub.
 	pin := dataTestDigest1
-	stable := "stable"
-	catalog.Spec.CatalogDataImageStream = &stable
+	catalogPin := dataTestDigest2
+	catalog.Spec.CatalogDataImageStream = &catalogPin
 	catalog.Spec.BenchmarkDataImageStream = &pin
 	catalog.Status.Conditions = []metav1.Condition{
 		{Type: ConditionTypeDegraded, Status: metav1.ConditionTrue, Reason: "ImportFailed", Message: "benchmark import failed", LastTransitionTime: metav1.Now()},
@@ -1248,7 +1242,7 @@ func testAIHubStatusReady(t *testing.T, openShift bool) {
 	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != stable || catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != pin {
+	if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != catalogPin || catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != pin {
 		t.Fatal("AIHub overwrote the admin's independent image selections")
 	}
 	catalog.Status.Conditions = []metav1.Condition{
@@ -1265,7 +1259,7 @@ func testAIHubStatusReady(t *testing.T, openShift bool) {
 	}
 	assertConditionStatus(t, got, string(common.ConditionTypeReady), metav1.ConditionTrue)
 
-	// Clearing selections explicitly opts out of scheduled imports. AIHub must
+	// Clearing selections restores release defaults. AIHub must
 	// preserve both omitted and empty selections on an existing Catalog.
 	empty := ""
 	catalog.Spec.CatalogDataImageStream = nil
@@ -1283,121 +1277,6 @@ func testAIHubStatusReady(t *testing.T, openShift bool) {
 		t.Fatal("AIHub overwrote existing release-default selections")
 	}
 
-	// Model the same Catalog before the upgrade, without a migration marker.
-	delete(catalog.Annotations, catalogImageStreamsMigratedAnnotation)
-	catalog.Spec.CatalogDataImageStream = &pin
-	if err := fakeClient.Update(ctx, catalog); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reconciler.Reconcile(ctx, req); err != nil {
-		t.Fatal(err)
-	}
-	if err := fakeClient.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-		t.Fatal(err)
-	}
-	if openShift {
-		if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != "stable" ||
-			catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != "stable" ||
-			catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "true" {
-			t.Fatal("upgrade must switch existing selections to stable and record migration")
-		}
-	} else if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != pin ||
-		catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != "" ||
-		catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "" {
-		t.Fatal("upgrade must preserve selections on clusters without ImageStreams")
-	}
-}
-
-func TestAIHubCatalogImageStreamMigration(t *testing.T) {
-	empty, stable, pin := "", "stable", dataTestDigest1
-	for _, tc := range []struct {
-		name               string
-		catalog, benchmark *string
-	}{
-		{name: "omitted"},
-		{name: "empty", catalog: &empty, benchmark: &empty},
-		{name: "pinned", catalog: &pin, benchmark: &pin},
-		{name: "mixed", catalog: &stable, benchmark: &pin},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			catalog := &catalogv1alpha1.Catalog{
-				ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns", UID: "existing-catalog",
-					Annotations: map[string]string{"admin-note": "keep"}},
-				Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: tc.catalog, BenchmarkDataImageStream: tc.benchmark,
-					Proxy: &catalogv1alpha1.ProxyConfig{HTTPProxy: "http://proxy.example:3128"}},
-			}
-			cli := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(catalog).Build()
-			r := &AIHubReconciler{Client: cli, Capabilities: ClusterCapabilities{IsOpenShift: true}}
-			if err := cli.Get(t.Context(), client.ObjectKeyFromObject(catalog), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if err := r.migrateCatalogImageStreams(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if err := cli.Get(t.Context(), client.ObjectKeyFromObject(catalog), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if catalog.Spec.CatalogDataImageStream == nil || *catalog.Spec.CatalogDataImageStream != stable ||
-				catalog.Spec.BenchmarkDataImageStream == nil || *catalog.Spec.BenchmarkDataImageStream != stable ||
-				catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "true" {
-				t.Fatal("upgrade did not migrate both selections and marker together")
-			}
-			if catalog.UID != "existing-catalog" || catalog.Annotations["admin-note"] != "keep" || catalog.Spec.Proxy.HTTPProxy != "http://proxy.example:3128" {
-				t.Fatal("migration changed unrelated Catalog configuration")
-			}
-			version := catalog.ResourceVersion
-			if err := r.migrateCatalogImageStreams(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if catalog.ResourceVersion != version {
-				t.Fatal("repeated migration must not write the Catalog")
-			}
-			catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = &pin, &empty
-			if err := cli.Update(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			// A new reconciler models restart: the persisted marker must suffice.
-			r = &AIHubReconciler{Client: cli, Capabilities: ClusterCapabilities{IsOpenShift: true}}
-			if err := r.migrateCatalogImageStreams(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if err := cli.Get(t.Context(), client.ObjectKeyFromObject(catalog), catalog); err != nil {
-				t.Fatal(err)
-			}
-			if *catalog.Spec.CatalogDataImageStream != pin || *catalog.Spec.BenchmarkDataImageStream != empty {
-				t.Fatal("migration overwrote post-upgrade administrator selections")
-			}
-		})
-	}
-}
-
-func TestAIHubCatalogImageStreamMigrationConflict(t *testing.T) {
-	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: catalogCRName, Namespace: "reg-ns"}}
-	cli := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(catalog).Build()
-	if err := cli.Get(t.Context(), client.ObjectKeyFromObject(catalog), catalog); err != nil {
-		t.Fatal(err)
-	}
-	stale := catalog.DeepCopy()
-	catalog.Annotations = map[string]string{"admin-note": "concurrent update"}
-	if err := cli.Update(t.Context(), catalog); err != nil {
-		t.Fatal(err)
-	}
-	r := &AIHubReconciler{Client: cli, Capabilities: ClusterCapabilities{IsOpenShift: true}}
-	if err := r.migrateCatalogImageStreams(t.Context(), stale); !apierrors.IsConflict(err) {
-		t.Fatalf("stale migration must conflict, got %v", err)
-	}
-	if err := cli.Get(t.Context(), client.ObjectKeyFromObject(catalog), catalog); err != nil {
-		t.Fatal(err)
-	}
-	if catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "" || catalog.Spec.CatalogDataImageStream != nil || catalog.Spec.BenchmarkDataImageStream != nil {
-		t.Fatal("failed migration must not persist a marker or partial selections")
-	}
-	if err := r.migrateCatalogImageStreams(t.Context(), catalog); err != nil {
-		t.Fatal(err)
-	}
-	if catalog.Annotations["admin-note"] != "concurrent update" || catalog.Annotations[catalogImageStreamsMigratedAnnotation] != "true" {
-		t.Fatal("retry did not preserve the concurrent update and complete migration")
-	}
 }
 
 func TestAIHubReconciler_StatusNotReady_CatalogMissing(t *testing.T) {

@@ -15,16 +15,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
-func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
+func TestCatalogDigestChangeWaitsForSelectedImagePairRollout(t *testing.T) {
 	for _, changed := range []string{"catalog", "benchmark", "both"} {
 		t.Run(changed, func(t *testing.T) {
 			const benchmarkRepository = "registry.example/benchmarks"
 			t.Setenv(config.CatalogDataImageStreamSource, dataTestRepository+":stable")
 			t.Setenv(config.BenchmarkDataImageStreamSource, benchmarkRepository+":stable")
 			ctx := context.Background()
-			stable := "stable"
+			pin1 := dataTestDigest1
 			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1},
-				Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable}}
+				Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &pin1, BenchmarkDataImageStream: &pin1}}
 			r := newDataImageTestReconciler(t, catalog, true)
 			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
 			reconcile := func() {
@@ -36,34 +36,24 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			importImage := func(name, repository, digest string) {
-				t.Helper()
-				stream := &imagev1.ImageStream{}
-				if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: catalog.Namespace}, stream); err != nil {
-					t.Fatal(err)
-				}
-				stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: repository + "@" + digest}}}}
-				if err := r.Status().Update(ctx, stream); err != nil {
-					t.Fatal(err)
-				}
-			}
-			reconcile()
-			importImage(CatalogDataImageStreamName, dataTestRepository, dataTestDigest1)
-			importImage(BenchmarkDataImageStreamName, benchmarkRepository, dataTestDigest1)
 			reconcile()
 			markDataImageWorkloadReady(t, r, catalog)
 			markCatalogValidationReady(t, r, catalog)
 			reconcile()
 			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionTrue, ReasonDeploymentAvailable)
-			generation := catalog.Generation
+			pin := dataTestDigest2
 			want := *catalog.Status.ResolvedImages
 			if changed != "benchmark" {
-				importImage(CatalogDataImageStreamName, dataTestRepository, dataTestDigest2)
+				catalog.Spec.CatalogDataImageStream = &pin
 				want.Catalog = dataTestRepository + "@" + dataTestDigest2
 			}
 			if changed != "catalog" {
-				importImage(BenchmarkDataImageStreamName, benchmarkRepository, dataTestDigest2)
+				catalog.Spec.BenchmarkDataImageStream = &pin
 				want.Benchmark = benchmarkRepository + "@" + dataTestDigest2
+			}
+			catalog.Generation++
+			if err := r.Update(ctx, catalog); err != nil {
+				t.Fatal(err)
 			}
 			// Check persisted readiness at the exact point before applying the new
 			// template, while the previous deployment and endpoints are healthy.
@@ -86,8 +76,8 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 			})
 			r.resourceManager = nil
 			reconcile()
-			if !checkedBeforeApply || catalog.Generation != generation {
-				t.Fatal("scheduled import did not invalidate readiness independently of the Catalog generation")
+			if !checkedBeforeApply {
+				t.Fatal("digest selection did not invalidate readiness before rollout")
 			}
 			assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
 			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
@@ -127,7 +117,7 @@ func TestCatalogScheduledImportWaitsForSelectedImagePairRollout(t *testing.T) {
 	}
 }
 
-func TestCatalogUnchangedImportedImagesRetainReadyWorkload(t *testing.T) {
+func TestCatalogPinnedImagesRetainReadyWorkload(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)
 	before := catalog.DeepCopy()
