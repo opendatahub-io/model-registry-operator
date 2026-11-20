@@ -95,7 +95,10 @@ spec:
 
 The release defaults come from `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
 and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. The RHOAI
-release supplies the same combined image for both. `CATALOG_DATA_IMAGE_STREAM_SOURCE`
+CSV supplies `RELATED_IMAGE_RHAI_AI_HUB_CATALOG_IMAGE` through the platform's
+standard `RelatedImages` injection. When nonempty, AIHub uses that complete reference
+for both child data images and their sources. When absent or empty, AIHub preserves
+the independent settings, including ODH's Quay defaults. `CATALOG_DATA_IMAGE_STREAM_SOURCE`
 and `BENCHMARK_DATA_IMAGE_STREAM_SOURCE` supply the repositories for explicit digest
 selections and otherwise default to the complete release references. AIHub forwards
 these values to its child operators. Clearing either selector restores that image's
