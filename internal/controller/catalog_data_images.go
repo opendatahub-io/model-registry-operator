@@ -37,8 +37,9 @@ func dataImageSelection(selection *string) (string, error) {
 	if selection == nil || *selection == "" {
 		return "", nil
 	}
-	if *selection != catalogDataImageStreamTag && !catalogDataDigestPattern.MatchString(*selection) {
-		return "", fmt.Errorf("unsupported data image selection %q: use an empty field, stable, or a sha256 digest with 64 lowercase hexadecimal characters", *selection)
+	// Channel selection is temporarily disabled; retain the import implementation.
+	if !catalogDataDigestPattern.MatchString(*selection) {
+		return "", fmt.Errorf("unsupported data image selection %q: use an empty field or a sha256 digest with 64 lowercase hexadecimal characters; stable is temporarily unsupported", *selection)
 	}
 	return *selection, nil
 }

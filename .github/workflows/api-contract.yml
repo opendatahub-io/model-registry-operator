@@ -25,8 +25,10 @@ name: API contract
 #     (currently the v0.3.17 release). Move it forward only for an intentional
 #     break that has been agreed, or list several commits (space-separated).
 #
-# Both jobs start in "report" mode (findings are annotated, the job stays
-# green). Switch to "enforce" once the provider and consumers agree on the policy.
+# Both jobs run in "enforce" mode: findings fail the check. (They started in
+# "report" mode and were switched once the provider and consumers agreed on
+# the policy.) To land an intentional break, move baseline-refs forward on an
+# agreed commit instead of reverting this.
 
 # Runs on every pull request targeting main, with no path filter, so a CRD added
 # anywhere in the repository reaches the coverage job, and the checks can later
@@ -44,7 +46,7 @@ jobs:
     with:
       crd-glob: config/*opendatahub.io_*.yaml
       baseline-refs: 86198eeb141169591f5ad3f6b294471f32456dab # v0.3.17
-      mode: report
+      mode: enforce
 
   crd-contract-coverage:
     permissions:
@@ -54,4 +56,4 @@ jobs:
       crd-globs: config/*opendatahub.io_*.yaml
       crd-exclude-globs: internal/controller/testdata/crd/*
       yq-version: "4.45.1"
-      mode: report
+      mode: enforce

@@ -668,7 +668,7 @@ func (r *CatalogReconciler) ensureCatalogResources(ctx context.Context, catalog 
 	}
 
 	if result != ResourceUnchanged {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{Requeue: true}, nil //nolint:staticcheck // Preserve rate-limited retries; RequeueAfter changes timing and backoff.
 	}
 	return ctrl.Result{}, nil
 }

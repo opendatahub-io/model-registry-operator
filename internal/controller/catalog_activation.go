@@ -102,12 +102,12 @@ func matchesCatalogImages(pod, desired corev1.PodSpec) bool {
 	}
 	for _, name := range []string{"catalog-data-init", "benchmark-data-init"} {
 		wanted := image(desired.InitContainers, name)
-		if wanted == "" || image(pod.InitContainers, name) != wanted {
+		if wanted == "" || !sameCatalogImageReference(image(pod.InitContainers, name), wanted) {
 			return false
 		}
 	}
 	wanted := image(desired.Containers, "catalog")
-	return wanted != "" && image(pod.Containers, "catalog") == wanted
+	return wanted != "" && sameCatalogImageReference(image(pod.Containers, "catalog"), wanted)
 }
 
 func catalogPodFailure(pod *corev1.Pod) *catalogActivationFailure {

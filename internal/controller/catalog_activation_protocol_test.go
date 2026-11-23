@@ -166,9 +166,9 @@ func TestActivationAcceptsReleaseTagsWithoutRuntimeProtocol(t *testing.T) {
 	}
 }
 
-func TestTimedOutPendingImportStaysContained(t *testing.T) {
+func TestTimedOutPendingValidationStaysContained(t *testing.T) {
 	ctx := context.Background()
-	stable := "stable"
+	stable := ""
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: "catalog", Generation: 1},
 		Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable}}
 	r := newDataImageTestReconciler(t, catalog, true)
@@ -191,7 +191,7 @@ func TestTimedOutPendingImportStaysContained(t *testing.T) {
 		t.Fatal(err)
 	}
 	if catalog.Status.Activation.State != "Failed" || catalog.Status.Activation.Reason != "ActivationTimedOut" {
-		t.Fatalf("pending import was not timed out: %+v", catalog.Status.Activation)
+		t.Fatalf("pending validation was not timed out: %+v", catalog.Status.Activation)
 	}
 	resumed := false
 	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
@@ -218,7 +218,7 @@ func TestTimedOutPendingImportStaysContained(t *testing.T) {
 		t.Fatalf("unchanged timed-out attempt resumed: activation=%+v replicas=%v update=%t", catalog.Status.Activation, deployment.Spec.Replicas, resumed)
 	}
 	if !strings.Contains(deployment.Spec.Template.Spec.InitContainers[0].Command[2], "serving_runtimes: []") {
-		t.Fatal("pending import must retain release image compatibility")
+		t.Fatal("pending validation must retain release image compatibility")
 	}
 }
 

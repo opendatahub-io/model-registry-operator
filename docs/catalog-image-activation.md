@@ -16,8 +16,8 @@ with the choices described below.
 ## Deployment flow
 
 1. Resolve the catalog and benchmark selections independently. Empty fields use
-   their release images; `stable` follows the relevant managed ImageStream; a
-   SHA-256 selection pins that image's configured repository. Release tags remain
+   their release images; a SHA-256 selection pins that image's configured
+   repository. `stable` and other tag selections are temporarily rejected. Release tags remain
    supported for upstream development, as in #722.
 2. Persist an opaque `status.activation.attemptID` before changing the deployment
    when selections, references, relevant import outcomes, runtime/operator image,
@@ -27,10 +27,9 @@ with the choices described below.
    pair starts. Both copy init containers must succeed. The benchmark image must
    contain `/app/benchmarks`, but that directory may be empty. Older release
    images lack the serving-runtime catalog;
-   empty Catalog image selections and `stable` imports from the release source
-   (or of its known digest) retain the copy init container's empty serving-runtime
-   list when that file is absent. Migration to ImageStreams therefore preserves
-   release-image compatibility. Other selections must contain the file and fail
+   empty Catalog image selections retain the copy init container's empty
+   serving-runtime list when that file is absent. Explicit digest selections must
+   contain the file and fail
    preflight when it is missing. A shipped serving-runtime file is never replaced.
 4. Run `/manager catalog-content-validate` from the operator image as a third init
    container. It reads shipped source YAML and benchmark files before the catalog
@@ -44,6 +43,11 @@ with the choices described below.
 6. Require successful validator termination in a current-attempt pod, the selected
    image pair, a Ready catalog container, and a completed deployment rollout
    before recording `WorkloadValidated` and restoring aggregate readiness.
+
+Pod admission may substitute a repository while preserving a pinned SHA-256
+digest. Activation compares those references by content digest. Tagged
+references continue to require an exact match; matching tag names in different
+repositories do not prove matching content.
 
 ## Structural validation
 
