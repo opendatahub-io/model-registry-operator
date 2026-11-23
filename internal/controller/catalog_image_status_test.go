@@ -140,9 +140,9 @@ func TestCatalogReleaseDefaultsRequireValidatorEvidence(t *testing.T) {
 	}
 }
 
-func TestCatalogPendingImportStillPollsActivationTimeout(t *testing.T) {
+func TestCatalogPendingValidationStillPollsActivationTimeout(t *testing.T) {
 	ctx := context.Background()
-	stable := "stable"
+	stable := ""
 	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1},
 		Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable}}
 	r := newDataImageTestReconciler(t, catalog, true)
@@ -160,20 +160,18 @@ func TestCatalogPendingImportStillPollsActivationTimeout(t *testing.T) {
 	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
 		t.Fatal(err)
 	}
-	assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "NoSuccessfulImport")
-	assertDataImageCondition(t, catalog, conditionImageSelectionReady, metav1.ConditionUnknown, "NoSuccessfulImport")
+	assertDataImageCondition(t, catalog, conditionCatalogReady, metav1.ConditionFalse, "ActivationPending")
+	assertDataImageCondition(t, catalog, conditionImageSelectionReady, metav1.ConditionTrue, "ReleaseDefault")
 	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
 }
 
-func TestCatalogClearingAfterImportFailureRecoversToDevelopmentDefaults(t *testing.T) {
+func TestCatalogClearingInvalidSelectionRecoversToDevelopmentDefaults(t *testing.T) {
 	ctx := context.Background()
 	r, catalog := readyDataImageCatalog(t)
-	stream := &imagev1.ImageStream{}
-	if err := r.Get(ctx, client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}, stream); err != nil {
-		t.Fatal(err)
-	}
-	stream.Status.Tags[0].Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Reason: "Unauthorized"}}
-	if err := r.Status().Update(ctx, stream); err != nil {
+	invalid := "stable"
+	catalog.Spec.CatalogDataImageStream = &invalid
+	catalog.Generation++
+	if err := r.Update(ctx, catalog); err != nil {
 		t.Fatal(err)
 	}
 	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
@@ -183,7 +181,7 @@ func TestCatalogClearingAfterImportFailureRecoversToDevelopmentDefaults(t *testi
 	if err := r.Get(ctx, request.NamespacedName, catalog); err != nil {
 		t.Fatal(err)
 	}
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
+	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "InvalidDataImageSelection")
 	t.Setenv(config.CatalogDataImage, config.DefaultCatalogDataImage)
 	t.Setenv(config.BenchmarkDataImage, config.DefaultBenchmarkDataImage)
 	catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = nil, nil

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -74,222 +75,85 @@ const dataTestDigest2 = "sha256:222222222222222222222222222222222222222222222222
 const dataTestDigest3 = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 
 func TestCatalogDataImageSelectionLifecycle(t *testing.T) {
-	releaseDefault := dataTestRepository + "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	t.Setenv(config.CatalogDataImage, releaseDefault)
-	// Both repositories can ship the combined image today.
-	t.Setenv(config.BenchmarkDataImage, releaseDefault)
-	t.Setenv(config.CatalogDataImageStreamSource, dataTestRepository+":stable")
-	t.Setenv(config.BenchmarkDataImageStreamSource, dataTestRepository+":stable")
-	ctx := context.Background()
-	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: types.UID("catalog"), Generation: 1}}
-	r := newDataImageTestReconciler(t, catalog, true)
-	key := client.ObjectKeyFromObject(catalog)
-	streamKey := client.ObjectKey{Namespace: catalog.Namespace, Name: CatalogDataImageStreamName}
-	reconcile := func() *appsv1.Deployment {
-		t.Helper()
-		if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key}); err != nil {
-			t.Fatal(err)
-		}
-		deployment := &appsv1.Deployment{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: catalog.Namespace, Name: catalogResourceName}, deployment); err != nil {
-			t.Fatal(err)
-		}
-		return deployment
-	}
-	assertImages := func(deployment *appsv1.Deployment, want string) {
-		t.Helper()
-		if len(deployment.Spec.Template.Spec.InitContainers) != 3 {
-			t.Fatal("expected both data init containers and the validator")
-		}
-		for _, container := range deployment.Spec.Template.Spec.InitContainers {
-			if container.Name != "catalog-content-validation" && container.Image != want {
-				t.Fatalf("%s image = %q, want %q", container.Name, container.Image, want)
+	const releaseDefault = "registry.redhat.io/rhai/ai-hub-catalog-rhel9@sha256:0e396f316c5da71164d97e36a2d950be1ba15fc3659b177797a7f0b8b74e5b96"
+	for _, openShift := range []bool{false, true} {
+		t.Run(fmt.Sprintf("OpenShift=%t", openShift), func(t *testing.T) {
+			t.Setenv(config.CatalogDataImage, releaseDefault)
+			t.Setenv(config.BenchmarkDataImage, releaseDefault)
+			t.Setenv(config.CatalogDataImageStreamSource, releaseDefault)
+			t.Setenv(config.BenchmarkDataImageStreamSource, releaseDefault)
+			catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test", UID: "catalog", Generation: 1}}
+			r := newDataImageTestReconciler(t, catalog, openShift)
+			key := client.ObjectKeyFromObject(catalog)
+			reconcile := func() *appsv1.Deployment {
+				t.Helper()
+				if _, err := r.Reconcile(t.Context(), ctrl.Request{NamespacedName: key}); err != nil {
+					t.Fatal(err)
+				}
+				if err := r.Get(t.Context(), key, catalog); err != nil {
+					t.Fatal(err)
+				}
+				deployment := &appsv1.Deployment{}
+				if err := r.Get(t.Context(), client.ObjectKey{Name: catalogResourceName, Namespace: catalog.Namespace}, deployment); err != nil {
+					t.Fatal(err)
+				}
+				return deployment
 			}
-		}
-	}
-	assertCondition := func(status metav1.ConditionStatus, reason string) {
-		t.Helper()
-		if err := r.Get(ctx, key, catalog); err != nil {
-			t.Fatal(err)
-		}
-		condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
-		if condition == nil || condition.Status != status || condition.Reason != reason || condition.Message == "" || condition.ObservedGeneration != catalog.Generation {
-			t.Fatalf("unexpected data image condition: %+v", condition)
-		}
-	}
-	setSelections := func(catImage, benchImage *string) {
-		t.Helper()
-		if err := r.Get(ctx, key, catalog); err != nil {
-			t.Fatal(err)
-		}
-		catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = catImage, benchImage
-		catalog.Generation++
-		if err := r.Update(ctx, catalog); err != nil {
-			t.Fatal(err)
-		}
-	}
-	getStream := func() *imagev1.ImageStream {
-		t.Helper()
-		stream := &imagev1.ImageStream{}
-		if err := r.Get(ctx, streamKey, stream); err != nil {
-			t.Fatal(err)
-		}
-		return stream
-	}
-	importImage := func(digest string, failed bool, follows bool) *appsv1.Deployment {
-		t.Helper()
-		stream := getStream()
-		if len(stream.Status.Tags) == 0 {
-			stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: catalogDataImageStreamTag}}
-		}
-		status := &stream.Status.Tags[0]
-		if failed {
-			status.Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Reason: "ImportFailed"}}
-		} else {
-			status.Conditions = nil
-			status.Items = append([]imagev1.TagEvent{{Image: digest, DockerImageReference: dataTestRepository + "@" + digest}}, status.Items...)
-		}
-		if err := r.Status().Update(ctx, stream); err != nil {
-			t.Fatal(err)
-		}
-		requests := r.getCatalogsForDataImageStream(ctx, stream)
-		if follows {
-			if len(requests) != 1 || requests[0].NamespacedName != key {
-				t.Fatalf("ImageStream event requests = %v, want Catalog %v", requests, key)
+			initial := reconcile()
+			for _, container := range initial.Spec.Template.Spec.InitContainers {
+				if container.Name != "catalog-content-validation" && container.Image != releaseDefault {
+					t.Fatalf("unexpected default image: %s", container.Image)
+				}
 			}
-		} else if len(requests) != 0 {
-			t.Fatalf("selection should not follow the stream: %v", requests)
-		}
-		before, generation := catalog.Spec.DeepCopy(), catalog.Generation
-		deployment := reconcile()
-		if err := r.Get(ctx, key, catalog); err != nil {
-			t.Fatal(err)
-		}
-		if !reflect.DeepEqual(before, &catalog.Spec) || generation != catalog.Generation {
-			t.Fatal("ImageStream update changed the Catalog spec or generation")
-		}
-		return deployment
-	}
-
-	assertImages(reconcile(), releaseDefault)
-	assertCondition(metav1.ConditionTrue, "ReleaseDefault")
-
-	stable := "stable"
-	setSelections(&stable, &stable)
-	assertImages(reconcile(), releaseDefault)
-	stream := getStream()
-	if len(stream.Spec.Tags) != 1 || stream.Spec.Tags[0].From.Name != dataTestRepository+":stable" || !stream.Spec.Tags[0].ImportPolicy.Scheduled || stream.Spec.Tags[0].ImportPolicy.ImportMode != imagev1.ImportModePreserveOriginal {
-		t.Fatalf("unexpected managed channel: %+v", stream.Spec.Tags)
-	}
-	if len(stream.OwnerReferences) != 1 || stream.OwnerReferences[0].UID != catalog.UID {
-		t.Fatal("ImageStream must be owned by the Catalog")
-	}
-
-	assertCondition(metav1.ConditionFalse, "NoSuccessfulImport")
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionUnknown, "ImportPending")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
-	assertImages(importImage("", true, true), releaseDefault)
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionFalse, "ImportFailed")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
-	first := importImage(dataTestDigest1, false, true)
-	assertImages(first, dataTestRepository+"@"+dataTestDigest1)
-	second := importImage(dataTestDigest2, false, true)
-	assertImages(second, dataTestRepository+"@"+dataTestDigest2)
-	if reflect.DeepEqual(first.Spec.Template, second.Spec.Template) {
-		t.Fatal("a successive successful import must change the pod template")
-	}
-	failed := importImage("", true, true)
-	assertImages(failed, dataTestRepository+"@"+dataTestDigest2)
-	assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionFalse, "ImportFailed")
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionFalse, "ImportFailed")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "ImportFailed")
-	if !reflect.DeepEqual(second.Spec.Template, failed.Spec.Template) {
-		t.Fatal("a failed import must retain the previous pod template")
-	}
-	if failed.Spec.Replicas == nil || *failed.Spec.Replicas != 0 {
-		t.Fatal("a failed import must stop Catalog serving")
-	}
-	assertDataImageCondition(t, catalog, ConditionTypeAvailable, metav1.ConditionFalse, "DataImagesUnavailable")
-	assertImages(importImage(dataTestDigest3, false, true), dataTestRepository+"@"+dataTestDigest3)
-	assertCondition(metav1.ConditionTrue, "ImageStreamResolved")
-	assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "ImportSucceeded")
-	assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
-
-	// Manual selection and rollback pin directly, without changing the import source.
-	pin := dataTestDigest2
-	setSelections(&pin, &pin)
-	assertImages(reconcile(), dataTestRepository+"@"+pin)
-	assertCondition(metav1.ConditionTrue, "DigestPinned")
-	assertImages(importImage(dataTestDigest3, false, false), dataTestRepository+"@"+pin)
-	pin = dataTestDigest1
-	setSelections(&pin, &pin)
-	assertImages(reconcile(), dataTestRepository+"@"+pin)
-	if getStream().Spec.Tags[0].From.Name != dataTestRepository+":stable" {
-		t.Fatal("pinning must not change the stable import source")
-	}
-
-	// Invalid selections must keep the pinned image, including on an operator restart.
-	for _, pair := range [][2]string{
-		{"latest", "latest"},
-		{"model-catalog-data:stable", "model-catalog-data:stable"},
-		{"sha256:bad", "sha256:bad"}, {" stable", " stable"},
-		{"registry.example/data@" + dataTestDigest1, "registry.example/data@" + dataTestDigest1},
-	} {
-		t.Run(pair[0]+"/"+pair[1], func(t *testing.T) {
-			setSelections(&pair[0], &pair[1])
-			previous := reconcile()
-			assertImages(previous, dataTestRepository+"@"+dataTestDigest1)
-			if previous.Spec.Replicas == nil || *previous.Spec.Replicas != 0 {
-				t.Fatal("an invalid selection must stop Catalog serving")
+			assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionTrue, "ReleaseDefault")
+			// Fake-client writes bypass admission, exercising the controller's own guard.
+			for _, selection := range []string{"stable", ":stable", "latest", " stable", "sha256:abc"} {
+				for _, field := range []string{"catalog", "benchmark"} {
+					catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = nil, nil
+					if field == "catalog" {
+						catalog.Spec.CatalogDataImageStream = &selection
+					} else {
+						catalog.Spec.BenchmarkDataImageStream = &selection
+					}
+					catalog.Generation++
+					if err := r.Update(t.Context(), catalog); err != nil {
+						t.Fatal(err)
+					}
+					deployment := reconcile()
+					if deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 0 {
+						t.Fatal("invalid selection must contain the workload")
+					}
+					if !reflect.DeepEqual(initial.Spec.Template, deployment.Spec.Template) {
+						t.Fatal("invalid selection replaced the pinned pod template")
+					}
+					assertDataImageCondition(t, catalog, conditionDataImageResolved, metav1.ConditionFalse, "InvalidDataImageSelection")
+				}
 			}
-			assertCondition(metav1.ConditionFalse, "InvalidDataImageSelection")
-			assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionTrue, "InvalidDataImageSelection")
-			// Use a fresh reconciler with the same persisted resources.
-			r = &CatalogReconciler{Client: r.Client, APIReader: r.APIReader, Scheme: r.Scheme, Template: r.Template, Recorder: r.Recorder, Log: r.Log, Capabilities: r.Capabilities}
-			next := importImage(dataTestDigest2, false, false)
-			assertImages(next, dataTestRepository+"@"+dataTestDigest1)
-			if !reflect.DeepEqual(previous.Spec.Template, next.Spec.Template) {
-				t.Fatal("invalid selections must retain the applied pod template")
+			catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = nil, nil
+			catalog.Generation++
+			if err := r.Update(t.Context(), catalog); err != nil {
+				t.Fatal(err)
+			}
+			if deployment := reconcile(); deployment.Spec.Replicas == nil || *deployment.Spec.Replicas != 1 {
+				t.Fatal("clearing invalid selection must restore release defaults")
+			}
+			var streams imagev1.ImageStreamList
+			if err := r.List(t.Context(), &streams); err != nil || len(streams.Items) != 0 {
+				t.Fatalf("must not create ImageStreams: %v, %v", streams.Items, err)
 			}
 		})
-	}
-
-	// Returning to stable resumes at the latest successfully imported digest.
-	setSelections(&stable, &stable)
-	assertImages(reconcile(), dataTestRepository+"@"+dataTestDigest2)
-	// An empty or failed channel after recreation must not undo an applied digest.
-	stream = getStream()
-	stream.Status.Tags = nil
-	if err := r.Status().Update(ctx, stream); err != nil {
-		t.Fatal(err)
-	}
-	assertImages(reconcile(), dataTestRepository+"@"+dataTestDigest2)
-	assertCondition(metav1.ConditionFalse, "NoSuccessfulImport")
-	assertImages(importImage("", true, true), dataTestRepository+"@"+dataTestDigest2)
-
-	// Clearing both fields returns to the current release, not the initial release.
-	releaseDefault = dataTestRepository + "@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	t.Setenv(config.CatalogDataImage, releaseDefault)
-	t.Setenv(config.BenchmarkDataImage, releaseDefault)
-	empty := ""
-	for _, pair := range [][2]*string{{&empty, nil}, {nil, &empty}, {&empty, &empty}, {nil, nil}} {
-		setSelections(pair[0], pair[1])
-		assertImages(reconcile(), releaseDefault)
-		assertCondition(metav1.ConditionTrue, "ReleaseDefault")
-		assertDataImageCondition(t, catalog, conditionDataImageImportHealthy, metav1.ConditionTrue, "NotTrackingImageStream")
-		assertDataImageCondition(t, catalog, ConditionTypeDegraded, metav1.ConditionFalse, "DataImagesHealthy")
-		assertImages(importImage(dataTestDigest3, false, false), releaseDefault)
 	}
 }
 
 func TestCatalogDataImageStreamEventFiltering(t *testing.T) {
-	stable := "stable"
-	catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test"}, Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable}}
-	r := newDataImageTestReconciler(t, catalog, true)
-	for _, key := range []client.ObjectKey{{Name: "unrelated", Namespace: catalog.Namespace}, {Name: CatalogDataImageStreamName, Namespace: "another-namespace"}} {
-		stream := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace}}
-		if requests := r.getCatalogsForDataImageStream(context.Background(), stream); len(requests) != 0 {
-			t.Fatalf("unrelated event should not enqueue the Catalog: %v", requests)
+	for _, selection := range []string{"", "stable", ":stable", dataTestDigest1} {
+		catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: "data-test"}, Spec: catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &selection, BenchmarkDataImageStream: &selection}}
+		r := newDataImageTestReconciler(t, catalog, true)
+		for _, name := range []string{CatalogDataImageStreamName, BenchmarkDataImageStreamName, "unrelated"} {
+			stream := &imagev1.ImageStream{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: catalog.Namespace}}
+			if requests := r.getCatalogsForDataImageStream(t.Context(), stream); len(requests) != 0 {
+				t.Fatalf("selection %q must not follow ImageStream events: %v", selection, requests)
+			}
 		}
 	}
 }
@@ -364,8 +228,8 @@ func TestCatalogDataImagesWithoutOpenShift(t *testing.T) {
 			t.Fatalf("unexpected resolved images: %q, %q", params.CatalogDataImage, params.BenchmarkDataImage)
 		}
 		condition := apimeta.FindStatusCondition(catalog.Status.Conditions, conditionDataImageResolved)
-		if selection == "stable" && (condition.Status != metav1.ConditionFalse || condition.Reason != "UnsupportedDataImageSelection") {
-			t.Fatalf("stable must report missing OpenShift support: %+v", condition)
+		if selection == "stable" && (condition.Status != metav1.ConditionFalse || condition.Reason != "InvalidDataImageSelection") {
+			t.Fatalf("stable must be rejected on every platform: %+v", condition)
 		}
 	}
 	var streams imagev1.ImageStreamList

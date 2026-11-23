@@ -10,7 +10,6 @@ import (
 	catalogv1alpha1 "github.com/opendatahub-io/model-registry-operator/api/catalog/v1alpha1"
 	"github.com/opendatahub-io/model-registry-operator/internal/catalogcontent"
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
-	imagev1 "github.com/openshift/api/image/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func TestCatalogLegacyReleaseImageMigration(t *testing.T) {
+func TestCatalogLegacyReleaseImageDefaults(t *testing.T) {
 	const repository = "registry.example/catalog"
 	for _, tc := range []struct {
 		name, release string
@@ -106,28 +105,7 @@ func TestCatalogLegacyReleaseImageMigration(t *testing.T) {
 					}
 				}
 			}
-			check("before migration", true)
-			aihub := &AIHubReconciler{Client: r.Client, Capabilities: ClusterCapabilities{IsOpenShift: true}}
-			if err := aihub.migrateCatalogImageStreams(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			// The fake API does not increment CR generations on spec patches.
-			catalog.Generation++
-			if err := r.Update(t.Context(), catalog); err != nil {
-				t.Fatal(err)
-			}
-			check("migration awaiting import", false)
-			stream := &imagev1.ImageStream{}
-			if err := r.Get(t.Context(), client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}, stream); err != nil {
-				t.Fatal(err)
-			}
-			stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{
-				DockerImageReference: repository + "@" + dataTestDigest1, Image: dataTestDigest1,
-			}}}}
-			if err := r.Status().Update(t.Context(), stream); err != nil {
-				t.Fatal(err)
-			}
-			check("migration imported release image", true)
+			check("release default", true)
 		})
 	}
 }
@@ -139,11 +117,7 @@ func TestCatalogLegacyRuntimeImportScope(t *testing.T) {
 		selection                            string
 		compatible                           bool
 	}{
-		{name: "release source", imported: release, selection: "stable", compatible: true},
-		{name: "channel imports release", source: "registry.example/catalog:updates", imported: release, selection: "stable", compatible: true},
-		{name: "mirror imports release", source: "registry.example/mirror:updates", imported: "registry.example/mirror@" + dataTestDigest1, selection: "stable", compatible: true},
-		{name: "independent update", source: "registry.example/catalog:updates", imported: "registry.example/catalog@" + dataTestDigest2, selection: "stable"},
-		{name: "manual stream override", manualSource: "registry.example/other:updates", imported: "registry.example/other@" + dataTestDigest2, selection: "stable"},
+		{name: "release default", compatible: true},
 		{name: "explicit pin", selection: dataTestDigest1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -165,23 +139,7 @@ func TestCatalogLegacyRuntimeImportScope(t *testing.T) {
 				return params
 			}
 			params := resolve()
-			if tc.selection == "stable" {
-				stream := &imagev1.ImageStream{}
-				if err := r.Get(t.Context(), client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: catalog.Namespace}, stream); err != nil {
-					t.Fatal(err)
-				}
-				if tc.manualSource != "" {
-					stream.Spec.Tags[0].From.Name = tc.manualSource
-					if err := r.Update(t.Context(), stream); err != nil {
-						t.Fatal(err)
-					}
-				}
-				stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: tc.imported}}}}
-				if err := r.Status().Update(t.Context(), stream); err != nil {
-					t.Fatal(err)
-				}
-				params = resolve()
-			}
+
 			if params.AllowLegacyRuntimeFile != tc.compatible {
 				t.Fatalf("legacy runtime compatibility = %v, want %v", params.AllowLegacyRuntimeFile, tc.compatible)
 			}
@@ -200,9 +158,14 @@ func TestCatalogLegacyCompatibilityRetriesFailedActivation(t *testing.T) {
 		t.Fatal(err)
 	}
 	previous := catalog.Status.Activation.DeepCopy()
-	// A new release now ships the same imported content. Compatibility must
-	// trigger validation again even though the CR selections and images match.
+	// Selecting the same content as the release default enables legacy runtime
+	// compatibility and must retry validation for the failed content.
 	t.Setenv(config.CatalogDataImage, previous.RequestedImages.Catalog)
+	catalog.Spec.CatalogDataImageStream = nil
+	catalog.Generation++
+	if err := r.Update(t.Context(), catalog); err != nil {
+		t.Fatal(err)
+	}
 	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(catalog)}
 	if _, err := r.Reconcile(t.Context(), request); err != nil {
 		t.Fatal(err)

@@ -75,70 +75,47 @@ To remove it:
 make undeploy OVERLAY=overlays/catalog
 ```
 
-The Catalog selects catalog and benchmark data independently. They may use the
-same combined image today or separate images and versions:
+The Catalog selects catalog and benchmark data independently. AIHub leaves both
+selectors unset on all platforms so a fresh installation uses the release images.
+Existing explicit digest selections are preserved.
 
 | Each field (`catalogDataImageStream`, `benchmarkDataImageStream`) | Behavior |
 | --- | --- |
 | Omitted or empty | Use that image's current product release default. |
-| `stable` | Follow scheduled imports from its managed ImageStream (OpenShift only). |
-| `sha256:<64 lowercase hex>` | Pin that digest in the configured import repository, including rollback. |
+| `sha256:<64 lowercase hex>` | Pin that digest in the configured repository, including rollback. |
+| `stable`, `:stable`, or any other tag | Rejected. Channel selection is temporarily unsupported. |
 
-On OpenShift, AIHub sets both fields to `stable` when it creates a Catalog.
-On upgrade, AIHub also sets both fields on the existing Catalog
-to `stable`, replacing previous empty selections or digest pins. It records
-`aihub.opendatahub.io/data-image-streams-migrated: "true"` on the Catalog in the
-same update. New Catalogs receive this marker at creation, and subsequent
-administrator selections are preserved across reconciliations and restarts.
-The standalone sample leaves both selections empty. On OpenShift, an administrator
-can select `stable` to import the release images or configure alternate update
-sources. On other Kubernetes clusters, AIHub leaves selections unset on creation
-and preserves existing selections, using release images without requiring the
-OpenShift ImageStream API. Mixed selections are supported on OpenShift, for example:
+For example, one image can use its release default while the other is pinned:
 
 ```yaml
 spec:
-  catalogDataImageStream: stable
+  catalogDataImageStream: ""
   benchmarkDataImageStream: sha256:1111111111111111111111111111111111111111111111111111111111111111
 ```
 
 The release defaults come from `RELATED_IMAGE_ODH_MODEL_METADATA_COLLECTION_IMAGE`
-and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. They remain
-bootstrap and recovery images shipped with the product. Each import source defaults
-to its complete release image reference, preserving its digest or development tag.
-A digest-pinned source changes when a later operator release supplies a different
-image reference; scheduled imports of the same digest do not discover new builds.
-`CATALOG_DATA_IMAGE_STREAM_SOURCE` and `BENCHMARK_DATA_IMAGE_STREAM_SOURCE` can
-override these references with independent update channels. A distribution can set
-these values in its AIHub overlay's `params.env`, and AIHub forwards them to the
-child operators. The shared implementation requires no distribution-specific code.
-The ImageStream's local selection tag remains `stable` regardless of whether its
-external source uses a digest or a tag.
+and `RELATED_IMAGE_ODH_MODEL_PERFORMANCE_DATA_IMAGE`, respectively. The RHOAI
+CSV supplies `RELATED_IMAGE_RHAI_AI_HUB_CATALOG_IMAGE` through the platform's
+standard `RelatedImages` injection. When nonempty, AIHub uses that complete reference
+for both child data images and their sources. When absent or empty, AIHub preserves
+the independent settings, including ODH's Quay defaults. `CATALOG_DATA_IMAGE_STREAM_SOURCE`
+and `BENCHMARK_DATA_IMAGE_STREAM_SOURCE` supply the repositories for explicit digest
+selections and otherwise default to the complete release references. AIHub forwards
+these values to its child operators. Clearing either selector restores that image's
+release default.
 
-The operator creates its ImageStreams from an embedded template with scheduled
-imports and watches their status. Identical sources share `model-catalog-data:stable`;
-separate sources use `model-catalog-data:stable` for catalog data and
-`model-catalog-benchmark-data:stable` for benchmarks. A successful new digest rolls
-out the Catalog without changing its spec. Pins ignore subsequent imports.
-Clearing either field returns that image to its current release default.
+The ImageStream resolver, template, source reconciliation, import history and watches
+remain available internally for future channel support. Current supported selections
+do not create or follow ImageStreams. Configuring a source does not enable `stable`.
 
-A pending first import currently uses the bundled deployment images, and ordinary
-pending updates retain the applied images. These are deployment compatibility
-behaviors, not evidence that the requested data is ready. A reported import failure,
-an unusable imported image, or an invalid selection makes Catalog readiness false
-and requests deployment scale-down as **temporary containment**. Scale-down does
-not prove that existing pods have stopped answering requests and cannot provide
-structured unavailable responses or accessible runtime status endpoints.
-
-A successful import, manual pin, or cleared field permits deployment reconciliation.
-Catalog readiness requires both requested images to resolve and the workload to
-complete its rollout for that image pair. `status.resolvedImages` records both
-references. A change to either reference invalidates prior workload readiness
-before the new template is applied, including scheduled updates without a Catalog
-edit. The deployment must contain both selected images, observe its current
-generation, and have all desired replicas updated, ready, and available. Old
-rollout replicas and ready endpoints alone cannot establish readiness. Repeated
-imports of unchanged references preserve a healthy workload.
+An invalid selection makes Catalog and AIHub unready and requests deployment
+scale-down as temporary containment. A valid digest selection or cleared field
+permits deployment reconciliation. `status.resolvedImages` records both references;
+a change to either reference invalidates prior workload readiness before the new
+pod template is applied. Readiness requires matching deployment images, an observed
+current deployment generation, all desired replicas updated, ready and available,
+and successful content validation. ImageStream changes cannot change a pinned
+workload or its readiness.
 
 Empty fields support the release references supplied by the product
 operator, including the upstream development tags. Unsupported selections are

@@ -11,14 +11,13 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/events"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,11 +29,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Catalog data ImageStream watch", func() {
-	It("watches shared and separate images, stops on faults, recovers, pins rollback, and restores release defaults", func() {
-		releaseDefault := dataTestRepository + "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+var _ = Describe("Catalog digest-only selections", func() {
+	It("uses release digests, rejects floating selections, and rolls out explicit digest changes", func() {
+		releaseDefault := "registry.redhat.io/rhai/ai-hub-catalog-rhel9@sha256:0e396f316c5da71164d97e36a2d950be1ba15fc3659b177797a7f0b8b74e5b96"
 		GinkgoT().Setenv(config.CatalogDataImage, releaseDefault)
 		GinkgoT().Setenv(config.BenchmarkDataImage, releaseDefault)
+		GinkgoT().Setenv(config.CatalogDataImageStreamSource, releaseDefault)
+		GinkgoT().Setenv(config.BenchmarkDataImageStreamSource, releaseDefault)
 		// ImageStreams are served by OpenShift's aggregated API in production.
 		// This minimal CRD lets envtest exercise their spec/status watch behavior.
 		preserveUnknown := true
@@ -91,18 +92,14 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 		Expect(mgr.GetCache().WaitForCacheSync(ctx)).To(BeTrue())
 		direct, err := client.New(cfg, client.Options{Scheme: scheme})
 		Expect(err).NotTo(HaveOccurred())
-		stable := "stable"
-		catalog := &catalogv1alpha1.Catalog{
-			ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespace},
-			Spec:       catalogv1alpha1.CatalogSpec{CatalogDataImageStream: &stable, BenchmarkDataImageStream: &stable},
+		catalog := &catalogv1alpha1.Catalog{ObjectMeta: metav1.ObjectMeta{Name: "catalog", Namespace: namespace}}
+		for _, selection := range []string{"stable", ":stable", "latest"} {
+			catalog.Spec.CatalogDataImageStream = &selection
+			Expect(apierrors.IsInvalid(direct.Create(ctx, catalog))).To(BeTrue())
 		}
+		catalog.Spec.CatalogDataImageStream = nil
 		Expect(direct.Create(ctx, catalog)).To(Succeed())
-		generation := catalog.Generation
-		streamKey := client.ObjectKey{Name: CatalogDataImageStreamName, Namespace: namespace}
 		deploymentKey := client.ObjectKey{Name: catalogResourceName, Namespace: namespace}
-		stream := &imagev1.ImageStream{}
-		Eventually(func() error { return direct.Get(ctx, streamKey, stream) }, 10*time.Second).Should(Succeed())
-		Expect(stream.Spec.Tags[0].ImportPolicy.Scheduled).To(BeTrue())
 		deploymentImages := func() []string {
 			deployment := &appsv1.Deployment{}
 			if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
@@ -116,243 +113,33 @@ var _ = Describe("Catalog data ImageStream watch", func() {
 			}
 			return images
 		}
-		conditionFor := func(conditionType string) *metav1.Condition {
-			observed := &catalogv1alpha1.Catalog{}
-			if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), observed); err != nil {
-				return nil
-			}
-			condition := apimeta.FindStatusCondition(observed.Status.Conditions, conditionType)
-			if condition == nil || condition.ObservedGeneration != observed.Generation {
-				return nil
-			}
-			return condition
-		}
-		conditionReason := func() string {
-			if condition := conditionFor(conditionDataImageResolved); condition != nil {
-				return condition.Reason
-			}
-			return ""
-		}
-		importReason := func() string {
-			if condition := conditionFor(conditionDataImageImportHealthy); condition != nil {
-				return condition.Reason
-			}
-			return ""
-		}
-		degraded := func() metav1.ConditionStatus {
-			if condition := conditionFor(ConditionTypeDegraded); condition != nil {
-				return condition.Status
-			}
-			return metav1.ConditionUnknown
-		}
-		available := func() metav1.ConditionStatus {
-			if condition := conditionFor(ConditionTypeAvailable); condition != nil {
-				return condition.Status
-			}
-			return metav1.ConditionUnknown
-		}
-		// Mark the operand ready so imports must wake the controller through the
-		// ImageStream watch, with no rollout polling or status-write loop.
-		deployment := &appsv1.Deployment{}
-		Eventually(func() error { return direct.Get(ctx, deploymentKey, deployment) }, 10*time.Second).Should(Succeed())
-		Eventually(func() error {
-			if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
-				return err
-			}
-			deployment.Status = completedCatalogDeploymentStatus(deployment)
-			return direct.Status().Update(ctx, deployment)
-		}, 10*time.Second).Should(Succeed())
-		ready := true
-		Expect(direct.Create(ctx, &discoveryv1.EndpointSlice{
-			ObjectMeta:  metav1.ObjectMeta{Name: "catalog-ready", Namespace: namespace, Labels: map[string]string{discoveryv1.LabelServiceName: catalogResourceName}},
-			AddressType: discoveryv1.AddressTypeIPv4, Endpoints: []discoveryv1.Endpoint{{Addresses: []string{"10.0.0.1"}, Conditions: discoveryv1.EndpointConditions{Ready: &ready}}},
-		})).To(Succeed())
-		Eventually(func() bool {
-			condition := conditionFor(conditionWorkloadAvailable)
-			return condition != nil && condition.Status == metav1.ConditionTrue
-		}, 10*time.Second).Should(BeTrue())
-		Expect(available()).To(Equal(metav1.ConditionFalse))
-		Eventually(importReason, 10*time.Second).Should(Equal("ImportPending"))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-
-		replicas := func() int32 {
-			if err := direct.Get(ctx, deploymentKey, deployment); err != nil || deployment.Spec.Replicas == nil {
-				return -1
-			}
-			return *deployment.Spec.Replicas
-		}
-		updateImport := func(image string, failed bool) {
-			Eventually(func() error {
-				if err := direct.Get(ctx, streamKey, stream); err != nil {
-					return err
-				}
-				if failed {
-					stream.Status.Tags[0].Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Reason: "Unauthorized", Message: "Registry authentication failed"}}
-				} else {
-					stream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: image}}}}
-				}
-				return direct.Status().Update(ctx, stream)
-			}, 10*time.Second).Should(Succeed())
-		}
-		completeRollout := func() {
-			// Simulate Deployment-controller evidence for the current API-server
-			// generation. Existing endpoints alone must not complete a rollout.
-			Eventually(func() error {
-				if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
-					return err
-				}
-				deployment.Status = completedCatalogDeploymentStatus(deployment)
-				return direct.Status().Update(ctx, deployment)
-			}, 10*time.Second).Should(Succeed())
-			// Pod status is the only activation evidence; no runtime reports.
-			Eventually(func() error {
-				if err := direct.Get(ctx, deploymentKey, deployment); err != nil {
-					return err
-				}
-				attempt := deployment.Spec.Template.Annotations[activationAttemptAnnotation]
-				pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "validated-" + attempt, Namespace: namespace, Labels: deployment.Spec.Template.Labels, Annotations: deployment.Spec.Template.Annotations}, Spec: deployment.Spec.Template.Spec}
-				if err := direct.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
-					return err
-				}
-				if err := direct.Get(ctx, client.ObjectKeyFromObject(pod), pod); err != nil {
-					return err
-				}
-				pod.Status = validatedPodStatus()
-				return direct.Status().Update(ctx, pod)
-			}, 10*time.Second).Should(Succeed())
-			Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionTrue))
-		}
-		image1 := dataTestRepository + "@" + dataTestDigest1
-		image2 := dataTestRepository + "@" + dataTestDigest2
-		updateImport(image1, false)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image1, image1}))
-		completeRollout()
-		updateImport(image2, false)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, image2}))
-		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-		Expect(catalog.Generation).To(Equal(generation))
-		Expect(catalog.Status.ResolvedImages).To(Equal(&catalogv1alpha1.CatalogDataImages{Catalog: image2, Benchmark: image2}))
-		completeRollout()
-		updateImport("", true)
-		Consistently(deploymentImages, time.Second).Should(Equal([]string{image2, image2}))
-		Eventually(importReason, 10*time.Second).Should(Equal("ImportFailed"))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionTrue))
-		Expect(conditionFor(conditionDataImageImportHealthy).Message).To(ContainSubstring("Registry authentication failed"))
-		Expect(conditionFor(conditionDataImageResolved).Status).To(Equal(metav1.ConditionFalse))
-		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		updateImport(image2, false)
-		Eventually(importReason, 10*time.Second).Should(Equal("ImportSucceeded"))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		Eventually(replicas, 10*time.Second).Should(Equal(int32(1)))
-		completeRollout()
-		// Fail again before pinning to prove selection changes clear stale faults.
-		updateImport("", true)
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionTrue))
-		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-		Expect(catalog.Generation).To(Equal(generation))
-		Expect(catalog.Spec.CatalogDataImageStream).To(HaveValue(Equal(stable)))
-		Expect(catalog.Spec.BenchmarkDataImageStream).To(HaveValue(Equal(stable)))
-
-		setSelections := func(catalogSelection, benchmarkSelection string) {
-			Eventually(func() error {
-				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-					return err
-				}
-				catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = &catalogSelection, &benchmarkSelection
-				return direct.Update(ctx, catalog)
-			}, 10*time.Second).Should(Succeed())
-		}
-
-		// A manual digest absent from stream history still pins the release repository.
-		image3 := dataTestRepository + "@" + dataTestDigest3
-		setSelections(dataTestDigest3, dataTestDigest3)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image3, image3}))
-		Eventually(conditionReason, 10*time.Second).Should(Equal("DigestPinned"))
-		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		completeRollout()
-		updateImport(image1, false)
-		Consistently(deploymentImages, time.Second).Should(Equal([]string{image3, image3}))
-		setSelections(dataTestDigest2, dataTestDigest2)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, image2}))
-		completeRollout()
-		for _, pair := range [][2]string{
-			{"latest", "latest"}, {"model-catalog-data:stable", "model-catalog-data:stable"},
-			{"sha256:invalid", "sha256:invalid"},
-		} {
-			Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-			beforeGeneration := catalog.Generation
-			Eventually(func() error {
-				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
-					return err
-				}
-				catalog.Spec.CatalogDataImageStream, catalog.Spec.BenchmarkDataImageStream = &pair[0], &pair[1]
-				if err := direct.Update(ctx, catalog); apierrors.IsInvalid(err) {
-					return nil
-				} else if err != nil {
-					return err
-				}
-				return fmt.Errorf("unsupported selections were accepted: %v", pair)
-			}, 10*time.Second).Should(Succeed())
-			Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-			Expect(catalog.Generation).To(Equal(beforeGeneration))
-			Expect(catalog.Spec.CatalogDataImageStream).To(HaveValue(Equal(dataTestDigest2)))
-			Expect(catalog.Spec.BenchmarkDataImageStream).To(HaveValue(Equal(dataTestDigest2)))
-			Eventually(conditionReason, 10*time.Second).Should(Equal("DigestPinned"))
-			Expect(degraded()).To(Equal(metav1.ConditionFalse))
-			Consistently(deploymentImages, 200*time.Millisecond).Should(Equal([]string{image2, image2}))
-		}
-		setSelections(stable, stable)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image1, image1}))
-		completeRollout()
-		setSelections("", "")
 		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
-		Eventually(conditionReason, 10*time.Second).Should(Equal("ReleaseDefault"))
-		Eventually(importReason, 10*time.Second).Should(Equal("NotTrackingImageStream"))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		completeRollout()
-		updateImport(image2, false)
-		Consistently(deploymentImages, time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
-
-		// A distinct benchmark source must also wake the controller through an
-		// ImageStream status event, without another Catalog edit.
-		benchmarkRepository := "registry.example/standalone-benchmarks"
-		GinkgoT().Setenv(config.BenchmarkDataImageStreamSource, benchmarkRepository+":stable")
-		setSelections(stable, stable)
-		benchmarkStream := &imagev1.ImageStream{}
-		benchmarkKey := client.ObjectKey{Name: BenchmarkDataImageStreamName, Namespace: namespace}
-		Eventually(func() error { return direct.Get(ctx, benchmarkKey, benchmarkStream) }, 10*time.Second).Should(Succeed())
-		Expect(benchmarkStream.Spec.Tags[0].From.Name).To(Equal(benchmarkRepository + ":stable"))
-		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-		generation = catalog.Generation
-		updateBenchmark := func(digest string, failed bool) {
-			Eventually(func() error {
-				if err := direct.Get(ctx, benchmarkKey, benchmarkStream); err != nil {
+		for _, selection := range []string{"stable", ":stable", "latest"} {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
 					return err
 				}
-				benchmarkStream.Status.Tags = []imagev1.NamedTagEventList{{Tag: "stable", Items: []imagev1.TagEvent{{DockerImageReference: benchmarkRepository + "@" + digest}}}}
-				if failed {
-					benchmarkStream.Status.Tags[0].Conditions = []imagev1.TagEventCondition{{Type: imagev1.ImportSuccess, Status: corev1.ConditionFalse, Reason: "Unauthorized"}}
-				}
-				return direct.Status().Update(ctx, benchmarkStream)
-			}, 10*time.Second).Should(Succeed())
+				catalog.Spec.BenchmarkDataImageStream = &selection
+				return direct.Update(ctx, catalog)
+			})
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
 		}
-		updateBenchmark(dataTestDigest1, false)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, benchmarkRepository + "@" + dataTestDigest1}))
-		completeRollout()
-		updateBenchmark(dataTestDigest2, false)
-		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{image2, benchmarkRepository + "@" + dataTestDigest2}))
-		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		completeRollout()
-		updateBenchmark(dataTestDigest2, true)
-		Eventually(replicas, 10*time.Second).Should(Equal(int32(0)))
-		Eventually(available, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		updateBenchmark(dataTestDigest2, false)
-		Eventually(replicas, 10*time.Second).Should(Equal(int32(1)))
-		Eventually(degraded, 10*time.Second).Should(Equal(metav1.ConditionFalse))
-		completeRollout()
-		Expect(direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog)).To(Succeed())
-		Expect(catalog.Generation).To(Equal(generation))
+		setBenchmark := func(selection *string) {
+			Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := direct.Get(ctx, client.ObjectKeyFromObject(catalog), catalog); err != nil {
+					return err
+				}
+				catalog.Spec.BenchmarkDataImageStream = selection
+				return direct.Update(ctx, catalog)
+			})).To(Succeed())
+		}
+		pin := dataTestDigest2
+		setBenchmark(&pin)
+		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{releaseDefault, "registry.redhat.io/rhai/ai-hub-catalog-rhel9@" + dataTestDigest2}))
+		setBenchmark(nil)
+		Eventually(deploymentImages, 10*time.Second).Should(Equal([]string{releaseDefault, releaseDefault}))
+		streams := &imagev1.ImageStreamList{}
+		Expect(direct.List(ctx, streams, client.InNamespace(namespace))).To(Succeed())
+		Expect(streams.Items).To(BeEmpty())
 	})
 })

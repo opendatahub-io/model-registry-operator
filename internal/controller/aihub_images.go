@@ -22,9 +22,9 @@ import (
 	"github.com/opendatahub-io/model-registry-operator/internal/controller/config"
 )
 
-// operandImageEnvNames are the operand image env vars AIHub forwards, identity-mapped,
-// to both child operator Deployments. Each name is identical on the AIHub container and
-// on the child operator container, so forwarding is a straight passthrough.
+// operandImageEnvNames are the operand image env vars AIHub forwards to both child
+// operator Deployments. The optional combined catalog image overrides the two data
+// images and their sources; other values are forwarded under the same name.
 var operandImageEnvNames = []string{
 	config.RestImage,
 	config.PostgresImage,
@@ -56,16 +56,26 @@ type ChildImages struct {
 
 // ResolveChildImages reads AIHub's own environment via getenv and projects the images
 // and env vars to forward to the child operators. getenv is injected for testability;
-// pass os.Getenv in production. Operand images are an identity passthrough; the shared
-// operator image is the only special case (it targets the child container and self-image environment variable).
+// pass os.Getenv in production. The combined catalog image is supplied through the
+// platform's RelatedImages injection. Without it, the independent data image and
+// source settings are preserved, including ODH's Quay defaults.
 func ResolveChildImages(getenv func(string) string) ChildImages {
 	result := ChildImages{
 		OperatorImage:    getenv(config.ModelRegistryOperatorImage),
 		AsyncUploadImage: getenv(config.AsyncUploadImage),
 	}
+	catalogImage := getenv(config.AIHubCatalogImage)
 	for _, name := range operandImageEnvNames {
-		if v := getenv(name); v != "" {
-			result.OperandEnv = append(result.OperandEnv, corev1.EnvVar{Name: name, Value: v})
+		value := getenv(name)
+		if catalogImage != "" {
+			switch name {
+			case config.CatalogDataImage, config.BenchmarkDataImage,
+				config.CatalogDataImageStreamSource, config.BenchmarkDataImageStreamSource:
+				value = catalogImage
+			}
+		}
+		if value != "" {
+			result.OperandEnv = append(result.OperandEnv, corev1.EnvVar{Name: name, Value: value})
 		}
 	}
 	return result
